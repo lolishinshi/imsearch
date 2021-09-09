@@ -24,7 +24,7 @@ impl Slam3ORB {
     }
 
     pub fn default() -> Result<Self> {
-        Self::create(500, 1.2, 8, 31, 20)
+        Self::create(500, 1.2, 8, 20, 7)
     }
 
     pub fn detect_and_compute(

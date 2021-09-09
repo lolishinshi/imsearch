@@ -191,6 +191,7 @@ dependencies = [
  "pkg-config",
  "r2d2",
  "r2d2_sqlite",
+ "regex",
  "rusqlite",
  "structopt",
  "walkdir",

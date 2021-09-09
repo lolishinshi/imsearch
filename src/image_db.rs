@@ -1,27 +1,34 @@
+use std::collections::HashMap;
 use std::path::Path;
 
+use crate::slam3_orb::Slam3ORB;
+use crate::utils;
 use anyhow::Result;
 use opencv::features2d;
 use opencv::prelude::*;
-use opencv::{flann, imgcodecs};
-use rusqlite::{params, Connection};
+use r2d2::{Pool, PooledConnection};
 use r2d2_sqlite::SqliteConnectionManager;
-use crate::slam3_orb::Slam3ORB;
-use crate::utils;
+use rusqlite::params;
+
+type PooledSqlite = PooledConnection<SqliteConnectionManager>;
 
 pub struct ImageDb {
-    pool: r2d2::Pool<SqliteConnectionManager>,
+    pool: Pool<SqliteConnectionManager>,
     orb: Slam3ORB,
     flann: features2d::FlannBasedMatcher,
 }
 
 impl ImageDb {
-    pub fn new<P: AsRef<Path>>(path: P, orb: Slam3ORB, flann: features2d::FlannBasedMatcher) -> Result<Self> {
+    pub fn new<P: AsRef<Path>>(
+        path: P,
+        orb: Slam3ORB,
+        flann: features2d::FlannBasedMatcher,
+    ) -> Result<Self> {
         let manager = SqliteConnectionManager::file(path);
-        let pool = r2d2::Pool::new(manager)?;
+        let pool = Pool::new(manager)?;
 
-        pool.get()?
-            .execute_batch(
+        let conn = pool.get()?;
+        conn.execute_batch(
             "BEGIN;
              CREATE TABLE IF NOT EXISTS features (
                feature BLOB PRIMARY KEY,
@@ -33,25 +40,51 @@ impl ImageDb {
              );
              COMMIT;",
         )?;
+        conn.pragma_update(rusqlite::DatabaseName::Main.into(), "journal_mode", &"WAL")?;
 
         Ok(Self { pool, orb, flann })
     }
 
+    fn search_image_id_by_path(conn: &PooledSqlite, path: &str) -> Result<i32> {
+        Ok(conn.query_row(
+            "SELECT id FROM images WHERE image = ?",
+            params![path],
+            |row| row.get::<usize, i32>(0),
+        )?)
+    }
+
+    fn search_image_path_by_id(conn: &PooledSqlite, id: i32) -> Result<String> {
+        Ok(conn.query_row(
+            "SELECT image FROM images WHERE id = ?",
+            params![id],
+            |row| row.get::<usize, String>(0),
+        )?)
+    }
+
+    fn search_image_id_by_des(conn: &PooledSqlite, des: &Mat) -> Result<i32> {
+        let data = des.data_typed::<u8>()?;
+        Ok(conn.query_row(
+            "SELECT id FROM features WHERE feature = ?",
+            params![data],
+            |row| row.get::<usize, i32>(0),
+        )?)
+    }
+
     // TODO: parallel
     pub fn add<S: AsRef<str>>(&mut self, path: S) -> Result<()> {
+        let mut conn = self.pool.get().unwrap();
+        if Self::search_image_id_by_path(&conn, path.as_ref()).is_ok() {
+            return Ok(());
+        }
+
         let img = utils::imread(path.as_ref())?;
         let (_, des) = utils::detect_and_compute(&mut self.orb, &img)?;
 
-        let mut conn = self.pool.get().unwrap();
         conn.execute(
-            "INSERT OR IGNORE INTO images (image) VALUES (?1)",
+            "INSERT INTO images (image) VALUES (?1)",
             params![path.as_ref()],
         )?;
-        let id = conn.query_row(
-            "SELECT id FROM images WHERE image = ?1",
-            params![path.as_ref()],
-            |row| row.get::<usize, i32>(0),
-        )?;
+        let id = Self::search_image_id_by_path(&conn, path.as_ref())?;
 
         let tx = conn.transaction()?;
         for i in 0..des.rows() {
@@ -73,13 +106,15 @@ impl ImageDb {
 
         let conn = self.pool.get()?;
 
-        let count = conn
-            .query_row("SELECT COUNT(*) FROM features", [], |row| {
-                row.get::<usize, usize>(0)
-            })?;
+        let count = conn.query_row("SELECT COUNT(*) FROM features", [], |row| {
+            row.get::<usize, usize>(0)
+        })?;
+
+        let mut results = HashMap::new();
+
         for i in (0..count).step_by(500 * 1000) {
-            let mut stmt = conn
-                .prepare("SELECT feature FROM features LIMIT 500 * 1000 OFFSET ?")?;
+            let mut stmt =
+                conn.prepare("SELECT feature FROM features LIMIT 500 * 1000 OFFSET ?")?;
             let mut rows = stmt.query(params![i])?;
             let mut old_des = vec![];
             while let Some(row) = rows.next()? {
@@ -90,18 +125,28 @@ impl ImageDb {
 
             let mut matches = opencv::types::VectorOfVectorOfDMatch::new();
             let mask = Mat::default();
-            self.flann.knn_train_match(&des, &old_des, &mut matches, 2, &mask, false)?;
+            self.flann
+                .knn_train_match(&des, &old_des, &mut matches, 2, &mask, false)?;
 
             for match_ in matches.iter() {
-                let m = match_.get(0).unwrap();
-                let n = match_.get(1).unwrap();
+                if match_.len() != 2 {
+                    continue;
+                }
+                let (m, n) = (match_.get(0)?, match_.get(1)?);
                 if m.distance < 0.7 * n.distance {
-                    todo!()
+                    let des = old_des.row(m.train_idx)?;
+                    let id = Self::search_image_id_by_des(&conn, &des)?;
+                    *results.entry(id).or_insert(0) += 1;
                 }
             }
-            println!("{}", matches.len());
         }
 
-        Ok(vec![(0, "-".to_owned())])
+        let mut results = results
+            .iter()
+            .map(|(&k, &v)| Self::search_image_path_by_id(&conn, k).map(|k| (v, k)))
+            .collect::<Result<Vec<_>>>()?;
+        results.sort_unstable_by_key(|v| std::cmp::Reverse(v.0));
+
+        Ok(results)
     }
 }

@@ -1,4 +1,5 @@
 use crate::slam3_orb::Slam3ORB;
+use crate::ImageDb;
 use opencv::{core, features2d, flann};
 use structopt::clap::AppSettings;
 use structopt::StructOpt;
@@ -19,10 +20,10 @@ pub struct Opts {
     #[structopt(long, value_name = "N", default_value = "8")]
     pub orb_nlevels: u32,
     /// Initial fast threshold
-    #[structopt(long, value_name = "THRESHOLD", default_value = "31")]
+    #[structopt(long, value_name = "THRESHOLD", default_value = "20")]
     pub orb_ini_th_fast: u32,
     /// Minimum fast threshold
-    #[structopt(long, value_name = "THRESHOLD", default_value = "20")]
+    #[structopt(long, value_name = "THRESHOLD", default_value = "7")]
     pub orb_min_th_fast: u32,
     /// The number of hash tables to use
     #[structopt(long, value_name = "NUMBER", default_value = "6")]
@@ -76,7 +77,7 @@ pub struct AddImages {
     /// Path to an image or folder
     pub path: String,
     /// Scan image with these suffixes
-    #[structopt(short, long, default_value = ".jpg,.png")]
+    #[structopt(short, long, default_value = "jpg,png")]
     pub suffix: String,
 }
 
@@ -115,5 +116,13 @@ impl From<&Opts> for features2d::FlannBasedMatcher {
         );
         features2d::FlannBasedMatcher::new(&index_params, &search_params)
             .expect("failed to build FlannBasedMatcher")
+    }
+}
+
+impl From<&Opts> for ImageDb {
+    fn from(opts: &Opts) -> Self {
+        let orb = Slam3ORB::from(opts);
+        let flann = features2d::FlannBasedMatcher::from(opts);
+        Self::new(&opts.db_path, orb, flann).expect("failed to create ImageDb")
     }
 }
