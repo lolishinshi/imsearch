@@ -237,6 +237,8 @@ version = "0.1.0"
 dependencies = [
  "anyhow",
  "cc",
+ "dunce",
+ "glob",
  "num_cpus",
  "once_cell",
  "opencv",
@@ -246,7 +248,10 @@ dependencies = [
  "rayon",
  "regex",
  "rusqlite",
+ "semver",
+ "shlex",
  "structopt",
+ "vcpkg",
  "walkdir",
 ]
 
