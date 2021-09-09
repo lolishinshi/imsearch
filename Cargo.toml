@@ -1,5 +1,5 @@
 [package]
-name = "image_search"
+name = "imsearch"
 version = "0.1.0"
 edition = "2018"
 
@@ -7,9 +7,11 @@ edition = "2018"
 
 [dependencies]
 anyhow = "1.0.43"
-blake3 = "1.0.0"
 opencv = "0.54"
+r2d2 = "0.8.9"
+r2d2_sqlite = "0.18.0"
 rusqlite = "0.25"
+structopt = "0.3.23"
 walkdir = "2.3.2"
 
 [build-dependencies]
