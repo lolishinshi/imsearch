@@ -1,0 +1,17 @@
+[package]
+name = "image_search"
+version = "0.1.0"
+edition = "2018"
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[dependencies]
+anyhow = "1.0.43"
+blake3 = "1.0.0"
+opencv = "0.54"
+rusqlite = "0.25"
+walkdir = "2.3.2"
+
+[build-dependencies]
+cc = "1.0.70"
+pkg-config = "0.3.19"

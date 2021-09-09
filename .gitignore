@@ -1,0 +1,6 @@
+/target
+/.idea
+/cache
+/images
+CMakeLists.txt
+cmake-build-debug
