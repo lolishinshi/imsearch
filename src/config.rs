@@ -1,8 +1,11 @@
 use crate::slam3_orb::Slam3ORB;
 use crate::ImageDb;
+use once_cell::sync::Lazy;
 use opencv::{core, features2d, flann};
 use structopt::clap::AppSettings;
 use structopt::StructOpt;
+
+pub static OPTS: Lazy<Opts> = Lazy::new(Opts::from_args);
 
 #[derive(StructOpt)]
 #[structopt(name = "imsearch", global_setting(AppSettings::ColoredHelp))]
@@ -121,8 +124,6 @@ impl From<&Opts> for features2d::FlannBasedMatcher {
 
 impl From<&Opts> for ImageDb {
     fn from(opts: &Opts) -> Self {
-        let orb = Slam3ORB::from(opts);
-        let flann = features2d::FlannBasedMatcher::from(opts);
-        Self::new(&opts.db_path, orb, flann).expect("failed to create ImageDb")
+        Self::new(&opts.db_path).expect("failed to create ImageDb")
     }
 }

@@ -7,9 +7,12 @@ edition = "2018"
 
 [dependencies]
 anyhow = "1.0.43"
+num_cpus = "1.13.0"
+once_cell = "1.8.0"
 opencv = "0.54"
 r2d2 = "0.8.9"
 r2d2_sqlite = "0.18.0"
+rayon = "1.5.1"
 regex = "1.5.4"
 rusqlite = "0.25"
 structopt = "0.3.23"

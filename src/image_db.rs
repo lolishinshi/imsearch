@@ -1,6 +1,8 @@
+use std::cell::RefCell;
 use std::collections::HashMap;
 use std::path::Path;
 
+use crate::config::OPTS;
 use crate::slam3_orb::Slam3ORB;
 use crate::utils;
 use anyhow::Result;
@@ -12,18 +14,17 @@ use rusqlite::params;
 
 type PooledSqlite = PooledConnection<SqliteConnectionManager>;
 
+thread_local! {
+    static ORB: RefCell<Slam3ORB> = RefCell::new(Slam3ORB::from(&*OPTS));
+    static FLANN: RefCell<features2d::FlannBasedMatcher> = RefCell::new(features2d::FlannBasedMatcher::from(&*OPTS));
+}
+
 pub struct ImageDb {
     pool: Pool<SqliteConnectionManager>,
-    orb: Slam3ORB,
-    flann: features2d::FlannBasedMatcher,
 }
 
 impl ImageDb {
-    pub fn new<P: AsRef<Path>>(
-        path: P,
-        orb: Slam3ORB,
-        flann: features2d::FlannBasedMatcher,
-    ) -> Result<Self> {
+    pub fn new<P: AsRef<Path>>(path: P) -> Result<Self> {
         let manager = SqliteConnectionManager::file(path);
         let pool = Pool::new(manager)?;
 
@@ -40,9 +41,9 @@ impl ImageDb {
              );
              COMMIT;",
         )?;
-        conn.pragma_update(rusqlite::DatabaseName::Main.into(), "journal_mode", &"WAL")?;
+        conn.pragma_update(rusqlite::DatabaseName::Main.into(), "journal_mode", &"TRUNCATE")?;
 
-        Ok(Self { pool, orb, flann })
+        Ok(Self { pool })
     }
 
     fn search_image_id_by_path(conn: &PooledSqlite, path: &str) -> Result<i32> {
@@ -71,14 +72,14 @@ impl ImageDb {
     }
 
     // TODO: parallel
-    pub fn add<S: AsRef<str>>(&mut self, path: S) -> Result<()> {
+    pub fn add<S: AsRef<str>>(&self, path: S) -> Result<()> {
         let mut conn = self.pool.get().unwrap();
         if Self::search_image_id_by_path(&conn, path.as_ref()).is_ok() {
             return Ok(());
         }
 
         let img = utils::imread(path.as_ref())?;
-        let (_, des) = utils::detect_and_compute(&mut self.orb, &img)?;
+        let (_, des) = ORB.with(|f| utils::detect_and_compute(&mut *f.borrow_mut(), &img))?;
 
         conn.execute(
             "INSERT INTO images (image) VALUES (?1)",
@@ -100,9 +101,9 @@ impl ImageDb {
         Ok(())
     }
 
-    pub fn search<S: AsRef<str>>(&mut self, path: S) -> Result<Vec<(usize, String)>> {
+    pub fn search<S: AsRef<str>>(&self, path: S) -> Result<Vec<(usize, String)>> {
         let img = utils::imread(path.as_ref())?;
-        let (_, des) = utils::detect_and_compute(&mut self.orb, &img)?;
+        let (_, des) = ORB.with(|f| utils::detect_and_compute(&mut *f.borrow_mut(), &img))?;
 
         let conn = self.pool.get()?;
 
@@ -125,8 +126,9 @@ impl ImageDb {
 
             let mut matches = opencv::types::VectorOfVectorOfDMatch::new();
             let mask = Mat::default();
-            self.flann
-                .knn_train_match(&des, &old_des, &mut matches, 2, &mask, false)?;
+            FLANN.with(|f| {
+                f.borrow().knn_train_match(&des, &old_des, &mut matches, 2, &mask, false)
+            })?;
 
             for match_ in matches.iter() {
                 if match_.len() != 2 {
