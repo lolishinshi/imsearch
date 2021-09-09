@@ -82,13 +82,10 @@ extern "C" {
 
 #[cfg(test)]
 mod test {
-    extern crate test;
-
     use super::Slam3ORB;
     use opencv::features2d;
     use opencv::imgcodecs;
     use opencv::prelude::*;
-    use test::Bencher;
 
     #[test]
     fn detect_and_compute() {
@@ -116,21 +113,5 @@ mod test {
             9,
         ]);
         imgcodecs::imwrite("slam3_orb.png", &output, &flags).unwrap();
-    }
-
-    #[bench]
-    fn bench_detect_and_compute(b: &mut Bencher) {
-        let img =
-            imgcodecs::imread("./cache/box_in_scene.png", imgcodecs::IMREAD_GRAYSCALE).unwrap();
-        let mask = Mat::default();
-        let lap = opencv::types::VectorOfi32::from(vec![0, 0]);
-        let mut orb = Slam3ORB::default().unwrap();
-
-        b.iter(|| {
-            let mut kps = opencv::types::VectorOfKeyPoint::new();
-            let mut des = Mat::default();
-            orb.detect_and_compute(&img, &mask, &mut kps, &mut des, &lap)
-                .unwrap();
-        });
     }
 }
