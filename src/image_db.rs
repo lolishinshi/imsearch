@@ -41,7 +41,11 @@ impl ImageDb {
              );
              COMMIT;",
         )?;
-        conn.pragma_update(rusqlite::DatabaseName::Main.into(), "journal_mode", &"TRUNCATE")?;
+        conn.pragma_update(
+            rusqlite::DatabaseName::Main.into(),
+            "journal_mode",
+            &"TRUNCATE",
+        )?;
 
         Ok(Self { pool })
     }
@@ -113,7 +117,7 @@ impl ImageDb {
 
         let mut results = HashMap::new();
 
-        for i in (0..count).step_by(500 * 1000) {
+        for i in (0..count).step_by(OPTS.batch_size) {
             let mut stmt =
                 conn.prepare("SELECT feature FROM features LIMIT 500 * 1000 OFFSET ?")?;
             let mut rows = stmt.query(params![i])?;
@@ -127,16 +131,13 @@ impl ImageDb {
             let mut matches = opencv::types::VectorOfVectorOfDMatch::new();
             let mask = Mat::default();
             FLANN.with(|f| {
-                f.borrow().knn_train_match(&des, &old_des, &mut matches, 2, &mask, false)
+                f.borrow()
+                    .knn_train_match(&des, &old_des, &mut matches, OPTS.knn_k, &mask, false)
             })?;
 
             for match_ in matches.iter() {
-                if match_.len() != 2 {
-                    continue;
-                }
-                let (m, n) = (match_.get(0)?, match_.get(1)?);
-                if m.distance < 0.7 * n.distance {
-                    let des = old_des.row(m.train_idx)?;
+                for point in match_.iter() {
+                    let des = old_des.row(point.train_idx)?;
                     let id = Self::search_image_id_by_des(&conn, &des)?;
                     *results.entry(id).or_insert(0) += 1;
                 }
@@ -145,10 +146,11 @@ impl ImageDb {
 
         let mut results = results
             .iter()
+            .filter(|(_k, v)| **v > 2)
             .map(|(&k, &v)| Self::search_image_path_by_id(&conn, k).map(|k| (v, k)))
             .collect::<Result<Vec<_>>>()?;
         results.sort_unstable_by_key(|v| std::cmp::Reverse(v.0));
 
-        Ok(results)
+        Ok(results.into_iter().take(OPTS.result_count).collect())
     }
 }

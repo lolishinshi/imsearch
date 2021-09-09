@@ -41,6 +41,15 @@ pub struct Opts {
     pub flann_checks: i32,
     #[structopt(long, value_name = "EPS", default_value = "0.0")]
     pub flann_eps: f32,
+    /// Number of features to search per iteration
+    #[structopt(long, value_name = "SIZE", default_value = "5000000")]
+    pub batch_size: usize,
+    /// How many results to show
+    #[structopt(long, value_name = "COUNT", default_value = "10")]
+    pub result_count: usize,
+    /// Count of best matches found per each query descriptor
+    #[structopt(long, value_name = "K", default_value = "3")]
+    pub knn_k: i32,
     #[structopt(subcommand)]
     pub subcmd: SubCommand,
 }
