@@ -1,20 +1,30 @@
 use crate::slam3_orb::Slam3ORB;
 use crate::ImageDb;
+use directories::ProjectDirs;
 use once_cell::sync::Lazy;
 use opencv::{core, features2d, flann};
+use std::str::FromStr;
 use structopt::clap::AppSettings;
 use structopt::StructOpt;
 
 pub static OPTS: Lazy<Opts> = Lazy::new(Opts::from_args);
+pub static DB_PATH: Lazy<String> = Lazy::new(|| {
+    let proj_dirs = ProjectDirs::from("", "aloxaf", "imsearch").expect("failed to get project dir");
+    proj_dirs
+        .config_dir()
+        .join("imsearch.db")
+        .to_string_lossy()
+        .to_string()
+});
 
 #[derive(StructOpt)]
 #[structopt(name = "imsearch", global_setting(AppSettings::ColoredHelp))]
 pub struct Opts {
     /// Path to image feature database
-    #[structopt(short, long, default_value = "imsearch.db")]
+    #[structopt(short, long, default_value = &*DB_PATH)]
     pub db_path: String,
     /// The maximum number of features to retain
-    #[structopt(short, value_name = "N", long, default_value = "500")]
+    #[structopt(short = "n", value_name = "N", long, default_value = "500")]
     pub orb_nfeatures: u32,
     /// Pyramid decimation ratio, greater than 1
     #[structopt(long, value_name = "SCALE", default_value = "1.2")]
@@ -46,7 +56,10 @@ pub struct Opts {
     pub batch_size: usize,
     /// How many results to show
     #[structopt(long, value_name = "COUNT", default_value = "10")]
-    pub result_count: usize,
+    pub output_count: usize,
+    /// Output format
+    #[structopt(long, value_name = "FORMAT", default_value = "table", possible_values = &["table", "json"])]
+    pub output_format: OutputFormat,
     /// Count of best matches found per each query descriptor
     #[structopt(long, value_name = "K", default_value = "3")]
     pub knn_k: i32,
@@ -97,6 +110,24 @@ pub struct AddImages {
 pub struct SearchImage {
     /// Path to the image to search
     pub image: String,
+}
+
+#[derive(StructOpt)]
+pub enum OutputFormat {
+    Json,
+    Table,
+}
+
+impl FromStr for OutputFormat {
+    type Err = String;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        match s {
+            "json" => Ok(Self::Json),
+            "table" => Ok(Self::Table),
+            _ => unreachable!(),
+        }
+    }
 }
 
 impl From<&Opts> for Slam3ORB {

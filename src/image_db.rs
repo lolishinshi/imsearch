@@ -151,6 +151,6 @@ impl ImageDb {
             .collect::<Result<Vec<_>>>()?;
         results.sort_unstable_by_key(|v| std::cmp::Reverse(v.0));
 
-        Ok(results.into_iter().take(OPTS.result_count).collect())
+        Ok(results.into_iter().take(OPTS.output_count).collect())
     }
 }

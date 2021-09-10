@@ -1,6 +1,4 @@
-use imsearch::config::{
-    AddImages, Opts, SearchImage, ShowKeypoints, ShowMatches, SubCommand, OPTS,
-};
+use imsearch::config::*;
 use imsearch::slam3_orb::Slam3ORB;
 use imsearch::utils;
 use imsearch::ImageDb;
@@ -91,8 +89,15 @@ fn add_images(opts: &Opts, config: &AddImages) -> anyhow::Result<()> {
 fn search_image(opts: &Opts, config: &SearchImage) -> anyhow::Result<()> {
     let db = ImageDb::from(opts);
     let resuls = db.search(&config.image)?;
-    for (k, v) in resuls.iter() {
-        println!("{}\t{}", k, v);
+    match OPTS.output_format {
+        OutputFormat::Json => {
+            println!("{}", serde_json::to_string_pretty(&resuls)?)
+        }
+        OutputFormat::Table => {
+            for (k, v) in resuls.iter() {
+                println!("{}\t{}", k, v);
+            }
+        }
     }
     Ok(())
 }

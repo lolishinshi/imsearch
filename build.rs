@@ -3,29 +3,46 @@ mod cmake_probe;
 #[path = "build/library.rs"]
 mod library;
 
-use std::path::{Path, PathBuf};
-use std::fs::File;
-use std::ffi::OsStr;
 use std::env;
-use std::io::{BufReader, BufRead};
+use std::ffi::OsStr;
+use std::fs::File;
+use std::io::{BufRead, BufReader};
+use std::path::{Path, PathBuf};
 
-use once_cell::sync::{Lazy};
-use semver::{Version};
+use once_cell::sync::Lazy;
+use semver::Version;
 
 use library::Library;
 
 type Result<T, E = Box<dyn std::error::Error>> = std::result::Result<T, E>;
 
-static OUT_DIR: Lazy<PathBuf> = Lazy::new(|| PathBuf::from(env::var_os("OUT_DIR").expect("Can't read OUT_DIR env var")));
-static MANIFEST_DIR: Lazy<PathBuf> = Lazy::new(|| PathBuf::from(env::var_os("CARGO_MANIFEST_DIR").expect("Can't read CARGO_MANIFEST_DIR env var")));
+static OUT_DIR: Lazy<PathBuf> =
+    Lazy::new(|| PathBuf::from(env::var_os("OUT_DIR").expect("Can't read OUT_DIR env var")));
+static MANIFEST_DIR: Lazy<PathBuf> = Lazy::new(|| {
+    PathBuf::from(env::var_os("CARGO_MANIFEST_DIR").expect("Can't read CARGO_MANIFEST_DIR env var"))
+});
 
 fn cleanup_lib_filename(filename: &OsStr) -> Option<&OsStr> {
     let mut strip_performed = false;
     let mut filename_path = Path::new(filename);
     // used to check for the file extension (with dots stripped) and for the part of the filename
-    const LIB_EXTS: [&str; 7] = [".so.", ".a.", ".dll.", ".lib.", ".dylib.", ".framework.", ".tbd."];
-    if let (Some(stem), Some(extension)) = (filename_path.file_stem(), filename_path.extension().and_then(OsStr::to_str)) {
-        if LIB_EXTS.iter().any(|e| e.trim_matches('.').eq_ignore_ascii_case(extension)) {
+    const LIB_EXTS: [&str; 7] = [
+        ".so.",
+        ".a.",
+        ".dll.",
+        ".lib.",
+        ".dylib.",
+        ".framework.",
+        ".tbd.",
+    ];
+    if let (Some(stem), Some(extension)) = (
+        filename_path.file_stem(),
+        filename_path.extension().and_then(OsStr::to_str),
+    ) {
+        if LIB_EXTS
+            .iter()
+            .any(|e| e.trim_matches('.').eq_ignore_ascii_case(extension))
+        {
             filename_path = Path::new(stem);
             strip_performed = true;
         }
@@ -34,10 +51,11 @@ fn cleanup_lib_filename(filename: &OsStr) -> Option<&OsStr> {
     if let Some(mut file) = filename_path.file_name().and_then(OsStr::to_str) {
         let orig_len = file.len();
         file = file.strip_prefix("lib").unwrap_or(file);
-        LIB_EXTS.iter()
-            .for_each(|&inner_ext| if let Some(inner_ext_idx) = file.find(inner_ext) {
+        LIB_EXTS.iter().for_each(|&inner_ext| {
+            if let Some(inner_ext_idx) = file.find(inner_ext) {
                 file = &file[..inner_ext_idx];
-            });
+            }
+        });
         if orig_len != file.len() {
             strip_performed = true;
             filename_path = Path::new(file);
@@ -98,7 +116,11 @@ fn get_version_from_headers(header_dir: &Path) -> Option<Version> {
         line.clear();
     }
     if let (Some(major), Some(minor), Some(revision)) = (major, minor, revision) {
-        Some(Version::new(major.parse().ok()?, minor.parse().ok()?, revision.parse().ok()?))
+        Some(Version::new(
+            major.parse().ok()?,
+            minor.parse().ok()?,
+            revision.parse().ok()?,
+        ))
     } else {
         Some(Version::new(0, 0, 0))
     }
