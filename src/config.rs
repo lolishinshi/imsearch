@@ -3,26 +3,27 @@ use crate::ImageDb;
 use directories::ProjectDirs;
 use once_cell::sync::Lazy;
 use opencv::{core, features2d, flann};
+use std::path::PathBuf;
 use std::str::FromStr;
 use structopt::clap::AppSettings;
 use structopt::StructOpt;
 
 pub static OPTS: Lazy<Opts> = Lazy::new(Opts::from_args);
-pub static DB_PATH: Lazy<String> = Lazy::new(|| {
+pub static CONF_DIR: Lazy<PathBuf> = Lazy::new(|| {
     let proj_dirs = ProjectDirs::from("", "aloxaf", "imsearch").expect("failed to get project dir");
-    proj_dirs
-        .config_dir()
-        .join("imsearch.db")
-        .to_string_lossy()
-        .to_string()
+    proj_dirs.config_dir().to_path_buf()
 });
+
+fn default_config_dir() -> &'static str {
+    CONF_DIR.to_str().unwrap()
+}
 
 #[derive(StructOpt)]
 #[structopt(name = "imsearch", global_setting(AppSettings::ColoredHelp))]
 pub struct Opts {
-    /// Path to image feature database
-    #[structopt(short, long, default_value = &*DB_PATH)]
-    pub db_path: String,
+    /// Path to imsearch config
+    #[structopt(short, long, default_value = default_config_dir())]
+    pub conf_dir: String,
     /// The maximum number of features to retain
     #[structopt(short = "n", value_name = "N", long, default_value = "500")]
     pub orb_nfeatures: u32,
@@ -164,6 +165,6 @@ impl From<&Opts> for features2d::FlannBasedMatcher {
 
 impl From<&Opts> for ImageDb {
     fn from(opts: &Opts) -> Self {
-        Self::new(&opts.db_path).expect("failed to create ImageDb")
+        Self::new(&opts.conf_dir).expect("failed to create ImageDb")
     }
 }
