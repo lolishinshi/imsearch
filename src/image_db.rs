@@ -10,7 +10,7 @@ use itertools::Itertools;
 use opencv::features2d;
 use opencv::prelude::*;
 use opencv::types;
-use rocksdb::{IteratorMode, WriteBatch, DB};
+use rocksdb::{IteratorMode, WriteBatch, DB, ReadOptions};
 use std::convert::TryInto;
 
 thread_local! {
@@ -94,9 +94,13 @@ impl ImageDb {
 
         let mut results = HashMap::new();
 
+        let mut readopts = ReadOptions::default();
+        readopts.set_verify_checksums(false);
+        readopts.set_readahead_size(32 << 20); // 32MiB
+
         for chunk in &self
             .feature_db
-            .iterator(IteratorMode::Start)
+            .iterator_opt(IteratorMode::Start, readopts)
             .chunks(OPTS.batch_size)
         {
             let raw_data = chunk.map(|f| f.0).collect::<Vec<_>>();
