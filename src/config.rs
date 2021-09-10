@@ -14,6 +14,11 @@ pub static CONF_DIR: Lazy<PathBuf> = Lazy::new(|| {
     let proj_dirs = ProjectDirs::from("", "aloxaf", "imsearch").expect("failed to get project dir");
     proj_dirs.config_dir().to_path_buf()
 });
+pub static THREAD_NUM: Lazy<usize> = Lazy::new(|| {
+    std::env::var("RAYON_NUM_THREADS")
+        .map(|s| s.parse::<usize>().unwrap())
+        .unwrap_or(num_cpus::get())
+});
 
 fn default_config_dir() -> &'static str {
     CONF_DIR.to_str().unwrap()
@@ -25,6 +30,7 @@ pub struct Opts {
     /// Path to imsearch config
     #[structopt(short, long, default_value = default_config_dir())]
     pub conf_dir: String,
+
     /// The maximum number of features to retain
     #[structopt(short = "n", value_name = "N", long, default_value = "500")]
     pub orb_nfeatures: u32,
@@ -40,6 +46,7 @@ pub struct Opts {
     /// Minimum fast threshold
     #[structopt(long, value_name = "THRESHOLD", default_value = "7")]
     pub orb_min_th_fast: u32,
+
     /// The number of hash tables to use
     #[structopt(long, value_name = "NUMBER", default_value = "6")]
     pub lsh_table_number: i32,
@@ -49,12 +56,14 @@ pub struct Opts {
     /// Number of levels to use in multi-probe (0 for standard LSH)
     #[structopt(long, value_name = "LEVEL", default_value = "1")]
     pub lsh_probe_level: i32,
+
     /// Specifies the maximum leafs to visit when searching for neighbours
     #[structopt(long, value_name = "CHECKS", default_value = "32")]
     pub search_checks: i32,
     /// Number of features to search per iteration
     #[structopt(long, value_name = "SIZE", default_value = "5000000")]
     pub batch_size: usize,
+
     /// How many results to show
     #[structopt(long, value_name = "COUNT", default_value = "10")]
     pub output_count: usize,
@@ -64,6 +73,7 @@ pub struct Opts {
     /// Count of best matches found per each query descriptor
     #[structopt(long, value_name = "K", default_value = "3")]
     pub knn_k: i32,
+
     #[structopt(subcommand)]
     pub subcmd: SubCommand,
 }

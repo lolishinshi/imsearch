@@ -1,7 +1,7 @@
 use std::cell::RefCell;
 use std::path::Path;
 
-use crate::config::OPTS;
+use crate::config::{OPTS, THREAD_NUM};
 use crate::slam3_orb::Slam3ORB;
 use crate::utils;
 use anyhow::Result;
@@ -11,6 +11,8 @@ use opencv::prelude::*;
 use opencv::types;
 use rocksdb::{IteratorMode, ReadOptions, WriteBatch, DB};
 use std::convert::TryInto;
+use std::sync::atomic::{AtomicUsize, Ordering};
+use std::time::Duration;
 
 thread_local! {
     static ORB: RefCell<Slam3ORB> = RefCell::new(Slam3ORB::from(&*OPTS));
@@ -94,6 +96,7 @@ impl ImageDb {
         let (_, query_des) = ORB.with(|f| utils::detect_and_compute(&mut *f.borrow_mut(), &img))?;
 
         let results = dashmap::DashMap::new();
+        let max_threads = AtomicUsize::new(*THREAD_NUM);
 
         let mut readopts = ReadOptions::default();
         readopts.set_verify_checksums(false);
@@ -105,9 +108,15 @@ impl ImageDb {
                 .iterator_opt(IteratorMode::Start, readopts)
                 .chunks(OPTS.batch_size)
             {
+                while max_threads.load(Ordering::SeqCst) == 0 {
+                    std::thread::sleep(Duration::from_millis(50));
+                }
+                max_threads.fetch_sub(1, Ordering::SeqCst);
+
                 let raw_data = chunk.map(|f| f.0).collect::<Vec<_>>();
                 let query_des = query_des.clone();
                 let results = &results;
+                let max_threads = &max_threads;
 
                 scope.spawn(move |_| -> Result<()> {
                     let train_des = Mat::from_slice_2d(&raw_data)?;
@@ -134,6 +143,9 @@ impl ImageDb {
                             *results.entry(id).or_insert(0) += 1;
                         }
                     }
+
+                    max_threads.fetch_add(1, Ordering::SeqCst);
+
                     Ok(())
                 });
             }
