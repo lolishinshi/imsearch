@@ -35,7 +35,7 @@ fn show_matches(opts: &Opts, config: &ShowMatches) -> opencv::Result<()> {
     let mut matches = types::VectorOfVectorOfDMatch::new();
     let mask = core::Mat::default();
     let flann = features2d::FlannBasedMatcher::from(opts);
-    flann.knn_train_match(&des1, &des2, &mut matches, 2, &mask, false)?;
+    flann.knn_train_match(&des1, &des2, &mut matches, OPTS.knn_k, &mask, false)?;
 
     let mut matches_mask = vec![];
     for match_ in matches.iter() {

@@ -1,5 +1,4 @@
 use std::cell::RefCell;
-use std::collections::HashMap;
 use std::path::Path;
 
 use crate::config::OPTS;
@@ -10,7 +9,7 @@ use itertools::Itertools;
 use opencv::features2d;
 use opencv::prelude::*;
 use opencv::types;
-use rocksdb::{IteratorMode, WriteBatch, DB, ReadOptions};
+use rocksdb::{IteratorMode, ReadOptions, WriteBatch, DB};
 use std::convert::TryInto;
 
 thread_local! {
@@ -74,8 +73,10 @@ impl ImageDb {
         let (_, des) = ORB.with(|f| utils::detect_and_compute(&mut *f.borrow_mut(), &img))?;
 
         let id = self.incr_total_image()?;
-        self.image_db.put(path.as_ref().as_bytes(), id.to_le_bytes())?;
-        self.image_db.put(id.to_le_bytes(), path.as_ref().as_bytes())?;
+        self.image_db
+            .put(path.as_ref().as_bytes(), id.to_le_bytes())?;
+        self.image_db
+            .put(id.to_le_bytes(), path.as_ref().as_bytes())?;
 
         let mut batch = WriteBatch::default();
         for i in 0..des.rows() {
@@ -92,48 +93,57 @@ impl ImageDb {
         let img = utils::imread(path.as_ref())?;
         let (_, query_des) = ORB.with(|f| utils::detect_and_compute(&mut *f.borrow_mut(), &img))?;
 
-        let mut results = HashMap::new();
+        let results = dashmap::DashMap::new();
 
         let mut readopts = ReadOptions::default();
         readopts.set_verify_checksums(false);
         readopts.set_readahead_size(32 << 20); // 32MiB
 
-        for chunk in &self
-            .feature_db
-            .iterator_opt(IteratorMode::Start, readopts)
-            .chunks(OPTS.batch_size)
-        {
-            let raw_data = chunk.map(|f| f.0).collect::<Vec<_>>();
-            let train_des = Mat::from_slice_2d(&raw_data)?;
-            drop(raw_data);
+        crossbeam_utils::thread::scope(|scope| -> Result<()> {
+            for chunk in &self
+                .feature_db
+                .iterator_opt(IteratorMode::Start, readopts)
+                .chunks(OPTS.batch_size)
+            {
+                let raw_data = chunk.map(|f| f.0).collect::<Vec<_>>();
+                let query_des = query_des.clone();
+                let results = &results;
 
-            let mut matches = types::VectorOfVectorOfDMatch::default();
-            let mask = Mat::default();
+                scope.spawn(move |_| -> Result<()> {
+                    let train_des = Mat::from_slice_2d(&raw_data)?;
+                    drop(raw_data);
 
-            FLANN.with(|f| {
-                f.borrow().knn_train_match(
-                    &query_des,
-                    &train_des,
-                    &mut matches,
-                    OPTS.knn_k,
-                    &mask,
-                    false,
-                )
-            })?;
+                    let mut matches = types::VectorOfVectorOfDMatch::default();
+                    let mask = Mat::default();
 
-            for match_ in matches.iter() {
-                for point in match_.iter() {
-                    let des = train_des.row(point.train_idx)?;
-                    let id = self.search_image_id_by_des(&des)?;
-                    *results.entry(id).or_insert(0) += 1;
-                }
+                    FLANN.with(|f| {
+                        f.borrow().knn_train_match(
+                            &query_des,
+                            &train_des,
+                            &mut matches,
+                            OPTS.knn_k,
+                            &mask,
+                            false,
+                        )
+                    })?;
+
+                    for match_ in matches.iter() {
+                        for point in match_.iter() {
+                            let des = train_des.row(point.train_idx)?;
+                            let id = self.search_image_id_by_des(&des)?;
+                            *results.entry(id).or_insert(0) += 1;
+                        }
+                    }
+                    Ok(())
+                });
             }
-        }
+            Ok(())
+        }).unwrap()?;
 
         let mut results = results
             .iter()
-            .filter(|(_k, v)| **v > 2)
-            .map(|(&k, &v)| self.search_image_path_by_id(k).map(|k| (v, k)))
+            .filter(|entry| *entry.value() > 2)
+            .map(|entry| self.search_image_path_by_id(*entry.key()).map(|k| (*entry.value(), k)))
             .collect::<Result<Vec<_>>>()?;
         results.sort_unstable_by_key(|v| std::cmp::Reverse(v.0));
 

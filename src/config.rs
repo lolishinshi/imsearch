@@ -1,10 +1,11 @@
+use std::path::PathBuf;
+use std::str::FromStr;
+
 use crate::slam3_orb::Slam3ORB;
 use crate::ImageDb;
 use directories::ProjectDirs;
 use once_cell::sync::Lazy;
 use opencv::{core, features2d, flann};
-use std::path::PathBuf;
-use std::str::FromStr;
 use structopt::clap::AppSettings;
 use structopt::StructOpt;
 
@@ -41,17 +42,16 @@ pub struct Opts {
     pub orb_min_th_fast: u32,
     /// The number of hash tables to use
     #[structopt(long, value_name = "NUMBER", default_value = "6")]
-    pub flann_table_number: i32,
+    pub lsh_table_number: i32,
     /// The length of the key in the hash tables
     #[structopt(long, value_name = "SIZE", default_value = "12")]
-    pub flann_key_size: i32,
+    pub lsh_key_size: i32,
     /// Number of levels to use in multi-probe (0 for standard LSH)
     #[structopt(long, value_name = "LEVEL", default_value = "1")]
-    pub flann_probe_level: i32,
+    pub lsh_probe_level: i32,
+    /// Specifies the maximum leafs to visit when searching for neighbours
     #[structopt(long, value_name = "CHECKS", default_value = "32")]
-    pub flann_checks: i32,
-    #[structopt(long, value_name = "EPS", default_value = "0.0")]
-    pub flann_eps: f32,
+    pub search_checks: i32,
     /// Number of features to search per iteration
     #[structopt(long, value_name = "SIZE", default_value = "5000000")]
     pub batch_size: usize,
@@ -148,14 +148,14 @@ impl From<&Opts> for features2d::FlannBasedMatcher {
     fn from(opts: &Opts) -> Self {
         let index_params = core::Ptr::new(flann::IndexParams::from(
             flann::LshIndexParams::new(
-                opts.flann_table_number,
-                opts.flann_key_size,
-                opts.flann_probe_level,
+                opts.lsh_table_number,
+                opts.lsh_key_size,
+                opts.lsh_probe_level,
             )
             .expect("failed to build LshIndexParams"),
         ));
         let search_params = core::Ptr::new(
-            flann::SearchParams::new_1(opts.flann_checks, opts.flann_eps, true)
+            flann::SearchParams::new_1(opts.search_checks, 0.0, true)
                 .expect("failed to build SearchParams"),
         );
         features2d::FlannBasedMatcher::new(&index_params, &search_params)
