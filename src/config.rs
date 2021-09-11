@@ -58,6 +58,9 @@ pub struct Opts {
     /// Number of features to search per iteration
     #[structopt(long, value_name = "SIZE", default_value = "5000000")]
     pub batch_size: usize,
+    /// Maximum distance allowed for match
+    #[structopt(long, value_name = "N", default_value = "50000.0")]
+    pub distance: f32,
 
     /// How many results to show
     #[structopt(long, value_name = "COUNT", default_value = "10")]

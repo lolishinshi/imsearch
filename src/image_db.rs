@@ -147,6 +147,9 @@ impl ImageDb {
             time.measure("recording", || -> Result<()> {
                 for match_ in matches.into_iter() {
                     for point in match_.into_iter() {
+                        if point.distance_squared > OPTS.distance {
+                            continue;
+                        }
                         let des = train_des.row(point.index as i32)?;
                         let id = self.search_image_id_by_des(&des)?;
                         *results.entry(id).or_insert(0.) +=
