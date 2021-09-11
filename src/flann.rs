@@ -1,6 +1,6 @@
 use anyhow::Result;
-use opencv::prelude::*;
 use itertools::IntoChunks;
+use opencv::prelude::*;
 
 pub struct Flann<'a>(flann::SliceIndex<'a, u8>);
 
@@ -30,7 +30,11 @@ impl<'a> Flann<'a> {
         Ok(Self(flann::SliceIndex::new(point_len, points, params)?))
     }
 
-    pub fn knn_search(&mut self, points: &Mat, k: usize) -> Result<IntoChunks<impl Iterator<Item = flann::Neighbor<f32>>>> {
+    pub fn knn_search(
+        &mut self,
+        points: &Mat,
+        k: usize,
+    ) -> Result<IntoChunks<impl Iterator<Item = flann::Neighbor<f32>>>> {
         let points = points.data_typed::<u8>()?;
         Ok(self.0.find_many_nearest_neighbors_flat(k, points)?)
     }

@@ -2,18 +2,17 @@ use std::cell::RefCell;
 use std::path::Path;
 
 use crate::config::{OPTS, THREAD_NUM};
+use crate::flann::Flann;
 use crate::slam3_orb::Slam3ORB;
 use crate::utils;
 use anyhow::Result;
 use itertools::Itertools;
-use opencv::features2d;
+use opencv::core;
 use opencv::prelude::*;
-use opencv::types;
 use rocksdb::{IteratorMode, ReadOptions, WriteBatch, DB};
 use std::convert::TryInto;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::time::Duration;
-use crate::flann::Flann;
 
 thread_local! {
     static ORB: RefCell<Slam3ORB> = RefCell::new(Slam3ORB::from(&*OPTS));
@@ -91,7 +90,15 @@ impl ImageDb {
         Ok(())
     }
 
-    pub fn search<S: AsRef<str>>(&self, path: S) -> Result<Vec<(f64, String)>> {
+    pub fn get_all_des(&self) -> Result<Mat> {
+        let mut readopts = ReadOptions::default();
+        readopts.set_verify_checksums(false);
+        readopts.set_readahead_size(32 << 20); // 32MiB
+        let iter = self.feature_db.iterator_opt(IteratorMode::Start, readopts);
+        Ok(iter_to_mat(iter)?)
+    }
+
+    pub fn search<S: AsRef<str>>(&self, path: S) -> Result<Vec<(f32, String)>> {
         let img = utils::imread(path.as_ref())?;
         let (_, query_des) = ORB.with(|f| utils::detect_and_compute(&mut *f.borrow_mut(), &img))?;
 
@@ -113,23 +120,27 @@ impl ImageDb {
                 }
                 max_threads.fetch_sub(1, Ordering::SeqCst);
 
-                let raw_data = chunk.map(|f| f.0).collect::<Vec<_>>();
+                let train_des = iter_to_mat(chunk)?;
                 let query_des = query_des.clone();
                 let results = &results;
                 let max_threads = &max_threads;
 
                 scope.spawn(move |_| -> Result<()> {
-                    let train_des = Mat::from_slice_2d(&raw_data)?;
-                    drop(raw_data);
-
-                    let mut flann = Flann::new(&train_des, OPTS.lsh_table_number, OPTS.lsh_key_size, OPTS.lsh_probe_level, OPTS.search_checks)?;
+                    let mut flann = Flann::new(
+                        &train_des,
+                        OPTS.lsh_table_number,
+                        OPTS.lsh_key_size,
+                        OPTS.lsh_probe_level,
+                        OPTS.search_checks,
+                    )?;
                     let matches = flann.knn_search(&query_des, OPTS.knn_k)?;
 
                     for match_ in matches.into_iter() {
                         for point in match_.into_iter() {
                             let des = train_des.row(point.index as i32)?;
                             let id = self.search_image_id_by_des(&des)?;
-                            *results.entry(id).or_insert(0.) += point.distance_squared as f64 / 500.0 / OPTS.knn_k as f64;
+                            *results.entry(id).or_insert(0.) +=
+                                point.distance_squared / 500.0 / OPTS.knn_k as f32;
                         }
                     }
 
@@ -153,4 +164,19 @@ impl ImageDb {
 
         Ok(results.into_iter().take(OPTS.output_count).collect())
     }
+}
+
+fn iter_to_mat(iter: impl Iterator<Item = (Box<[u8]>, Box<[u8]>)>) -> opencv::Result<Mat> {
+    let mut matrix = Mat::new_nd_vec_with_default(
+        &core::Vector::from_iter([OPTS.batch_size as i32, 32]),
+        core::CV_8U,
+        core::Scalar::default(),
+    )?;
+    let mut idx = 0;
+    for line in iter {
+        let row = matrix.at_row_mut(idx as i32)?;
+        row.copy_from_slice(&line.0);
+        idx += 1;
+    }
+    matrix.row_range(&core::Range::new(0, idx)?)
 }

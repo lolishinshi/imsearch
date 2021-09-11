@@ -95,7 +95,7 @@ fn search_image(opts: &Opts, config: &SearchImage) -> anyhow::Result<()> {
         }
         OutputFormat::Table => {
             for (k, v) in resuls.iter() {
-                println!("{}\t{}", k, v);
+                println!("{:.2}\t{}", k, v);
             }
         }
     }
