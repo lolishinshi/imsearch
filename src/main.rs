@@ -35,7 +35,7 @@ fn show_matches(opts: &Opts, config: &ShowMatches) -> opencv::Result<()> {
     let mut matches = types::VectorOfVectorOfDMatch::new();
     let mask = core::Mat::default();
     let flann = features2d::FlannBasedMatcher::from(opts);
-    flann.knn_train_match(&des1, &des2, &mut matches, OPTS.knn_k, &mask, false)?;
+    flann.knn_train_match(&des1, &des2, &mut matches, 2, &mask, false)?;
 
     let mut matches_mask = vec![];
     for match_ in matches.iter() {
@@ -103,6 +103,8 @@ fn search_image(opts: &Opts, config: &SearchImage) -> anyhow::Result<()> {
 }
 
 fn main() {
+    env_logger::init();
+
     match &OPTS.subcmd {
         SubCommand::ShowKeypoints(config) => {
             show_keypoints(&*OPTS, config).unwrap();

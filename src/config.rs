@@ -49,15 +49,15 @@ pub struct Opts {
 
     /// The number of hash tables to use
     #[structopt(long, value_name = "NUMBER", default_value = "6")]
-    pub lsh_table_number: i32,
+    pub lsh_table_number: u32,
     /// The length of the key in the hash tables
     #[structopt(long, value_name = "SIZE", default_value = "12")]
-    pub lsh_key_size: i32,
+    pub lsh_key_size: u32,
     /// Number of levels to use in multi-probe (0 for standard LSH)
     #[structopt(long, value_name = "LEVEL", default_value = "1")]
-    pub lsh_probe_level: i32,
+    pub lsh_probe_level: u32,
 
-    /// Specifies the maximum leafs to visit when searching for neighbours
+    /// Specifies the maximum leafs to visit when searching for neighbours, 0 = auto, -1 = unlimit
     #[structopt(long, value_name = "CHECKS", default_value = "32")]
     pub search_checks: i32,
     /// Number of features to search per iteration
@@ -72,7 +72,7 @@ pub struct Opts {
     pub output_format: OutputFormat,
     /// Count of best matches found per each query descriptor
     #[structopt(long, value_name = "K", default_value = "3")]
-    pub knn_k: i32,
+    pub knn_k: usize,
 
     #[structopt(subcommand)]
     pub subcmd: SubCommand,
@@ -158,9 +158,9 @@ impl From<&Opts> for features2d::FlannBasedMatcher {
     fn from(opts: &Opts) -> Self {
         let index_params = core::Ptr::new(flann::IndexParams::from(
             flann::LshIndexParams::new(
-                opts.lsh_table_number,
-                opts.lsh_key_size,
-                opts.lsh_probe_level,
+                opts.lsh_table_number as i32,
+                opts.lsh_key_size as i32,
+                opts.lsh_probe_level as i32,
             )
             .expect("failed to build LshIndexParams"),
         ));

@@ -13,10 +13,10 @@ use rocksdb::{IteratorMode, ReadOptions, WriteBatch, DB};
 use std::convert::TryInto;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::time::Duration;
+use crate::flann::Flann;
 
 thread_local! {
     static ORB: RefCell<Slam3ORB> = RefCell::new(Slam3ORB::from(&*OPTS));
-    static FLANN: RefCell<features2d::FlannBasedMatcher> = RefCell::new(features2d::FlannBasedMatcher::from(&*OPTS));
 }
 
 pub struct ImageDb {
@@ -91,7 +91,7 @@ impl ImageDb {
         Ok(())
     }
 
-    pub fn search<S: AsRef<str>>(&self, path: S) -> Result<Vec<(usize, String)>> {
+    pub fn search<S: AsRef<str>>(&self, path: S) -> Result<Vec<(f64, String)>> {
         let img = utils::imread(path.as_ref())?;
         let (_, query_des) = ORB.with(|f| utils::detect_and_compute(&mut *f.borrow_mut(), &img))?;
 
@@ -122,25 +122,14 @@ impl ImageDb {
                     let train_des = Mat::from_slice_2d(&raw_data)?;
                     drop(raw_data);
 
-                    let mut matches = types::VectorOfVectorOfDMatch::default();
-                    let mask = Mat::default();
+                    let mut flann = Flann::new(&train_des, OPTS.lsh_table_number, OPTS.lsh_key_size, OPTS.lsh_probe_level, OPTS.search_checks)?;
+                    let matches = flann.knn_search(&query_des, OPTS.knn_k)?;
 
-                    FLANN.with(|f| {
-                        f.borrow().knn_train_match(
-                            &query_des,
-                            &train_des,
-                            &mut matches,
-                            OPTS.knn_k,
-                            &mask,
-                            false,
-                        )
-                    })?;
-
-                    for match_ in matches.iter() {
-                        for point in match_.iter() {
-                            let des = train_des.row(point.train_idx)?;
+                    for match_ in matches.into_iter() {
+                        for point in match_.into_iter() {
+                            let des = train_des.row(point.index as i32)?;
                             let id = self.search_image_id_by_des(&des)?;
-                            *results.entry(id).or_insert(0) += 1;
+                            *results.entry(id).or_insert(0.) += point.distance_squared as f64 / 500.0 / OPTS.knn_k as f64;
                         }
                     }
 
@@ -150,14 +139,17 @@ impl ImageDb {
                 });
             }
             Ok(())
-        }).unwrap()?;
+        })
+        .unwrap()?;
 
         let mut results = results
             .iter()
-            .filter(|entry| *entry.value() > 2)
-            .map(|entry| self.search_image_path_by_id(*entry.key()).map(|k| (*entry.value(), k)))
+            .map(|entry| {
+                self.search_image_path_by_id(*entry.key())
+                    .map(|k| (*entry.value(), k))
+            })
             .collect::<Result<Vec<_>>>()?;
-        results.sort_unstable_by_key(|v| std::cmp::Reverse(v.0));
+        results.sort_unstable_by(|a, b| b.0.partial_cmp(&a.0).unwrap());
 
         Ok(results.into_iter().take(OPTS.output_count).collect())
     }
