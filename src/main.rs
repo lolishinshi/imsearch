@@ -1,11 +1,17 @@
 use imsearch::config::*;
+use imsearch::flann::Flann;
 use imsearch::slam3_orb::Slam3ORB;
 use imsearch::utils;
+use imsearch::utils::read_line;
 use imsearch::ImageDb;
+use itertools::Itertools;
 use opencv::prelude::*;
 use opencv::{core, features2d, types};
 use rayon::prelude::*;
 use regex::Regex;
+use std::collections::HashMap;
+use std::path::PathBuf;
+use std::time::Instant;
 use walkdir::WalkDir;
 
 fn show_keypoints(opts: &Opts, config: &ShowKeypoints) -> opencv::Result<()> {
@@ -88,17 +94,62 @@ fn add_images(opts: &Opts, config: &AddImages) -> anyhow::Result<()> {
 
 fn search_image(opts: &Opts, config: &SearchImage) -> anyhow::Result<()> {
     let db = ImageDb::from(opts);
-    let resuls = db.search(&config.image)?;
-    match OPTS.output_format {
-        OutputFormat::Json => {
-            println!("{}", serde_json::to_string_pretty(&resuls)?)
+    let result = db.search(&config.image)?;
+    print_result(&result)
+}
+
+fn start_repl(opts: &Opts, config: &StartRepl) -> anyhow::Result<()> {
+    let db = ImageDb::from(opts);
+    log::debug!("Reading data");
+    let train_des = db.get_all_des()?;
+    log::debug!("Building index");
+    let mut flann = Flann::new(
+        &train_des,
+        opts.lsh_table_number,
+        opts.lsh_key_size,
+        opts.lsh_probe_level,
+        opts.search_checks,
+    )?;
+    let mut orb = Slam3ORB::from(&*OPTS);
+
+    while let Ok(s) = read_line(&config.prompt) {
+        log::debug!("searching {:?}", s);
+        if !PathBuf::from(&s).exists() {
+            continue;
         }
-        OutputFormat::Table => {
-            for (k, v) in resuls.iter() {
-                println!("{:.2}\t{}", k, v);
+
+        let start = Instant::now();
+
+        let img = utils::imread(&s)?;
+        let (_, query_des) = utils::detect_and_compute(&mut orb, &img)?;
+
+        let mut results = HashMap::new();
+
+        let matches = flann.knn_search(&query_des, OPTS.knn_k)?;
+        for match_ in matches.into_iter() {
+            for point in match_.into_iter() {
+                let des = train_des.row(point.index as i32)?;
+                let id = db.search_image_id_by_des(&des)?;
+                *results.entry(id).or_insert(0.) +=
+                    point.distance_squared / 500.0 / OPTS.knn_k as f32;
             }
         }
+
+        let mut result = results
+            .iter()
+            .map(|(image_id, score)| {
+                db.search_image_path_by_id(*image_id)
+                    .map(|image_path| (*score, image_path))
+            })
+            .collect::<Result<Vec<_>, _>>()?;
+        result.sort_unstable_by(|a, b| b.0.partial_cmp(&a.0).unwrap());
+        let result = result.into_iter().take(OPTS.output_count).collect_vec();
+
+        log::debug!("Take time: {:.2}s", (Instant::now() - start).as_secs_f32());
+
+        print_result(&result)?;
     }
+
     Ok(())
 }
 
@@ -118,5 +169,22 @@ fn main() {
         SubCommand::SearchImage(config) => {
             search_image(&*OPTS, config).unwrap();
         }
+        SubCommand::StartRepl(config) => {
+            start_repl(&*OPTS, config).unwrap();
+        }
     }
+}
+
+fn print_result(result: &[(f32, String)]) -> anyhow::Result<()> {
+    match OPTS.output_format {
+        OutputFormat::Json => {
+            println!("{}", serde_json::to_string_pretty(result)?)
+        }
+        OutputFormat::Table => {
+            for (k, v) in result {
+                println!("{:.2}\t{}", k, v);
+            }
+        }
+    }
+    Ok(())
 }

@@ -14,11 +14,6 @@ pub static CONF_DIR: Lazy<PathBuf> = Lazy::new(|| {
     let proj_dirs = ProjectDirs::from("", "aloxaf", "imsearch").expect("failed to get project dir");
     proj_dirs.config_dir().to_path_buf()
 });
-pub static THREAD_NUM: Lazy<usize> = Lazy::new(|| {
-    std::env::var("RAYON_NUM_THREADS")
-        .map(|s| s.parse::<usize>().unwrap())
-        .unwrap_or(num_cpus::get())
-});
 
 fn default_config_dir() -> &'static str {
     CONF_DIR.to_str().unwrap()
@@ -88,6 +83,8 @@ pub enum SubCommand {
     AddImages(AddImages),
     /// Search image from database
     SearchImage(SearchImage),
+    /// Start interactive REPL
+    StartRepl(StartRepl),
 }
 
 #[derive(StructOpt)]
@@ -121,6 +118,13 @@ pub struct AddImages {
 pub struct SearchImage {
     /// Path to the image to search
     pub image: String,
+}
+
+#[derive(StructOpt)]
+pub struct StartRepl {
+    /// Promot
+    #[structopt(short, long, default_value = "")]
+    pub prompt: String,
 }
 
 #[derive(StructOpt)]

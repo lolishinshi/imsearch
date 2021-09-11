@@ -5,6 +5,9 @@ use opencv::imgcodecs;
 use opencv::prelude::*;
 use opencv::types;
 use opencv::{core, imgproc};
+use std::collections::HashMap;
+use std::io::{Read, Write};
+use std::time::{Duration, Instant};
 
 pub fn detect_and_compute(
     orb: &mut Slam3ORB,
@@ -95,4 +98,32 @@ pub fn draw_matches_knn(
         features2d::DrawMatchesFlags::DEFAULT,
     )?;
     Ok(output)
+}
+
+pub struct TimeMeasure(pub HashMap<String, Duration>);
+
+impl TimeMeasure {
+    pub fn new() -> Self {
+        Self(HashMap::new())
+    }
+
+    pub fn measure<F, R>(&mut self, key: &str, f: F) -> R
+    where
+        F: FnOnce() -> R,
+    {
+        let start = Instant::now();
+        let r = f();
+        *self.0.entry(key.to_owned()).or_insert(Duration::default()) += Instant::now() - start;
+        r
+    }
+}
+
+pub fn read_line(prompt: &str) -> anyhow::Result<String> {
+    print!("{}", prompt);
+    std::io::stdout().flush()?;
+    let v = std::io::stdin()
+        .bytes()
+        .take_while(|c| c.as_ref().ok() != Some(&b'\n'))
+        .collect::<Result<Vec<_>, _>>()?;
+    Ok(String::from_utf8(v)?.trim().to_owned())
 }
