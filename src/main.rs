@@ -1,5 +1,5 @@
 use imsearch::config::*;
-use imsearch::flann::Flann;
+use imsearch::knn::Flann;
 use imsearch::slam3_orb::Slam3ORB;
 use imsearch::utils;
 use imsearch::utils::read_line;

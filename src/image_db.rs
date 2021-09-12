@@ -4,7 +4,7 @@ use std::convert::TryInto;
 use std::path::Path;
 
 use crate::config::OPTS;
-use crate::flann::Flann;
+use crate::knn::Flann;
 use crate::slam3_orb::Slam3ORB;
 use crate::utils;
 use crate::utils::TimeMeasure;
@@ -152,8 +152,7 @@ impl ImageDb {
                         }
                         let des = train_des.row(point.index as i32)?;
                         let id = self.search_image_id_by_des(&des)?;
-                        *results.entry(id).or_insert(0.) +=
-                            point.distance_squared / 500.0 / OPTS.knn_k as f32;
+                        *results.entry(id).or_insert(0.) += 1.0;
                     }
                 }
                 Ok(())
