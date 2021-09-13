@@ -2,7 +2,6 @@ use imsearch::config::*;
 use imsearch::flann::Flann;
 use imsearch::slam3_orb::Slam3ORB;
 use imsearch::utils;
-use imsearch::utils::read_line;
 use imsearch::ImageDb;
 use itertools::Itertools;
 use opencv::prelude::*;
@@ -101,26 +100,29 @@ fn search_image(opts: &Opts, config: &SearchImage) -> anyhow::Result<()> {
 fn start_repl(opts: &Opts, config: &StartRepl) -> anyhow::Result<()> {
     let db = ImageDb::from(opts);
     log::debug!("Reading data");
-    let train_des = db.get_all_des()?;
+    let train_des = db.get_all_descriptors()?;
     log::debug!("Building index");
     let mut flann = Flann::new(
-        &train_des,
+        &train_des[0],
         opts.lsh_table_number,
         opts.lsh_key_size,
         opts.lsh_probe_level,
         opts.search_checks,
     )?;
+    for des in &train_des[1..] {
+        flann.add(des)?;
+    }
     let mut orb = Slam3ORB::from(&*OPTS);
 
-    while let Ok(s) = read_line(&config.prompt) {
-        log::debug!("searching {:?}", s);
-        if !PathBuf::from(&s).exists() {
+    while let Ok(line) = utils::read_line(&config.prompt) {
+        log::debug!("Searching {:?}", line);
+        if !PathBuf::from(&line).exists() {
             continue;
         }
 
         let start = Instant::now();
 
-        let img = utils::imread(&s)?;
+        let img = utils::imread(&line)?;
         let (_, query_des) = utils::detect_and_compute(&mut orb, &img)?;
 
         let mut results = HashMap::new();
@@ -128,10 +130,14 @@ fn start_repl(opts: &Opts, config: &StartRepl) -> anyhow::Result<()> {
         let matches = flann.knn_search(&query_des, OPTS.knn_k)?;
         for match_ in matches.into_iter() {
             for point in match_.into_iter() {
-                let des = train_des.row(point.index as i32)?;
+                if point.distance_squared > OPTS.distance {
+                    continue;
+                }
+                let (d, r) = (point.index / OPTS.batch_size, point.index % OPTS.batch_size);
+                let des = train_des[d].row(r as i32)?;
                 let id = db.search_image_id_by_des(&des)?;
                 *results.entry(id).or_insert(0.) +=
-                    point.distance_squared / 500.0 / OPTS.knn_k as f32;
+                    255.0 / point.distance_squared.max(1.0) / OPTS.knn_k as f32;
             }
         }
 

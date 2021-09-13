@@ -125,5 +125,8 @@ pub fn read_line(prompt: &str) -> anyhow::Result<String> {
         .bytes()
         .take_while(|c| c.as_ref().ok() != Some(&b'\n'))
         .collect::<Result<Vec<_>, _>>()?;
+    if v.is_empty() {
+        anyhow::bail!("EOF");
+    }
     Ok(String::from_utf8(v)?.trim().to_owned())
 }

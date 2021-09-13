@@ -258,7 +258,6 @@ dependencies = [
 [[package]]
 name = "flann"
 version = "0.1.0"
-source = "git+https://github.com/Aloxaf/rust-flann#4f9781e71587750cd03ee3b44be5ced459896b8a"
 dependencies = [
  "flann-sys",
  "generic-array",
@@ -269,7 +268,6 @@ dependencies = [
 [[package]]
 name = "flann-sys"
 version = "0.1.0"
-source = "git+https://github.com/Aloxaf/rust-flann#4f9781e71587750cd03ee3b44be5ced459896b8a"
 dependencies = [
  "bindgen",
  "cmake",

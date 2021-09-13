@@ -103,13 +103,18 @@ impl ImageDb {
         Ok(())
     }
 
-    pub fn get_all_des(&self) -> Result<Mat> {
-        let total_feature = self.fetch_and_add(b"TOTAL_FEATURE", 0)?;
+    pub fn get_all_descriptors(&self) -> Result<Vec<Mat>> {
         let mut readopts = ReadOptions::default();
         readopts.set_verify_checksums(false);
         readopts.set_readahead_size(32 << 20); // 32MiB
-        let iter = self.feature_db.iterator_opt(IteratorMode::Start, readopts);
-        Ok(iter_to_mat(iter, total_feature, 32)?)
+
+        Ok(self
+            .feature_db
+            .iterator_opt(IteratorMode::Start, readopts)
+            .chunks(OPTS.batch_size)
+            .into_iter()
+            .map(|chunk| iter_to_mat(chunk, OPTS.batch_size as i32, 32))
+            .collect::<Result<Vec<_>, _>>()?)
     }
 
     pub fn search<S: AsRef<str>>(&self, path: S) -> Result<Vec<(f32, String)>> {
@@ -153,7 +158,7 @@ impl ImageDb {
                         let des = train_des.row(point.index as i32)?;
                         let id = self.search_image_id_by_des(&des)?;
                         *results.entry(id).or_insert(0.) +=
-                            point.distance_squared / 500.0 / OPTS.knn_k as f32;
+                            255.0 / point.distance_squared.max(1.0) / OPTS.knn_k as f32;
                     }
                 }
                 Ok(())
@@ -183,6 +188,10 @@ impl ImageDb {
         log::debug!("Recording    : {:.2}s", time.0["recording"].as_secs_f32());
 
         Ok(results.into_iter().take(OPTS.output_count).collect())
+    }
+
+    pub fn total_feature(&self) -> Result<i32> {
+        self.fetch_and_add(b"TOTAL_FEATURE", 0)
     }
 }
 

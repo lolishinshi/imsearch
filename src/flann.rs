@@ -30,6 +30,11 @@ impl<'a> Flann<'a> {
         Ok(Self(flann::SliceIndex::new(point_len, points, params)?))
     }
 
+    pub fn add(&mut self, points: &'a Mat) -> Result<()> {
+        let points = points.data_typed::<u8>()?;
+        Ok(self.0.add_many_slices(points)?)
+    }
+
     pub fn knn_search(
         &mut self,
         points: &Mat,
