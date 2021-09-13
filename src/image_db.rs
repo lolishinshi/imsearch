@@ -2,9 +2,10 @@ use std::cell::RefCell;
 use std::collections::HashMap;
 use std::convert::TryInto;
 use std::path::Path;
+use std::slice;
 
 use crate::config::OPTS;
-use crate::knn::Flann;
+use crate::knn::KnnSearcher;
 use crate::slam3_orb::Slam3ORB;
 use crate::utils;
 use crate::utils::TimeMeasure;
@@ -70,10 +71,10 @@ impl ImageDb {
             .map(|slice| String::from_utf8(slice.unwrap()).unwrap())?)
     }
 
-    pub fn search_image_id_by_des(&self, des: &Mat) -> Result<i32> {
+    pub fn search_image_id_by_des(&self, des: &[u8]) -> Result<i32> {
         Ok(self
             .feature_db
-            .get(des.data_typed::<u8>()?)
+            .get(des)
             .map(|slice| i32::from_le_bytes(slice.unwrap().try_into().unwrap()))?)
     }
 
@@ -115,6 +116,10 @@ impl ImageDb {
     pub fn search<S: AsRef<str>>(&self, path: S) -> Result<Vec<(f32, String)>> {
         let img = utils::imread(path.as_ref())?;
         let (_, query_des) = ORB.with(|f| utils::detect_and_compute(&mut *f.borrow_mut(), &img))?;
+        let query_des = query_des.data_typed::<u8>()?;
+        let query_des = unsafe {
+            slice::from_raw_parts::<[u8; 32]>(query_des.as_ptr() as *const [u8; 32], query_des.len() / 32)
+        };
 
         let mut results = HashMap::new();
 
@@ -129,29 +134,31 @@ impl ImageDb {
             .iterator_opt(IteratorMode::Start, readopts)
             .chunks(OPTS.batch_size)
         {
-            let train_des =
-                time.measure("reading", || iter_to_mat(chunk, OPTS.batch_size as i32, 32))?;
+            let mut searcher = KnnSearcher::new();
 
-            let mut flann = time.measure("building", || {
-                Flann::new(
-                    &train_des,
-                    OPTS.lsh_table_number,
-                    OPTS.lsh_key_size,
-                    OPTS.lsh_probe_level,
-                    OPTS.search_checks,
-                )
-            })?;
+            time.measure("building", || {
+                log::debug!("reading and building");
+                searcher.add_iter(chunk.map(|c| {
+                    let mut v = [0u8; 32];
+                    v.copy_from_slice(&c.0);
+                    v
+                } ));
+            });
 
-            let matches = time.measure("searching", || flann.knn_search(&query_des, OPTS.knn_k))?;
+            let matches = time.measure("searching", || {
+                log::debug!("searching");
+                searcher.search_batch(query_des)
+            });
 
             time.measure("recording", || -> Result<()> {
-                for match_ in matches.into_iter() {
-                    for point in match_.into_iter() {
-                        if point.distance_squared > OPTS.distance {
+                log::debug!("recording");
+                for neighbors in matches {
+                    for neighbor in neighbors {
+                        if neighbor.distance > OPTS.distance {
                             continue;
                         }
-                        let des = train_des.row(point.index as i32)?;
-                        let id = self.search_image_id_by_des(&des)?;
+                        let des = searcher.feature(neighbor.index);
+                        let id = self.search_image_id_by_des(des)?;
                         *results.entry(id).or_insert(0.) += 1.0;
                     }
                 }
@@ -176,7 +183,6 @@ impl ImageDb {
 
         log::debug!("Total image  : {}", total_image);
         log::debug!("Total feature: {}", total_feature);
-        log::debug!("Reading data : {:.2}s", time.0["reading"].as_secs_f32());
         log::debug!("Building LSH : {:.2}s", time.0["building"].as_secs_f32());
         log::debug!("Searching KNN: {:.2}s", time.0["searching"].as_secs_f32());
         log::debug!("Recording    : {:.2}s", time.0["recording"].as_secs_f32());

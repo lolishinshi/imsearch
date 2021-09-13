@@ -364,7 +364,7 @@ dependencies = [
  "num-traits",
  "rand_core",
  "smallvec",
- "space 0.17.0",
+ "space",
 ]
 
 [[package]]
@@ -391,6 +391,7 @@ dependencies = [
  "once_cell",
  "opencv",
  "pkg-config",
+ "rand_core",
  "rand_pcg",
  "rayon",
  "regex",
@@ -398,7 +399,7 @@ dependencies = [
  "semver",
  "serde_json",
  "shlex",
- "space 0.18.0",
+ "space",
  "structopt",
  "vcpkg",
  "walkdir",
@@ -796,16 +797,6 @@ name = "space"
 version = "0.17.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "c5ab9701ae895386d13db622abf411989deff7109b13b46b6173bb4ce5c1d123"
-dependencies = [
- "doc-comment",
- "num-traits",
-]
-
-[[package]]
-name = "space"
-version = "0.18.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "83919a544070dcfac65f430251bb69e62f1e4ef6f0754fd714a1ac14cfc41a68"
 dependencies = [
  "doc-comment",
  "num-traits",

@@ -1,5 +1,4 @@
 use imsearch::config::*;
-use imsearch::knn::Flann;
 use imsearch::slam3_orb::Slam3ORB;
 use imsearch::utils;
 use imsearch::utils::read_line;
@@ -99,6 +98,7 @@ fn search_image(opts: &Opts, config: &SearchImage) -> anyhow::Result<()> {
 }
 
 fn start_repl(opts: &Opts, config: &StartRepl) -> anyhow::Result<()> {
+    /*
     let db = ImageDb::from(opts);
     log::debug!("Reading data");
     let train_des = db.get_all_des()?;
@@ -149,6 +149,7 @@ fn start_repl(opts: &Opts, config: &StartRepl) -> anyhow::Result<()> {
 
         print_result(&result)?;
     }
+    */
 
     Ok(())
 }
