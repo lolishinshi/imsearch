@@ -52,7 +52,7 @@ pub struct Opts {
     #[structopt(long, value_name = "LEVEL", default_value = "1")]
     pub lsh_probe_level: u32,
 
-    /// Specifies the maximum leafs to visit when searching for neighbours, 0 = auto, -1 = unlimit
+    /// Specifies the maximum leafs to visit when searching for neighbours, -2 = auto, -1 = unlimit
     #[structopt(long, value_name = "CHECKS", default_value = "32")]
     pub search_checks: i32,
     /// Number of features to search per iteration
@@ -60,7 +60,7 @@ pub struct Opts {
     pub batch_size: usize,
     /// Maximum distance allowed for match, from 0 ~ 255
     #[structopt(long, value_name = "N", default_value = "200")]
-    pub distance: f32,
+    pub distance: u32,
 
     /// How many results to show
     #[structopt(long, value_name = "COUNT", default_value = "10")]

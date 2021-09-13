@@ -4,7 +4,7 @@ use std::convert::TryInto;
 use std::path::Path;
 
 use crate::config::OPTS;
-use crate::flann::Flann;
+use crate::knn::KnnSearcher;
 use crate::slam3_orb::Slam3ORB;
 use crate::utils;
 use crate::utils::TimeMeasure;
@@ -138,27 +138,29 @@ impl ImageDb {
                 time.measure("reading", || iter_to_mat(chunk, OPTS.batch_size as i32, 32))?;
 
             let mut flann = time.measure("building", || {
-                Flann::new(
+                let mut v = KnnSearcher::new(
                     &train_des,
                     OPTS.lsh_table_number,
                     OPTS.lsh_key_size,
                     OPTS.lsh_probe_level,
                     OPTS.search_checks,
-                )
-            })?;
+                );
+                v.build();
+                v
+            });
 
-            let matches = time.measure("searching", || flann.knn_search(&query_des, OPTS.knn_k))?;
+            let matches = time.measure("searching", || flann.knn_search(&query_des, OPTS.knn_k));
 
             time.measure("recording", || -> Result<()> {
-                for match_ in matches.into_iter() {
-                    for point in match_.into_iter() {
-                        if point.distance_squared > OPTS.distance {
+                for match_ in matches {
+                    for point in match_ {
+                        if point.distance > OPTS.distance {
                             continue;
                         }
                         let des = train_des.row(point.index as i32)?;
                         let id = self.search_image_id_by_des(&des)?;
                         *results.entry(id).or_insert(0.) +=
-                            255.0 / point.distance_squared.max(1.0) / OPTS.knn_k as f32;
+                            255.0 / point.distance.max(1) as f32 / OPTS.knn_k as f32;
                     }
                 }
                 Ok(())

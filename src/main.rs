@@ -1,5 +1,5 @@
 use imsearch::config::*;
-use imsearch::flann::Flann;
+use imsearch::knn::KnnSearcher;
 use imsearch::slam3_orb::Slam3ORB;
 use imsearch::utils;
 use imsearch::ImageDb;
@@ -102,16 +102,17 @@ fn start_repl(opts: &Opts, config: &StartRepl) -> anyhow::Result<()> {
     log::debug!("Reading data");
     let train_des = db.get_all_descriptors()?;
     log::debug!("Building index");
-    let mut flann = Flann::new(
+    let mut flann = KnnSearcher::new(
         &train_des[0],
         opts.lsh_table_number,
         opts.lsh_key_size,
         opts.lsh_probe_level,
         opts.search_checks,
-    )?;
+    );
     for des in &train_des[1..] {
-        flann.add(des)?;
+        flann.add(des);
     }
+    flann.build();
     let mut orb = Slam3ORB::from(&*OPTS);
 
     while let Ok(line) = utils::read_line(&config.prompt) {
@@ -127,17 +128,17 @@ fn start_repl(opts: &Opts, config: &StartRepl) -> anyhow::Result<()> {
 
         let mut results = HashMap::new();
 
-        let matches = flann.knn_search(&query_des, OPTS.knn_k)?;
-        for match_ in matches.into_iter() {
-            for point in match_.into_iter() {
-                if point.distance_squared > OPTS.distance {
+        let matches = flann.knn_search(&query_des, OPTS.knn_k);
+        for match_ in matches {
+            for point in match_ {
+                if point.distance > OPTS.distance {
                     continue;
                 }
                 let (d, r) = (point.index / OPTS.batch_size, point.index % OPTS.batch_size);
                 let des = train_des[d].row(r as i32)?;
                 let id = db.search_image_id_by_des(&des)?;
                 *results.entry(id).or_insert(0.) +=
-                    255.0 / point.distance_squared.max(1.0) / OPTS.knn_k as f32;
+                    255.0 / point.distance.max(1) as f32 / OPTS.knn_k as f32;
             }
         }
 

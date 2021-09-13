@@ -600,10 +600,4 @@ impl Library {
         let link_libs = link_libs.as_deref().map(EnvList::from);
         Self::probe_system(include_paths, link_paths, link_libs)
     }
-
-    pub fn emit_cargo_metadata(&self) {
-        self.cargo_metadata.iter().for_each(|meta| {
-            println!("{}", meta);
-        });
-    }
 }

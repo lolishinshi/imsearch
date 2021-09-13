@@ -19,7 +19,6 @@ walkdir = "2.3.2"
 itertools = "0.10.1"
 env_logger = "0.9.0"
 log = "0.4.14"
-flann = { version = "0.1.0", path = "../rust-flann" }
 
 [dependencies.rocksdb]
 version = "0.17.0"
