@@ -48,6 +48,9 @@ pub fn imwrite(filename: &str, img: &dyn core::ToInputArray) -> opencv::Result<b
 }
 
 pub fn adjust_image_size(img: &Mat, width: i32, height: i32) -> opencv::Result<Mat> {
+    if img.rows() <= height || img.cols() <= width {
+        return Ok(img.clone())
+    }
     let (ow, oh) = (img.cols() as f64, img.rows() as f64);
     let scale = (height as f64 / oh).min(width as f64 / ow);
     let mut output = Mat::default();
