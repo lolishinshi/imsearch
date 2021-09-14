@@ -1,13 +1,14 @@
+use std::io::{Read, Write};
+use std::time::{Duration, Instant};
+
 use crate::slam3_orb::Slam3ORB;
+use dashmap::DashMap;
 use opencv::features2d;
 use opencv::highgui;
 use opencv::imgcodecs;
 use opencv::prelude::*;
 use opencv::types;
 use opencv::{core, imgproc};
-use std::collections::HashMap;
-use std::io::{Read, Write};
-use std::time::{Duration, Instant};
 
 pub fn detect_and_compute(
     orb: &mut Slam3ORB,
@@ -100,14 +101,14 @@ pub fn draw_matches_knn(
     Ok(output)
 }
 
-pub struct TimeMeasure(pub HashMap<String, Duration>);
+pub struct TimeMeasure(pub DashMap<String, Duration>);
 
 impl TimeMeasure {
     pub fn new() -> Self {
-        Self(HashMap::new())
+        Self(DashMap::new())
     }
 
-    pub fn measure<F, R>(&mut self, key: &str, f: F) -> R
+    pub fn measure<F, R>(&self, key: &str, f: F) -> R
     where
         F: FnOnce() -> R,
     {

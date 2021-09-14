@@ -1,14 +1,16 @@
 use std::cell::RefCell;
-use std::collections::HashMap;
 use std::convert::TryInto;
 use std::path::Path;
+use std::sync::atomic::{AtomicUsize, Ordering};
+use std::time::Duration;
 
-use crate::config::OPTS;
+use crate::config::{OPTS, THREAD_NUM};
 use crate::knn::KnnSearcher;
 use crate::slam3_orb::Slam3ORB;
 use crate::utils;
 use crate::utils::TimeMeasure;
 use anyhow::Result;
+use dashmap::DashMap;
 use itertools::Itertools;
 use opencv::core;
 use opencv::prelude::*;
@@ -121,58 +123,79 @@ impl ImageDb {
         let img = utils::imread(path.as_ref())?;
         let (_, query_des) = ORB.with(|f| utils::detect_and_compute(&mut *f.borrow_mut(), &img))?;
 
-        let mut results = HashMap::new();
+        let time = TimeMeasure::new();
+        let results = DashMap::new();
+        let max_threads = AtomicUsize::new(*THREAD_NUM);
 
         let mut readopts = ReadOptions::default();
         readopts.set_verify_checksums(false);
         readopts.set_readahead_size(32 << 20); // 32MiB
 
-        let mut time = TimeMeasure::new();
-
-        for chunk in &self
-            .feature_db
-            .iterator_opt(IteratorMode::Start, readopts)
-            .chunks(OPTS.batch_size)
-        {
-            let train_des =
-                time.measure("reading", || iter_to_mat(chunk, OPTS.batch_size as i32, 32))?;
-
-            let mut flann = time.measure("building", || {
-                let mut v = KnnSearcher::new(
-                    &train_des,
-                    OPTS.lsh_table_number,
-                    OPTS.lsh_key_size,
-                    OPTS.lsh_probe_level,
-                    OPTS.search_checks,
-                );
-                v.build();
-                v
-            });
-
-            let matches = time.measure("searching", || flann.knn_search(&query_des, OPTS.knn_k));
-
-            time.measure("recording", || -> Result<()> {
-                for match_ in matches {
-                    for point in match_ {
-                        if point.distance > OPTS.distance {
-                            continue;
-                        }
-                        let des = train_des.row(point.index as i32)?;
-                        let id = self.search_image_id_by_des(&des)?;
-                        *results.entry(id).or_insert(0.) +=
-                            255.0 / point.distance.max(1) as f32 / OPTS.knn_k as f32;
-                    }
+        crossbeam_utils::thread::scope(|scope| -> Result<()> {
+            for chunk in &self
+                .feature_db
+                .iterator_opt(IteratorMode::Start, readopts)
+                .chunks(OPTS.batch_size)
+            {
+                while max_threads.load(Ordering::SeqCst) == 0 {
+                    std::thread::sleep(Duration::from_millis(50));
                 }
-                Ok(())
-            })?;
-        }
+                max_threads.fetch_sub(1, Ordering::SeqCst);
+
+                let train_des =
+                    time.measure("reading", || iter_to_mat(chunk, OPTS.batch_size as i32, 32))?;
+                let query_des = query_des.clone();
+                let results = &results;
+                let time = &time;
+                let max_threads = &max_threads;
+
+                scope.spawn(move |_| -> Result<()> {
+                    let mut flann = time.measure("building", || {
+                        let mut v = KnnSearcher::new(
+                            &train_des,
+                            OPTS.lsh_table_number,
+                            OPTS.lsh_key_size,
+                            OPTS.lsh_probe_level,
+                            OPTS.search_checks,
+                        );
+                        v.build();
+                        v
+                    });
+
+                    let matches =
+                        time.measure("searching", || flann.knn_search(&query_des, OPTS.knn_k));
+
+                    time.measure("recording", || -> Result<()> {
+                        for match_ in matches {
+                            for point in match_ {
+                                if point.distance > OPTS.distance {
+                                    continue;
+                                }
+                                let des = train_des.row(point.index as i32)?;
+                                let id = self.search_image_id_by_des(&des)?;
+                                *results.entry(id).or_insert(0.) +=
+                                    255.0 / point.distance.max(1) as f32 / OPTS.knn_k as f32;
+                            }
+                        }
+                        Ok(())
+                    })?;
+
+                    max_threads.fetch_add(1, Ordering::SeqCst);
+
+                    Ok(())
+                });
+            }
+
+            Ok(())
+        })
+        .unwrap()?;
 
         let results = time.measure("recoding", || -> Result<_> {
             let mut results = results
                 .iter()
-                .map(|(image_id, score)| {
-                    self.search_image_path_by_id(*image_id)
-                        .map(|image_path| (*score, image_path))
+                .map(|item| {
+                    self.search_image_path_by_id(*item.key())
+                        .map(|image_path| (*item.value(), image_path))
                 })
                 .collect::<Result<Vec<_>>>()?;
             results.sort_unstable_by(|a, b| b.0.partial_cmp(&a.0).unwrap());
@@ -184,10 +207,22 @@ impl ImageDb {
 
         log::debug!("Total image  : {}", total_image);
         log::debug!("Total feature: {}", total_feature);
-        log::debug!("Reading data : {:.2}s", time.0["reading"].as_secs_f32());
-        log::debug!("Building LSH : {:.2}s", time.0["building"].as_secs_f32());
-        log::debug!("Searching KNN: {:.2}s", time.0["searching"].as_secs_f32());
-        log::debug!("Recording    : {:.2}s", time.0["recording"].as_secs_f32());
+        log::debug!(
+            "Reading data : {:.2}s",
+            time.0.get("reading").unwrap().as_secs_f32()
+        );
+        log::debug!(
+            "Building LSH : {:.2}s",
+            time.0.get("building").unwrap().as_secs_f32()
+        );
+        log::debug!(
+            "Searching KNN: {:.2}s",
+            time.0.get("searching").unwrap().as_secs_f32()
+        );
+        log::debug!(
+            "Recording    : {:.2}s",
+            time.0.get("recording").unwrap().as_secs_f32()
+        );
 
         Ok(results.into_iter().take(OPTS.output_count).collect())
     }
