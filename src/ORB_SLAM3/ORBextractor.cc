@@ -538,11 +538,7 @@ namespace ORB_SLAM3
                                                          const int &maxX, const int &minY, const int &maxY, const int &N, const int &level)
     {
         // Compute how many initial nodes
-        const int nIni = round(static_cast<float>(maxX-minX)/(maxY-minY));
-
-        if (nIni == 0) {
-            return {};
-        }
+        const int nIni = max(1.0f, round(static_cast<float>(maxX-minX)/(maxY-minY)));
 
         const float hX = static_cast<float>(maxX-minX)/nIni;
 
