@@ -8,7 +8,7 @@ use crate::config::{OPTS, THREAD_NUM};
 use crate::knn::KnnSearcher;
 use crate::slam3_orb::Slam3ORB;
 use crate::utils;
-use crate::utils::TimeMeasure;
+use crate::utils::{TimeMeasure, wilson_score};
 use anyhow::Result;
 use dashmap::DashMap;
 use itertools::Itertools;
@@ -173,8 +173,7 @@ impl ImageDb {
                                 }
                                 let des = train_des.row(point.index as i32)?;
                                 let id = self.search_image_id_by_des(&des)?;
-                                *results.entry(id).or_insert(0.) +=
-                                    255.0 / point.distance.max(1) as f32 / OPTS.knn_k as f32;
+                                results.entry(id).or_insert(vec![]).push(1. - point.distance as f32 / 256.);
                             }
                         }
                         Ok(())
@@ -195,7 +194,7 @@ impl ImageDb {
                 .iter()
                 .map(|item| {
                     self.search_image_path_by_id(*item.key())
-                        .map(|image_path| (*item.value(), image_path))
+                        .map(|image_path| (100. * wilson_score(item.value()), image_path))
                 })
                 .collect::<Result<Vec<_>>>()?;
             results.sort_unstable_by(|a, b| b.0.partial_cmp(&a.0).unwrap());

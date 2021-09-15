@@ -49,7 +49,7 @@ pub fn imwrite(filename: &str, img: &dyn core::ToInputArray) -> opencv::Result<b
 
 pub fn adjust_image_size(img: &Mat, width: i32, height: i32) -> opencv::Result<Mat> {
     if img.rows() <= height || img.cols() <= width {
-        return Ok(img.clone())
+        return Ok(img.clone());
     }
     let (ow, oh) = (img.cols() as f64, img.rows() as f64);
     let scale = (height as f64 / oh).min(width as f64 / ow);
@@ -133,4 +133,20 @@ pub fn read_line(prompt: &str) -> anyhow::Result<String> {
         anyhow::bail!("EOF");
     }
     Ok(String::from_utf8(v)?.trim().to_owned())
+}
+
+/// 威尔逊得分
+/// 基于：https://www.jianshu.com/p/4d2b45918958
+pub fn wilson_score(scores: &[f32]) -> f32 {
+    let count = scores.len() as f32;
+    if count == 0. {
+        return 0.;
+    }
+    let mean = scores.iter().sum::<f32>() / count;
+    let var = scores.iter().map(|&a| (mean - a).powi(2)).sum::<f32>() / count;
+    // 98% 置信度
+    let z = 2.326f32;
+
+    (mean + z.powi(2) / (2. * count) - ((z / (2. * count)) * (4. * count * var + z.powi(2)).sqrt()))
+        / (1. + z.powi(2) / count)
 }
