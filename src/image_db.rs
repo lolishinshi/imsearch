@@ -5,7 +5,7 @@ use std::sync::atomic::{AtomicUsize, Ordering};
 use std::time::Duration;
 
 use crate::config::{OPTS, THREAD_NUM};
-use crate::knn::KnnSearcher;
+use crate::knn::{KnnSearcher, FaissSearcher};
 use crate::slam3_orb::Slam3ORB;
 use crate::utils;
 use crate::utils::{wilson_score, TimeMeasure};
@@ -151,19 +151,14 @@ impl ImageDb {
 
                 scope.spawn(move |_| -> Result<()> {
                     let mut flann = time.measure("building", || {
-                        let mut v = KnnSearcher::new(
-                            &train_des,
-                            OPTS.lsh_table_number,
-                            OPTS.lsh_key_size,
-                            OPTS.lsh_probe_level,
-                            OPTS.search_checks,
-                        );
-                        v.build();
+                        let mut v = FaissSearcher::new(256, "BIVF1024");
+                        v.train(&train_des.row_range(&core::Range::new(0, 40000).unwrap()).unwrap());
+                        v.add(&train_des);
                         v
                     });
 
                     let matches =
-                        time.measure("searching", || flann.knn_search(&query_des, OPTS.knn_k));
+                        time.measure("searching", || flann.search(&query_des, OPTS.knn_k));
 
                     time.measure("recording", || -> Result<()> {
                         for match_ in matches {

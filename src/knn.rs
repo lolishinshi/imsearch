@@ -1,6 +1,7 @@
 use itertools::Itertools;
 use opencv::prelude::*;
-use std::ffi::c_void;
+use std::ffi::{c_void};
+use std::os::raw::c_char;
 
 extern "C" {
     fn knn_searcher_init(
@@ -20,6 +21,94 @@ extern "C" {
         checks: i32,
     ) -> i32;
     fn knn_searcher_delete(this: *const c_void);
+
+    fn faiss_indexBinary_factory(d: i32, description: *const c_char) -> *mut c_void;
+
+    fn faiss_IndexBinary_train(index: *mut c_void, n: i64, x: *const u8);
+
+    fn faiss_IndexBinary_add(index: *mut c_void, n: i64, x: *const u8);
+
+    fn faiss_IndexBinary_add_with_ids(index: *mut c_void, n: i64, x: *const u8, xids: *const i64);
+
+    fn faiss_IndexBinary_search(
+        index: *mut c_void,
+        n: i64,
+        x: *const u8,
+        k: i64,
+        distances: *const i32,
+        labels: *const i64,
+    );
+
+    fn faiss_IndexBinary_delete(index: *mut c_void);
+
+    fn faiss_write_index_binary(index: *mut c_void, f: *mut libc::FILE);
+
+    fn faiss_read_index_binary(f: *mut libc::FILE, io_flags: i32) -> *const c_void;
+}
+
+pub struct FaissSearcher<'a> {
+    index: *mut c_void,
+    d: i32,
+    _phantom: std::marker::PhantomData<&'a u8>,
+}
+
+impl<'a> FaissSearcher<'a> {
+    pub fn new(d: i32, description: &str) -> Self {
+        let description = std::ffi::CString::new(description).unwrap();
+        let index = unsafe { faiss_indexBinary_factory(d, description.as_ptr()) };
+        Self {
+            index,
+            d,
+            _phantom: Default::default(),
+        }
+    }
+
+    // TODO: 替换掉 OpenCV 的 Mat
+    pub fn train(&mut self, v: &Mat) {
+        assert_eq!(v.cols() * 8, self.d);
+        unsafe {
+            faiss_IndexBinary_train(self.index, v.rows() as i64, v.data().unwrap() as *const u8)
+        }
+    }
+
+    pub fn add(&mut self, v: &'a Mat) {
+        assert_eq!(v.cols() * 8, self.d);
+        unsafe {
+            faiss_IndexBinary_add(self.index, v.rows() as i64, v.data().unwrap() as *const u8)
+        }
+    }
+
+    pub fn search(&self, points: &Mat, knn: usize) -> Vec<Vec<Neighbor>> {
+        assert_eq!(points.cols() * 8, self.d);
+        let mut dists = vec![0i32; points.rows() as usize * knn];
+        let mut indices = vec![0i64; points.rows() as usize * knn];
+        unsafe {
+            faiss_IndexBinary_search(
+                self.index,
+                points.rows() as i64,
+                points.data().unwrap() as *const u8,
+                knn as i64,
+                dists.as_ptr(),
+                indices.as_ptr(),
+            )
+        }
+
+        indices
+            .into_iter()
+            .zip(dists.into_iter())
+            .map(|(index, distance)| Neighbor { index: index as usize, distance: distance as u32 })
+            .chunks(knn)
+            .into_iter()
+            .map(|chunk| chunk.collect())
+            .collect()
+    }
+
+}
+
+impl<'a> Drop for FaissSearcher<'a> {
+    fn drop(&mut self) {
+        unsafe { faiss_IndexBinary_delete(self.index) }
+    }
 }
 
 pub struct Neighbor {
