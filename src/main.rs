@@ -2,6 +2,7 @@ use imsearch::config::*;
 use imsearch::knn::KnnSearcher;
 use imsearch::slam3_orb::Slam3ORB;
 use imsearch::utils;
+use imsearch::utils::wilson_score;
 use imsearch::ImageDb;
 use itertools::Itertools;
 use opencv::prelude::*;
@@ -137,8 +138,10 @@ fn start_repl(opts: &Opts, config: &StartRepl) -> anyhow::Result<()> {
                 let (d, r) = (point.index / OPTS.batch_size, point.index % OPTS.batch_size);
                 let des = train_des[d].row(r as i32)?;
                 let id = db.search_image_id_by_des(&des)?;
-                *results.entry(id).or_insert(0.) +=
-                    255.0 / point.distance.max(1) as f32 / OPTS.knn_k as f32;
+                results
+                    .entry(id)
+                    .or_insert(vec![])
+                    .push(1. - point.distance as f32 / 256.);
             }
         }
 
@@ -146,7 +149,7 @@ fn start_repl(opts: &Opts, config: &StartRepl) -> anyhow::Result<()> {
             .iter()
             .map(|(image_id, score)| {
                 db.search_image_path_by_id(*image_id)
-                    .map(|image_path| (*score, image_path))
+                    .map(|image_path| (100. * wilson_score(score), image_path))
             })
             .collect::<Result<Vec<_>, _>>()?;
         result.sort_unstable_by(|a, b| b.0.partial_cmp(&a.0).unwrap());

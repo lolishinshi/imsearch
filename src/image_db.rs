@@ -8,7 +8,7 @@ use crate::config::{OPTS, THREAD_NUM};
 use crate::knn::KnnSearcher;
 use crate::slam3_orb::Slam3ORB;
 use crate::utils;
-use crate::utils::{TimeMeasure, wilson_score};
+use crate::utils::{wilson_score, TimeMeasure};
 use anyhow::Result;
 use dashmap::DashMap;
 use itertools::Itertools;
@@ -173,7 +173,10 @@ impl ImageDb {
                                 }
                                 let des = train_des.row(point.index as i32)?;
                                 let id = self.search_image_id_by_des(&des)?;
-                                results.entry(id).or_insert(vec![]).push(1. - point.distance as f32 / 256.);
+                                results
+                                    .entry(id)
+                                    .or_insert(vec![])
+                                    .push(1. - point.distance as f32 / 256.);
                             }
                         }
                         Ok(())
