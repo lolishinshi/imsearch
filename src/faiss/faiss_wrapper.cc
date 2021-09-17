@@ -62,13 +62,14 @@ void faiss_IndexBinary_delete(IndexBinary* index)
     }
 }
 
-void faiss_write_index_binary(const IndexBinary* idx, FILE* f)
+void faiss_write_index_binary(const IndexBinary* idx, const char *fname)
 {
-    return write_index_binary(idx, f);
+    return write_index_binary(idx, fname);
 }
 
-IndexBinary* faiss_read_index_binary(FILE* f, int io_flags)
+IndexBinary* faiss_read_index_binary(const char *fname, int io_flags)
 {
-    return read_index_binary(f, io_flags);
+    return read_index_binary(fname, io_flags);
 }
+
 }

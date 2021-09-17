@@ -1,7 +1,8 @@
 use itertools::Itertools;
 use opencv::prelude::*;
-use std::ffi::{c_void};
+use std::ffi::{c_void, CString, CStr};
 use std::os::raw::c_char;
+use std::os::unix::prelude::AsRawFd;
 
 extern "C" {
     fn knn_searcher_init(
@@ -41,9 +42,9 @@ extern "C" {
 
     fn faiss_IndexBinary_delete(index: *mut c_void);
 
-    fn faiss_write_index_binary(index: *mut c_void, f: *mut libc::FILE);
+    fn faiss_write_index_binary(index: *mut c_void, f: *const c_char);
 
-    fn faiss_read_index_binary(f: *mut libc::FILE, io_flags: i32) -> *const c_void;
+    fn faiss_read_index_binary(f: *const c_char, io_flags: i32) -> *mut c_void;
 }
 
 pub struct FaissSearcher<'a> {
@@ -61,6 +62,21 @@ impl<'a> FaissSearcher<'a> {
             d,
             _phantom: Default::default(),
         }
+    }
+
+    pub fn from_file(path: &str, d: i32) -> Self {
+        let path = CString::new(path).unwrap();
+        let index = unsafe { faiss_read_index_binary(path.as_ptr(), 0) };
+        Self {
+            index,
+            d,
+            _phantom: Default::default(),
+        }
+    }
+
+    pub fn write_file(&self, path: &str) {
+        let path = CString::new(path).unwrap();
+        unsafe { faiss_write_index_binary(self.index, path.as_ptr()) }
     }
 
     // TODO: 替换掉 OpenCV 的 Mat

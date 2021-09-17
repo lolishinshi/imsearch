@@ -1,5 +1,5 @@
 use imsearch::config::*;
-use imsearch::knn::KnnSearcher;
+use imsearch::knn::{KnnSearcher, FaissSearcher};
 use imsearch::slam3_orb::Slam3ORB;
 use imsearch::utils;
 use imsearch::utils::wilson_score;
@@ -13,6 +13,7 @@ use std::collections::HashMap;
 use std::path::PathBuf;
 use std::time::Instant;
 use walkdir::WalkDir;
+use std::io::Write;
 
 fn show_keypoints(opts: &Opts, config: &ShowKeypoints) -> opencv::Result<()> {
     let image = utils::imread(&config.image)?;
@@ -103,19 +104,15 @@ fn start_repl(opts: &Opts, config: &StartRepl) -> anyhow::Result<()> {
     log::debug!("Reading data");
     let train_des = db.get_all_descriptors()?;
     log::debug!("Building index");
-    let mut flann = KnnSearcher::new(
-        &train_des[0],
-        opts.lsh_table_number,
-        opts.lsh_key_size,
-        opts.lsh_probe_level,
-        opts.search_checks,
-    );
-    for des in &train_des[1..] {
+    let mut flann = FaissSearcher::from_file("/home/ll/.config/imsearch/imsearch.index", 256);
+    for (i, des) in train_des.iter().enumerate() {
+        print!("\r{}/{}", i, train_des.len());
+        std::io::stdout().flush().unwrap();
         flann.add(des);
     }
-    flann.build();
     let mut orb = Slam3ORB::from(&*OPTS);
 
+    log::debug!("Start REPL");
     while let Ok(line) = utils::read_line(&config.prompt) {
         log::debug!("Searching {:?}", line);
         if !PathBuf::from(&line).exists() {
@@ -129,7 +126,7 @@ fn start_repl(opts: &Opts, config: &StartRepl) -> anyhow::Result<()> {
 
         let mut results = HashMap::new();
 
-        let matches = flann.knn_search(&query_des, OPTS.knn_k);
+        let matches = flann.search(&query_des, OPTS.knn_k);
         for match_ in matches {
             for point in match_ {
                 if point.distance > OPTS.distance {
