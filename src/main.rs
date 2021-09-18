@@ -1,5 +1,5 @@
 use imsearch::config::*;
-use imsearch::knn::{KnnSearcher, FaissSearcher};
+use imsearch::knn::{FaissSearcher, KnnSearcher};
 use imsearch::slam3_orb::Slam3ORB;
 use imsearch::utils;
 use imsearch::utils::wilson_score;
@@ -10,10 +10,10 @@ use opencv::{core, features2d, types};
 use rayon::prelude::*;
 use regex::Regex;
 use std::collections::HashMap;
+use std::io::Write;
 use std::path::PathBuf;
 use std::time::Instant;
 use walkdir::WalkDir;
-use std::io::Write;
 
 fn show_keypoints(opts: &Opts, config: &ShowKeypoints) -> opencv::Result<()> {
     let image = utils::imread(&config.image)?;

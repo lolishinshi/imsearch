@@ -5,13 +5,14 @@ use std::sync::atomic::{AtomicUsize, Ordering};
 use std::time::Duration;
 
 use crate::config::{OPTS, THREAD_NUM};
-use crate::knn::{KnnSearcher, FaissSearcher};
+use crate::knn::{FaissSearcher, KnnSearcher};
 use crate::slam3_orb::Slam3ORB;
 use crate::utils;
 use crate::utils::{wilson_score, TimeMeasure};
 use anyhow::Result;
 use dashmap::DashMap;
 use itertools::Itertools;
+use num_cpus::get;
 use opencv::core;
 use opencv::prelude::*;
 use rocksdb::{IteratorMode, ReadOptions, WriteBatch, DB};
@@ -152,7 +153,11 @@ impl ImageDb {
                 scope.spawn(move |_| -> Result<()> {
                     let mut flann = time.measure("building", || {
                         let mut v = FaissSearcher::new(256, "BIVF1024");
-                        v.train(&train_des.row_range(&core::Range::new(0, 40000).unwrap()).unwrap());
+                        v.train(
+                            &train_des
+                                .row_range(&core::Range::new(0, 40000).unwrap())
+                                .unwrap(),
+                        );
                         v.add(&train_des);
                         v
                     });

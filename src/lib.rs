@@ -1,4 +1,5 @@
 pub mod config;
+pub mod db;
 pub mod image_db;
 pub mod knn;
 pub mod slam3_orb;

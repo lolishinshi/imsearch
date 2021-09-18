@@ -1,6 +1,6 @@
 use itertools::Itertools;
 use opencv::prelude::*;
-use std::ffi::{c_void, CString, CStr};
+use std::ffi::{c_void, CStr, CString};
 use std::os::raw::c_char;
 use std::os::unix::prelude::AsRawFd;
 
@@ -112,13 +112,15 @@ impl<'a> FaissSearcher<'a> {
         indices
             .into_iter()
             .zip(dists.into_iter())
-            .map(|(index, distance)| Neighbor { index: index as usize, distance: distance as u32 })
+            .map(|(index, distance)| Neighbor {
+                index: index as usize,
+                distance: distance as u32,
+            })
             .chunks(knn)
             .into_iter()
             .map(|chunk| chunk.collect())
             .collect()
     }
-
 }
 
 impl<'a> Drop for FaissSearcher<'a> {
