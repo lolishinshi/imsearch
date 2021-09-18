@@ -4,7 +4,7 @@ use std::path::Path;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::time::Duration;
 
-use crate::config::{OPTS, THREAD_NUM};
+use crate::config::{ScoreType, OPTS, THREAD_NUM};
 use crate::knn::KnnSearcher;
 use crate::slam3_orb::Slam3ORB;
 use crate::utils;
@@ -196,8 +196,12 @@ impl ImageDb {
             let mut results = results
                 .iter()
                 .map(|item| {
-                    self.search_image_path_by_id(*item.key())
-                        .map(|image_path| (100. * wilson_score(item.value()), image_path))
+                    self.search_image_path_by_id(*item.key()).map(|image_path| {
+                        match OPTS.score_type {
+                            ScoreType::Wilson => (100. * wilson_score(item.value()), image_path),
+                            ScoreType::Count => (item.len() as f32, image_path),
+                        }
+                    })
                 })
                 .collect::<Result<Vec<_>>>()?;
             results.sort_unstable_by(|a, b| b.0.partial_cmp(&a.0).unwrap());

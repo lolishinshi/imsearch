@@ -67,6 +67,9 @@ pub struct Opts {
     #[structopt(long, value_name = "N", default_value = "64")]
     pub distance: u32,
 
+    /// How to calculate the score
+    #[structopt(long, value_name = "TYPE", default_value = "wilson", possible_values = &["wilson", "count"])]
+    pub score_type: ScoreType,
     /// How many results to show
     #[structopt(long, value_name = "COUNT", default_value = "10")]
     pub output_count: usize,
@@ -139,6 +142,24 @@ pub struct StartRepl {
 pub enum OutputFormat {
     Json,
     Table,
+}
+
+#[derive(StructOpt)]
+pub enum ScoreType {
+    Wilson,
+    Count,
+}
+
+impl FromStr for ScoreType {
+    type Err = String;
+
+    fn from_str(s: &str) -> Result<Self, String> {
+        match s {
+            "wilson" => Ok(Self::Wilson),
+            "count" => Ok(Self::Count),
+            _ => unreachable!(),
+        }
+    }
 }
 
 impl FromStr for OutputFormat {

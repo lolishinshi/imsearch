@@ -149,7 +149,10 @@ fn start_repl(opts: &Opts, config: &StartRepl) -> anyhow::Result<()> {
             .iter()
             .map(|(image_id, score)| {
                 db.search_image_path_by_id(*image_id)
-                    .map(|image_path| (100. * wilson_score(score), image_path))
+                    .map(|image_path| match OPTS.score_type {
+                        ScoreType::Wilson => (100. * wilson_score(score), image_path),
+                        ScoreType::Count => (score.len() as f32, image_path),
+                    })
             })
             .collect::<Result<Vec<_>, _>>()?;
         result.sort_unstable_by(|a, b| b.0.partial_cmp(&a.0).unwrap());
