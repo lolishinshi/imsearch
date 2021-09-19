@@ -22,8 +22,8 @@ pub fn detect_and_compute(
     Ok((kps, des))
 }
 
-pub fn imread(filename: &str) -> opencv::Result<Mat> {
-    let mut img = imgcodecs::imread(filename, imgcodecs::IMREAD_GRAYSCALE)?;
+pub fn imread<S: AsRef<str>>(filename: S) -> opencv::Result<Mat> {
+    let mut img = imgcodecs::imread(filename.as_ref(), imgcodecs::IMREAD_GRAYSCALE)?;
     if img.cols() > 1920 || img.rows() > 1080 {
         img = adjust_image_size(&img, 1920, 1080)?;
     }

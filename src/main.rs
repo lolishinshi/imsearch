@@ -106,9 +106,14 @@ fn start_repl(opts: &Opts, config: &StartRepl) -> anyhow::Result<()> {
     log::debug!("Building index");
     let mut flann = FaissSearcher::from_file("/home/ll/.config/imsearch/imsearch.index", 256);
     for (i, des) in train_des.iter().enumerate() {
-        print!("\r{}/{}", i, train_des.len());
+        println!("{}/{}", i, train_des.len());
         std::io::stdout().flush().unwrap();
         flann.add(des);
+        flann.write_file("/home/ll/.config/imsearch/imsearch.index.new");
+        std::fs::write(
+            "/home/ll/.config/imsearch/imsearch.index.id",
+            format!("{}/{}", i, train_des.len()),
+        );
     }
     let mut orb = Slam3ORB::from(&*OPTS);
 
