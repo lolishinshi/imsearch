@@ -149,5 +149,6 @@ fn main() {
         .file("src/faiss/index_factory_c.cpp")
         .file("src/faiss/index_io_c.cpp")
         .file("src/faiss/IndexBinary_c.cpp")
+        .flag("-fopenmp")
         .compile("faiss_wrapper");
 }
