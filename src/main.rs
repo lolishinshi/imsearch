@@ -125,6 +125,7 @@ fn start_repl(opts: &Opts, config: &StartRepl) -> anyhow::Result<()> {
 
         log::debug!("Searching {:?}", line);
         let start = Instant::now();
+
         let mut result = db.search(&index, line, &mut orb, 3, opts.distance)?;
         result.truncate(opts.output_count);
 

@@ -96,6 +96,7 @@ impl IMDB {
 
         let mut results = counter
             .into_iter()
+            // TODO: score type
             .map(|(image, scores)| (100. * wilson_score(&*scores), image))
             .collect::<Vec<_>>();
         results.sort_unstable_by(|a, b| b.0.partial_cmp(&a.0).unwrap());
