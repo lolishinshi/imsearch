@@ -1,29 +1,16 @@
+use crate::matrix::Matrix;
 use itertools::Itertools;
-use opencv::prelude::*;
-use std::ffi::{c_void, CStr, CString};
+use std::ffi::{c_void, CString};
 use std::os::raw::c_char;
-use std::os::unix::prelude::AsRawFd;
 
 extern "C" {
-    fn knn_searcher_init(
-        points: *const c_void,
-        table_number: u32,
-        key_size: u32,
-        multi_probe_level: u32,
-    ) -> *const c_void;
-    fn knn_searcher_add(this: *const c_void, points: *const c_void);
-    fn knn_searcher_build_index(this: *const c_void);
-    fn knn_searcher_search(
-        this: *const c_void,
-        points: *const c_void,
-        indices: *mut usize,
-        dists: *mut u32,
-        knn: usize,
-        checks: i32,
-    ) -> i32;
-    fn knn_searcher_delete(this: *const c_void);
+    fn faiss_index_binary_factory(index: *mut *mut c_void, d: i32, description: *const c_char);
 
-    fn faiss_indexBinary_factory(d: i32, description: *const c_char) -> *mut c_void;
+    fn faiss_IndexBinary_d(index: *const c_void) -> i32;
+
+    fn faiss_IndexBinary_ntotal(index: *const c_void) -> i64;
+
+    fn faiss_IndexBinary_is_trained(index: *const c_void) -> bool;
 
     fn faiss_IndexBinary_train(index: *mut c_void, n: i64, x: *const u8);
 
@@ -32,81 +19,117 @@ extern "C" {
     fn faiss_IndexBinary_add_with_ids(index: *mut c_void, n: i64, x: *const u8, xids: *const i64);
 
     fn faiss_IndexBinary_search(
-        index: *mut c_void,
+        index: *const c_void,
         n: i64,
         x: *const u8,
         k: i64,
-        distances: *const i32,
-        labels: *const i64,
+        distances: *mut i32,
+        labels: *mut i64,
     );
 
-    fn faiss_IndexBinary_delete(index: *mut c_void);
+    fn faiss_IndexBinary_free(index: *mut c_void);
 
-    fn faiss_write_index_binary(index: *mut c_void, f: *const c_char);
+    fn faiss_write_index_binary_fname(index: *const c_void, f: *const c_char);
 
-    fn faiss_read_index_binary(f: *const c_char, io_flags: i32) -> *mut c_void;
+    fn faiss_read_index_binary_fname(f: *const c_char, io_flags: i32, index: *mut *mut c_void);
 }
 
-pub struct FaissSearcher<'a> {
+pub struct Neighbor {
+    pub index: usize,
+    pub distance: u32,
+}
+
+pub struct FaissSearcher {
     index: *mut c_void,
     d: i32,
-    _phantom: std::marker::PhantomData<&'a u8>,
 }
 
-impl<'a> FaissSearcher<'a> {
+impl FaissSearcher {
     pub fn new(d: i32, description: &str) -> Self {
+        let index = std::ptr::null_mut();
         let description = std::ffi::CString::new(description).unwrap();
-        let index = unsafe { faiss_indexBinary_factory(d, description.as_ptr()) };
-        Self {
-            index,
-            d,
-            _phantom: Default::default(),
+        unsafe {
+            faiss_index_binary_factory(&index as *const _ as *mut _, d, description.as_ptr());
         }
+        Self { index, d }
     }
 
-    pub fn from_file(path: &str, d: i32) -> Self {
+    pub fn from_file(path: &str, mmap: bool) -> Self {
+        let index = std::ptr::null_mut();
         let path = CString::new(path).unwrap();
-        let index = unsafe { faiss_read_index_binary(path.as_ptr(), 0) };
-        Self {
-            index,
-            d,
-            _phantom: Default::default(),
+        let io_flags = match mmap {
+            true => 0x8 | 0x646f0000,
+            _ => 0,
+        };
+        unsafe {
+            faiss_read_index_binary_fname(path.as_ptr(), io_flags, &index as *const _ as *mut _);
         }
+        let d = unsafe { faiss_IndexBinary_d(index) };
+        Self { index, d }
+    }
+
+    pub fn ntotal(&self) -> i64 {
+        unsafe { faiss_IndexBinary_ntotal(self.index) }
+    }
+
+    pub fn is_trained(&self) -> bool {
+        unsafe { faiss_IndexBinary_is_trained(self.index) }
     }
 
     pub fn write_file(&self, path: &str) {
         let path = CString::new(path).unwrap();
-        unsafe { faiss_write_index_binary(self.index, path.as_ptr()) }
-    }
-
-    // TODO: 替换掉 OpenCV 的 Mat
-    pub fn train(&mut self, v: &Mat) {
-        assert_eq!(v.cols() * 8, self.d);
         unsafe {
-            faiss_IndexBinary_train(self.index, v.rows() as i64, v.data().unwrap() as *const u8)
+            faiss_write_index_binary_fname(self.index, path.as_ptr());
         }
     }
 
-    pub fn add(&mut self, v: &'a Mat) {
-        assert_eq!(v.cols() * 8, self.d);
+    pub fn train<M>(&mut self, v: &M)
+    where
+        M: Matrix,
+    {
+        assert_eq!(v.width() * 8, self.d as usize);
         unsafe {
-            faiss_IndexBinary_add(self.index, v.rows() as i64, v.data().unwrap() as *const u8)
+            faiss_IndexBinary_train(self.index, v.height() as i64, v.as_ptr());
         }
     }
 
-    pub fn search(&self, points: &Mat, knn: usize) -> Vec<Vec<Neighbor>> {
-        assert_eq!(points.cols() * 8, self.d);
-        let mut dists = vec![0i32; points.rows() as usize * knn];
-        let mut indices = vec![0i64; points.rows() as usize * knn];
+    pub fn add<M>(&mut self, v: &M)
+    where
+        M: Matrix,
+    {
+        assert_eq!(v.width() * 8, self.d as usize);
+        unsafe {
+            faiss_IndexBinary_add(self.index, v.height() as i64, v.as_ptr());
+        }
+    }
+
+    pub fn add_with_ids<M>(&mut self, v: &M, ids: &[i64])
+    where
+        M: Matrix,
+    {
+        assert_eq!(v.width() * 8, self.d as usize);
+        assert_eq!(v.height(), ids.len());
+        unsafe {
+            faiss_IndexBinary_add_with_ids(self.index, v.height() as i64, v.as_ptr(), ids.as_ptr());
+        }
+    }
+
+    pub fn search<M>(&self, points: &M, knn: usize) -> Vec<Vec<Neighbor>>
+    where
+        M: Matrix,
+    {
+        assert_eq!(points.width() * 8, self.d as usize);
+        let mut dists = vec![0i32; points.height() * knn];
+        let mut indices = vec![0i64; points.height() * knn];
         unsafe {
             faiss_IndexBinary_search(
                 self.index,
-                points.rows() as i64,
-                points.data().unwrap() as *const u8,
+                points.height() as i64,
+                points.as_ptr(),
                 knn as i64,
-                dists.as_ptr(),
-                indices.as_ptr(),
-            )
+                dists.as_mut_ptr(),
+                indices.as_mut_ptr(),
+            );
         }
 
         indices
@@ -123,85 +146,10 @@ impl<'a> FaissSearcher<'a> {
     }
 }
 
-impl<'a> Drop for FaissSearcher<'a> {
+impl Drop for FaissSearcher {
     fn drop(&mut self) {
-        unsafe { faiss_IndexBinary_delete(self.index) }
-    }
-}
-
-pub struct Neighbor {
-    pub index: usize,
-    pub distance: u32,
-}
-
-pub struct KnnSearcher<'a> {
-    index: *const c_void,
-    checks: i32,
-    _phantom: std::marker::PhantomData<&'a u8>,
-}
-
-impl<'a> KnnSearcher<'a> {
-    pub fn new(
-        points: &'a Mat,
-        table_number: u32,
-        key_size: u32,
-        multi_probe_level: u32,
-        checks: i32,
-    ) -> Self {
-        assert_eq!(points.cols(), 32);
-        assert!(checks >= -2);
-        let index = unsafe {
-            knn_searcher_init(
-                points.as_raw_Mat(),
-                table_number,
-                key_size,
-                multi_probe_level,
-            )
-        };
-        assert!(!index.is_null());
-        Self {
-            index,
-            checks,
-            _phantom: Default::default(),
-        }
-    }
-
-    pub fn add(&mut self, points: &'a Mat) {
-        assert_eq!(points.cols(), 32);
-        unsafe { knn_searcher_add(self.index, points.as_raw_Mat()) }
-    }
-
-    pub fn knn_search(&mut self, points: &Mat, knn: usize) -> Vec<Vec<Neighbor>> {
-        assert_eq!(points.cols(), 32);
-        let mut indices = vec![0usize; points.rows() as usize * knn];
-        let mut dists = vec![0u32; points.rows() as usize * knn];
         unsafe {
-            knn_searcher_search(
-                self.index,
-                points.as_raw_Mat(),
-                indices.as_mut_ptr(),
-                dists.as_mut_ptr(),
-                knn,
-                self.checks,
-            )
-        };
-        indices
-            .into_iter()
-            .zip(dists.into_iter())
-            .map(|(index, distance)| Neighbor { index, distance })
-            .chunks(knn)
-            .into_iter()
-            .map(|chunk| chunk.collect())
-            .collect()
-    }
-
-    pub fn build(&mut self) {
-        unsafe { knn_searcher_build_index(self.index) }
-    }
-}
-
-impl<'a> Drop for KnnSearcher<'a> {
-    fn drop(&mut self) {
-        unsafe { knn_searcher_delete(self.index) }
+            faiss_IndexBinary_free(self.index);
+        }
     }
 }

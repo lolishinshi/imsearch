@@ -1,6 +1,4 @@
 use opencv::prelude::*;
-use std::cmp::Ordering;
-use std::convert::Infallible;
 
 /// An abstraction of 2d u8 array
 pub trait Matrix {
@@ -13,28 +11,10 @@ pub trait Matrix {
     /// Get specific line
     fn line(&self, n: usize) -> &[u8];
     /// Iterate over lines
-    fn iter_lines(&self) -> MatrixLineIterator;
-}
-
-impl Matrix for Mat {
-    fn width(&self) -> usize {
-        self.cols() as usize
-    }
-
-    fn height(&self) -> usize {
-        self.rows() as usize
-    }
-
-    fn as_ptr(&self) -> *const u8 {
-        self.data().unwrap() as *const u8
-    }
-
-    fn line(&self, n: usize) -> &[u8] {
-        let cols = self.cols() as usize;
-        &self.data_typed::<u8>().unwrap()[n * cols..(n + 1) * cols]
-    }
-
-    fn iter_lines(&self) -> MatrixLineIterator {
+    fn iter_lines(&self) -> MatrixLineIterator
+    where
+        Self: Sized,
+    {
         MatrixLineIterator {
             matrix: self,
             current_line: 0,
@@ -66,13 +46,77 @@ impl<'a> Iterator for MatrixLineIterator<'a> {
 
 impl<'a> ExactSizeIterator for MatrixLineIterator<'a> {}
 
+impl Matrix for Mat {
+    fn width(&self) -> usize {
+        self.cols() as usize
+    }
+
+    fn height(&self) -> usize {
+        self.rows() as usize
+    }
+
+    fn as_ptr(&self) -> *const u8 {
+        self.data().unwrap() as *const u8
+    }
+
+    fn line(&self, n: usize) -> &[u8] {
+        let cols = self.cols() as usize;
+        &self.data_typed::<u8>().unwrap()[n * cols..(n + 1) * cols]
+    }
+}
+
+pub struct Matrix2D {
+    width: usize,
+    height: usize,
+    data: Vec<u8>,
+}
+
+impl Matrix2D {
+    pub fn new(width: usize) -> Self {
+        Self {
+            width,
+            height: 0,
+            data: vec![],
+        }
+    }
+
+    pub fn push(&mut self, v: &[u8]) {
+        assert_eq!(self.width, v.len());
+        self.height += 1;
+        self.data.extend_from_slice(v);
+    }
+
+    pub fn clear(&mut self) {
+        self.height = 0;
+        self.data.clear();
+    }
+}
+
+impl Matrix for Matrix2D {
+    fn width(&self) -> usize {
+        self.width
+    }
+
+    fn height(&self) -> usize {
+        self.height
+    }
+
+    fn as_ptr(&self) -> *const u8 {
+        self.data.as_ptr()
+    }
+
+    fn line(&self, n: usize) -> &[u8] {
+        &self.data[n * self.width..(n + 1) * self.width]
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::Matrix;
     use opencv::prelude::*;
 
     #[test]
-    fn into_iter() {
+    fn mat_into_iter() {
         let mat = Mat::from_slice_2d(&[[1u8, 2], [3, 4]]).unwrap();
         let mut iter = mat.iter_lines();
 

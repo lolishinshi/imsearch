@@ -128,11 +128,9 @@ fn get_version_from_headers(header_dir: &Path) -> Option<Version> {
 
 fn main() {
     println!("cargo:rerun-if-changed=src/ORB_SLAM3");
-    println!("cargo:rerun-if-changed=src/FLANN");
     println!("cargo:rerun-if-changed=src/faiss");
     println!("cargo:rustc-link-lib=gomp");
     println!("cargo:rustc-link-lib=stdc++");
-    println!("cargo:rustc-link-lib=lz4");
     println!("cargo:rustc-link-lib=faiss_avx2");
     println!("cargo:rustc-link-lib=blas");
     println!("cargo:rustc-link-lib=lapack");
@@ -146,16 +144,10 @@ fn main() {
         .compile("ORBextractor3");
 
     cc::Build::new()
-        .file("src/FLANN/FLANNwrapper.cc")
-        .includes(&library.include_paths)
-        .include("src/FLANN")
-        .flag("-llz4")
-        .flag("-fPIC")
-        .flag("-Wno-unused")
-        .flag("-fopenmp")
-        .compile("FLANNwrapper");
-
-    cc::Build::new()
-        .file("src/faiss/faiss_wrapper.cc")
+        .include("src/faiss")
+        .file("src/faiss/error_impl.cpp")
+        .file("src/faiss/index_factory_c.cpp")
+        .file("src/faiss/index_io_c.cpp")
+        .file("src/faiss/IndexBinary_c.cpp")
         .compile("faiss_wrapper");
 }

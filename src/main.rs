@@ -1,19 +1,23 @@
+use std::cell::RefCell;
+use std::path::PathBuf;
+use std::time::Instant;
+
 use imsearch::config::*;
-use imsearch::knn::{FaissSearcher, KnnSearcher};
 use imsearch::slam3_orb::Slam3ORB;
 use imsearch::utils;
-use imsearch::utils::wilson_score;
-use imsearch::ImageDb;
-use itertools::Itertools;
+use imsearch::IMDB;
+use once_cell::sync::Lazy;
 use opencv::prelude::*;
 use opencv::{core, features2d, types};
 use rayon::prelude::*;
 use regex::Regex;
-use std::collections::HashMap;
-use std::io::Write;
-use std::path::PathBuf;
-use std::time::Instant;
+use structopt::StructOpt;
 use walkdir::WalkDir;
+
+pub static OPTS: Lazy<Opts> = Lazy::new(Opts::from_args);
+thread_local! {
+    static ORB: RefCell<Slam3ORB> = RefCell::new(Slam3ORB::from(&*OPTS));
+}
 
 fn show_keypoints(opts: &Opts, config: &ShowKeypoints) -> opencv::Result<()> {
     let image = utils::imread(&config.image)?;
@@ -72,12 +76,13 @@ fn show_matches(opts: &Opts, config: &ShowMatches) -> opencv::Result<()> {
 
 fn add_images(opts: &Opts, config: &AddImages) -> anyhow::Result<()> {
     let re = Regex::new(&config.suffix.replace(',', "|")).expect("failed to build regex");
-    let db = ImageDb::from(opts);
+    let db = IMDB::new(opts.conf_dir.clone(), false)?;
     WalkDir::new(&config.path)
         .into_iter()
+        .filter_map(|entry| entry.ok())
         .par_bridge()
         .for_each(|entry| {
-            let entry = entry.unwrap().into_path();
+            let entry = entry.into_path();
             if entry
                 .extension()
                 .map(|s| re.is_match(&*s.to_string_lossy()))
@@ -86,76 +91,36 @@ fn add_images(opts: &Opts, config: &AddImages) -> anyhow::Result<()> {
                 return;
             }
             println!("Adding {}", entry.display());
-            db.add(entry.to_string_lossy()).unwrap_or_else(|e| {
-                eprintln!("ERROR: {}", e);
-            });
+            ORB.with(|orb| db.add_image(entry.to_string_lossy(), &mut *orb.borrow_mut()))
+                .expect("Failed to add image");
         });
     Ok(())
 }
 
 fn search_image(opts: &Opts, config: &SearchImage) -> anyhow::Result<()> {
-    let db = ImageDb::from(opts);
-    let result = db.search(&config.image)?;
+    let db = IMDB::new(opts.conf_dir.clone(), true)?;
+    let mut orb = Slam3ORB::from(opts);
+    let index = db.get_index(opts.mmap);
+    let result = db.search(&index, &config.image, &mut orb, 3, opts.distance)?;
     print_result(&result)
 }
 
 fn start_repl(opts: &Opts, config: &StartRepl) -> anyhow::Result<()> {
-    let db = ImageDb::from(opts);
-    log::debug!("Reading data");
-    let train_des = db.get_all_descriptors()?;
-    log::debug!("Building index");
-    let mut flann = FaissSearcher::from_file("/home/ll/.config/imsearch/imsearch.index", 256);
-    for (i, des) in train_des.iter().enumerate() {
-        println!("{}/{}", i, train_des.len());
-        std::io::stdout().flush().unwrap();
-        flann.add(des);
-        flann.write_file("/home/ll/.config/imsearch/imsearch.index.new");
-        std::fs::write(
-            "/home/ll/.config/imsearch/imsearch.index.id",
-            format!("{}/{}", i, train_des.len()),
-        );
-    }
-    let mut orb = Slam3ORB::from(&*OPTS);
+    let db = IMDB::new(opts.conf_dir.clone(), true)?;
+    let mut orb = Slam3ORB::from(opts);
+
+    log::debug!("Reading index");
+    let index = db.get_index(opts.mmap);
 
     log::debug!("Start REPL");
     while let Ok(line) = utils::read_line(&config.prompt) {
-        log::debug!("Searching {:?}", line);
         if !PathBuf::from(&line).exists() {
             continue;
         }
 
+        log::debug!("Searching {:?}", line);
         let start = Instant::now();
-
-        let img = utils::imread(&line)?;
-        let (_, query_des) = utils::detect_and_compute(&mut orb, &img)?;
-
-        let mut results = HashMap::new();
-
-        let matches = flann.search(&query_des, OPTS.knn_k);
-        for match_ in matches {
-            for point in match_ {
-                if point.distance > OPTS.distance {
-                    continue;
-                }
-                let (d, r) = (point.index / OPTS.batch_size, point.index % OPTS.batch_size);
-                let des = train_des[d].row(r as i32)?;
-                let id = db.search_image_id_by_des(&des)?;
-                results
-                    .entry(id)
-                    .or_insert(vec![])
-                    .push(1. - point.distance as f32 / 256.);
-            }
-        }
-
-        let mut result = results
-            .iter()
-            .map(|(image_id, score)| {
-                db.search_image_path_by_id(*image_id)
-                    .map(|image_path| (100. * wilson_score(score), image_path))
-            })
-            .collect::<Result<Vec<_>, _>>()?;
-        result.sort_unstable_by(|a, b| b.0.partial_cmp(&a.0).unwrap());
-        let result = result.into_iter().take(OPTS.output_count).collect_vec();
+        let result = db.search(&index, line, &mut orb, 3, opts.distance)?;
 
         log::debug!("Take time: {:.2}s", (Instant::now() - start).as_secs_f32());
 
@@ -163,6 +128,11 @@ fn start_repl(opts: &Opts, config: &StartRepl) -> anyhow::Result<()> {
     }
 
     Ok(())
+}
+
+fn build_index(opts: &Opts) -> anyhow::Result<()> {
+    let db = IMDB::new(opts.conf_dir.clone(), true)?;
+    db.build_database(opts.batch_size)
 }
 
 fn main() {
@@ -183,6 +153,9 @@ fn main() {
         }
         SubCommand::StartRepl(config) => {
             start_repl(&*OPTS, config).unwrap();
+        }
+        SubCommand::BuildIndex => {
+            build_index(&*OPTS).unwrap();
         }
     }
 }

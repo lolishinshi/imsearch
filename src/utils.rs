@@ -1,7 +1,10 @@
-use std::io::{Read, Write};
+use std::fs::File;
+use std::io::{self, Read, Write};
+use std::path::Path;
 use std::time::{Duration, Instant};
 
 use crate::slam3_orb::Slam3ORB;
+use blake3::Hash;
 use dashmap::DashMap;
 use opencv::features2d;
 use opencv::highgui;
@@ -149,4 +152,11 @@ pub fn wilson_score(scores: &[f32]) -> f32 {
 
     (mean + z.powi(2) / (2. * count) - ((z / (2. * count)) * (4. * count * var + z.powi(2)).sqrt()))
         / (1. + z.powi(2) / count)
+}
+
+pub fn hash_file<P: AsRef<Path>>(path: P) -> Result<Hash, io::Error> {
+    let mut file = File::open(path)?;
+    let mut data = vec![];
+    file.read_to_end(&mut data)?;
+    Ok(blake3::hash(&data))
 }

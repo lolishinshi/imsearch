@@ -1,14 +1,15 @@
-use std::path::Path;
 use std::thread;
 use std::time::Duration;
 
 use super::database::{ImageColumnFamily, MetaData};
+use crate::config::ConfDir;
+use crate::db::utils::init_column_family;
 use anyhow::Result;
 use rocksdb::{IteratorMode, Options, DB};
 
 /// check whether the database needs update
-pub(super) fn check_db_update(path: &Path) -> Result<()> {
-    let version_file = path.join("version");
+pub fn check_db_update(path: &ConfDir) -> Result<()> {
+    let version_file = path.version();
 
     // v1, v2 => v3
     if !version_file.exists() {
@@ -20,17 +21,17 @@ pub(super) fn check_db_update(path: &Path) -> Result<()> {
     Ok(())
 }
 
-fn update_from_2_to_3(path: &Path) -> Result<()> {
+fn update_from_2_to_3(path: &ConfDir) -> Result<()> {
     let opts = Options::default();
-    let image_db = DB::open_for_read_only(&opts, path.join("image.db"), true)?;
-    let features_db = DB::open_for_read_only(&opts, path.join("features.db"), true)?;
+    let image_db = DB::open_for_read_only(&opts, path.path().join("image.db"), true)?;
+    let features_db = DB::open_for_read_only(&opts, path.path().join("features.db"), true)?;
 
-    let new_db = DB::open_default("database")?;
-    new_db.create_cf(ImageColumnFamily::IdToFeature, &rocksdb::Options::default())?;
-    new_db.create_cf(ImageColumnFamily::IdToImage, &rocksdb::Options::default())?;
+    let new_db = DB::open_default(path.database())?;
 
-    let index_feature = new_db
-        .cf_handle(ImageColumnFamily::IdToFeature.as_ref())
+    init_column_family(&new_db)?;
+
+    let new_feature = new_db
+        .cf_handle(ImageColumnFamily::NewFeature.as_ref())
         .unwrap();
     let index_image = new_db
         .cf_handle(ImageColumnFamily::IdToImage.as_ref())
@@ -42,7 +43,7 @@ fn update_from_2_to_3(path: &Path) -> Result<()> {
         .cf_handle(ImageColumnFamily::MetaData.as_ref())
         .unwrap();
 
-    let mut total_features = 0usize;
+    let mut total_features = 0u64;
     for (idx, data) in features_db.iterator(IteratorMode::Start).enumerate() {
         print!("\r{}", idx);
         let idx = idx.to_le_bytes();
@@ -50,13 +51,13 @@ fn update_from_2_to_3(path: &Path) -> Result<()> {
         let image_id = data.1;
         let image_path = image_db.get(image_id)?.unwrap();
 
-        new_db.put_cf(&index_feature, idx, feature)?;
+        new_db.put_cf(&new_feature, idx, feature)?;
         new_db.put_cf(&index_image, idx, &image_path)?;
         new_db.put_cf(&image_list, image_path, [])?;
 
         total_features += 1;
     }
-    let total_images = image_db.iterator(IteratorMode::Start).count();
+    let total_images = image_db.iterator(IteratorMode::Start).count() as u64;
 
     new_db.put_cf(
         &meta_data,
@@ -69,7 +70,7 @@ fn update_from_2_to_3(path: &Path) -> Result<()> {
         total_images.to_le_bytes(),
     )?;
 
-    std::fs::write(path.join("version"), "3")?;
+    std::fs::write(path.version(), "3")?;
 
     Ok(())
 }

@@ -1,27 +1,21 @@
-use std::path::PathBuf;
+use std::convert::Infallible;
+use std::path::{Path, PathBuf};
 use std::str::FromStr;
 
 use crate::slam3_orb::Slam3ORB;
-use crate::ImageDb;
 use directories::ProjectDirs;
 use once_cell::sync::Lazy;
 use opencv::{core, features2d, flann};
 use structopt::clap::AppSettings;
 use structopt::StructOpt;
 
-pub static OPTS: Lazy<Opts> = Lazy::new(Opts::from_args);
-pub static CONF_DIR: Lazy<PathBuf> = Lazy::new(|| {
+static CONF_DIR: Lazy<ConfDir> = Lazy::new(|| {
     let proj_dirs = ProjectDirs::from("", "aloxaf", "imsearch").expect("failed to get project dir");
-    proj_dirs.config_dir().to_path_buf()
-});
-pub static THREAD_NUM: Lazy<usize> = Lazy::new(|| {
-    std::env::var("RAYON_NUM_THREADS")
-        .map(|s| s.parse::<usize>().unwrap())
-        .unwrap_or(num_cpus::get())
+    ConfDir(proj_dirs.config_dir().to_path_buf())
 });
 
 fn default_config_dir() -> &'static str {
-    CONF_DIR.to_str().unwrap()
+    CONF_DIR.path().to_str().unwrap()
 }
 
 #[derive(StructOpt)]
@@ -29,7 +23,7 @@ fn default_config_dir() -> &'static str {
 pub struct Opts {
     /// Path to imsearch config
     #[structopt(short, long, default_value = default_config_dir())]
-    pub conf_dir: String,
+    pub conf_dir: ConfDir,
 
     /// The maximum number of features to retain
     #[structopt(short = "n", value_name = "N", long, default_value = "500")]
@@ -47,19 +41,10 @@ pub struct Opts {
     #[structopt(long, value_name = "THRESHOLD", default_value = "7")]
     pub orb_min_th_fast: u32,
 
-    /// The number of hash tables to use
-    #[structopt(long, value_name = "NUMBER", default_value = "6")]
-    pub lsh_table_number: u32,
-    /// The length of the key in the hash tables
-    #[structopt(long, value_name = "SIZE", default_value = "12")]
-    pub lsh_key_size: u32,
-    /// Number of levels to use in multi-probe (0 for standard LSH)
-    #[structopt(long, value_name = "LEVEL", default_value = "1")]
-    pub lsh_probe_level: u32,
+    /// Use mmap instead of read whole index to memory
+    #[structopt(long)]
+    pub mmap: bool,
 
-    /// Specifies the maximum leafs to visit when searching for neighbours, -2 = auto, -1 = unlimit
-    #[structopt(long, value_name = "CHECKS", default_value = "32")]
-    pub search_checks: i32,
     /// Number of features to search per iteration
     #[structopt(long, value_name = "SIZE", default_value = "5000000")]
     pub batch_size: usize,
@@ -93,6 +78,8 @@ pub enum SubCommand {
     SearchImage(SearchImage),
     /// Start interactive REPL
     StartRepl(StartRepl),
+    /// Build index
+    BuildIndex,
 }
 
 #[derive(StructOpt)]
@@ -142,7 +129,7 @@ pub enum OutputFormat {
 }
 
 impl FromStr for OutputFormat {
-    type Err = String;
+    type Err = Infallible;
 
     fn from_str(s: &str) -> Result<Self, Self::Err> {
         match s {
@@ -167,26 +154,43 @@ impl From<&Opts> for Slam3ORB {
 }
 
 impl From<&Opts> for features2d::FlannBasedMatcher {
-    fn from(opts: &Opts) -> Self {
+    fn from(_opts: &Opts) -> Self {
         let index_params = core::Ptr::new(flann::IndexParams::from(
-            flann::LshIndexParams::new(
-                opts.lsh_table_number as i32,
-                opts.lsh_key_size as i32,
-                opts.lsh_probe_level as i32,
-            )
-            .expect("failed to build LshIndexParams"),
+            flann::LshIndexParams::new(6, 12, 1).expect("failed to build LshIndexParams"),
         ));
         let search_params = core::Ptr::new(
-            flann::SearchParams::new_1(opts.search_checks, 0.0, true)
-                .expect("failed to build SearchParams"),
+            flann::SearchParams::new_1(32, 0.0, true).expect("failed to build SearchParams"),
         );
         features2d::FlannBasedMatcher::new(&index_params, &search_params)
             .expect("failed to build FlannBasedMatcher")
     }
 }
 
-impl From<&Opts> for ImageDb {
-    fn from(opts: &Opts) -> Self {
-        Self::new(&opts.conf_dir).expect("failed to create ImageDb")
+#[derive(Debug, Clone)]
+pub struct ConfDir(PathBuf);
+
+impl ConfDir {
+    pub fn path(&self) -> &Path {
+        self.0.as_path()
+    }
+
+    pub fn database(&self) -> PathBuf {
+        self.0.join("database")
+    }
+
+    pub fn index(&self) -> PathBuf {
+        self.0.join("index")
+    }
+
+    pub fn version(&self) -> PathBuf {
+        self.0.join("version")
+    }
+}
+
+impl FromStr for ConfDir {
+    type Err = Infallible;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        Ok(Self(PathBuf::from(s)))
     }
 }
