@@ -65,6 +65,7 @@ impl Matrix for Mat {
     }
 }
 
+#[derive(Debug)]
 pub struct Matrix2D {
     width: usize,
     height: usize,

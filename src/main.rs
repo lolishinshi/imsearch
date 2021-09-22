@@ -90,9 +90,13 @@ fn add_images(opts: &Opts, config: &AddImages) -> anyhow::Result<()> {
             {
                 return;
             }
-            println!("Adding {}", entry.display());
-            ORB.with(|orb| db.add_image(entry.to_string_lossy(), &mut *orb.borrow_mut()))
+
+            let ok = ORB
+                .with(|orb| db.add_image(entry.to_string_lossy(), &mut *orb.borrow_mut()))
                 .expect("Failed to add image");
+            if ok {
+                println!("Add {}", entry.display());
+            }
         });
     Ok(())
 }
@@ -101,7 +105,8 @@ fn search_image(opts: &Opts, config: &SearchImage) -> anyhow::Result<()> {
     let db = IMDB::new(opts.conf_dir.clone(), true)?;
     let mut orb = Slam3ORB::from(opts);
     let index = db.get_index(opts.mmap);
-    let result = db.search(&index, &config.image, &mut orb, 3, opts.distance)?;
+    let mut result = db.search(&index, &config.image, &mut orb, 3, opts.distance)?;
+    result.truncate(opts.output_count);
     print_result(&result)
 }
 
@@ -120,7 +125,8 @@ fn start_repl(opts: &Opts, config: &StartRepl) -> anyhow::Result<()> {
 
         log::debug!("Searching {:?}", line);
         let start = Instant::now();
-        let result = db.search(&index, line, &mut orb, 3, opts.distance)?;
+        let mut result = db.search(&index, line, &mut orb, 3, opts.distance)?;
+        result.truncate(opts.output_count);
 
         log::debug!("Take time: {:.2}s", (Instant::now() - start).as_secs_f32());
 
@@ -131,7 +137,7 @@ fn start_repl(opts: &Opts, config: &StartRepl) -> anyhow::Result<()> {
 }
 
 fn build_index(opts: &Opts) -> anyhow::Result<()> {
-    let db = IMDB::new(opts.conf_dir.clone(), true)?;
+    let db = IMDB::new(opts.conf_dir.clone(), false)?;
     db.build_database(opts.batch_size)
 }
 

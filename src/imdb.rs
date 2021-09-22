@@ -23,7 +23,8 @@ impl IMDB {
 
     pub fn add_image<S: AsRef<str>>(&self, image_path: S, orb: &mut Slam3ORB) -> Result<bool> {
         let hash = hash_file(image_path.as_ref())?;
-        if self.db.image_exists(hash.as_bytes())? {
+        if let Some(id) = self.db.find_image_id(hash.as_bytes())? {
+            self.db.update_image_path(id, image_path.as_ref())?;
             return Ok(false);
         }
 
@@ -35,28 +36,26 @@ impl IMDB {
     }
 
     pub fn build_database(&self, chunk_size: usize) -> Result<()> {
-        let index_file = &*self.conf_dir.index();
-
-        let mut index = FaissSearcher::from_file(index_file.to_str().unwrap(), false);
+        let mut index = self.get_index(false);
         let mut features = FeatureWithId::new();
 
         for (id, feature) in self.db.features(false) {
             features.add(id as i64, &*feature);
             if features.len() == chunk_size {
                 log::debug!("Building index: {}", chunk_size);
-                index.add_with_ids(&features.1, &features.0);
-                self.db
-                    .mark_as_trained(&features.0.iter().map(|&n| n as u64).collect_vec())?;
+                index.add_with_ids(features.features(), &features.ids());
+                self.db.mark_as_trained(&features.ids_u64())?;
                 features.clear();
             }
         }
 
         if features.len() != 0 {
             log::debug!("Building index: END");
-            index.add_with_ids(&features.1, &features.0);
+            index.add_with_ids(features.features(), &features.ids());
+            self.db.mark_as_trained(&features.ids_u64())?;
         }
 
-        index.write_file(index_file.to_str().unwrap());
+        index.write_file(&*self.conf_dir.index().to_str().unwrap());
 
         Ok(())
     }
@@ -87,28 +86,26 @@ impl IMDB {
                 if neighbor.distance > max_distance {
                     continue;
                 }
+                let image_index = self.db.find_image_path(neighbor.index as u64)?;
                 counter
-                    .entry(neighbor.index)
+                    .entry(image_index)
                     .or_insert(vec![])
                     .push(1. - neighbor.distance as f32 / 256.);
             }
         }
 
         let mut results = counter
-            .iter()
-            .map(|(idx, scores)| {
-                self.db
-                    .find_image(*idx as u64)
-                    .map(|path| (100. * wilson_score(scores), path))
-            })
-            .collect::<Result<Vec<_>, _>>()?;
+            .into_iter()
+            .map(|(image, scores)| (100. * wilson_score(&*scores), image))
+            .collect::<Vec<_>>();
         results.sort_unstable_by(|a, b| b.0.partial_cmp(&a.0).unwrap());
 
         Ok(results)
     }
 }
 
-struct FeatureWithId(pub Vec<i64>, pub Matrix2D);
+#[derive(Debug)]
+struct FeatureWithId(Vec<i64>, Matrix2D);
 
 impl FeatureWithId {
     pub fn new() -> Self {
@@ -127,5 +124,17 @@ impl FeatureWithId {
     pub fn clear(&mut self) {
         self.0.clear();
         self.1.clear();
+    }
+
+    pub fn features(&self) -> &Matrix2D {
+        &self.1
+    }
+
+    pub fn ids(&self) -> &[i64] {
+        &self.0
+    }
+
+    pub fn ids_u64(&self) -> Vec<u64> {
+        self.0.iter().map(|&n| n as u64).collect_vec()
     }
 }
