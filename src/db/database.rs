@@ -9,13 +9,13 @@ use rocksdb::{BoundColumnFamily, IteratorMode, Options, ReadOptions, WriteBatch,
 
 #[derive(Debug, Hash, Eq, PartialEq)]
 pub(super) enum ImageColumnFamily {
-    /// HashMap<u64, Box<[u8]>>
+    /// HashMap<FeatureId, Box<[u8]>>
     IdToFeature,
-    /// HashMap<u64, u64>
+    /// HashMap<FeatureId, ImageId>
     IdToImageId,
-    /// HashMap<u64, String>
+    /// HashMap<ImageId, String>
     IdToImage,
-    /// HashSet<Hash>
+    /// HashMap<Hash, ImageId>
     ImageList,
     /// See `MetaData`
     MetaData,

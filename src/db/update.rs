@@ -15,6 +15,7 @@ pub fn check_db_update(path: &ConfDir) -> Result<()> {
         // println!("START UPGRADING (2 -> 3) AFTER 10 SECS!!!");
         // thread::sleep(Duration::from_secs(10));
         // update_from_2_to_3(path)?;
+        std::fs::write(path.version(), "3")?;
     }
 
     // init
@@ -96,8 +97,6 @@ fn update_from_2_to_3(path: &ConfDir) -> Result<()> {
         MetaData::TotalImages,
         total_images.to_le_bytes(),
     )?;
-
-    std::fs::write(path.version(), "3")?;
 
     Ok(())
 }

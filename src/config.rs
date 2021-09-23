@@ -83,6 +83,7 @@ pub enum SubCommand {
     StartRepl(StartRepl),
     /// Build index
     BuildIndex,
+    // TODO: ClearCache
 }
 
 #[derive(StructOpt)]
