@@ -91,11 +91,11 @@ fn add_images(opts: &Opts, config: &AddImages) -> anyhow::Result<()> {
                 return;
             }
 
-            let ok = ORB
-                .with(|orb| db.add_image(entry.to_string_lossy(), &mut *orb.borrow_mut()))
-                .expect("Failed to add image");
-            if ok {
-                println!("Add {}", entry.display());
+            let result = ORB
+                .with(|orb| db.add_image(entry.to_string_lossy(), &mut *orb.borrow_mut()));
+            match result {
+                Ok(_) => println!("[OK] Add {}", entry.display()),
+                Err(e) => eprintln!("[ERR] {}: {}", entry.display(), e),
             }
         });
     Ok(())
@@ -139,7 +139,7 @@ fn start_repl(opts: &Opts, config: &StartRepl) -> anyhow::Result<()> {
 
 fn build_index(opts: &Opts) -> anyhow::Result<()> {
     let db = IMDB::new(opts.conf_dir.clone(), false)?;
-    db.build_database(opts.batch_size)
+    db.build_index(opts.batch_size)
 }
 
 fn main() {

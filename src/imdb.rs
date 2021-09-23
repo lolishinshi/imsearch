@@ -2,7 +2,7 @@ use std::collections::HashMap;
 
 use crate::config::ConfDir;
 use crate::db::ImageDB;
-use crate::knn::FaissSearcher;
+use crate::index::FaissIndex;
 use crate::matrix::Matrix2D;
 use crate::slam3_orb::Slam3ORB;
 use crate::utils;
@@ -35,9 +35,17 @@ impl IMDB {
             .add_image(image_path.as_ref(), hash.as_bytes(), descriptors)
     }
 
-    pub fn build_database(&self, chunk_size: usize) -> Result<()> {
+    pub fn train_index(&mut self) {
+        let mut _index = self.get_index(false);
+    }
+
+    pub fn build_index(&self, chunk_size: usize) -> Result<()> {
         let mut index = self.get_index(false);
         let mut features = FeatureWithId::new();
+
+        if !index.is_trained() {
+            panic!("index hasn't been trained");
+        }
 
         for (id, feature) in self.db.features(false) {
             features.add(id as i64, &*feature);
@@ -60,17 +68,34 @@ impl IMDB {
         Ok(())
     }
 
-    pub fn get_index(&self, mmap: bool) -> FaissSearcher {
+    pub fn get_index(&self, mmap: bool) -> FaissIndex {
+        let total_features = self.db.total_features();
         let index_file = &*self.conf_dir.index();
         match index_file.exists() {
-            true => FaissSearcher::from_file(index_file.to_str().unwrap(), mmap),
-            _ => FaissSearcher::new(256, "IVF1048576"),
+            true => FaissIndex::from_file(index_file.to_str().unwrap(), mmap),
+            _ => {
+                let desc = match total_features {
+                    // 0 ~ 1M
+                    0..=1000000 => {
+                        let k = 4 * (total_features as f32).sqrt() as u32;
+                        format!("BIVF{}", k)
+                    }
+                    // 1M ~ 10M
+                    1000001..=10000000 => String::from("BIVF65536"),
+                    // 10M ~ 100M
+                    10000001..=100000000 => String::from("BIVF262144"),
+                    // 100M ~ 10G
+                    100000001..=10000000000 => String::from("BIVF1048576"),
+                    _ => unimplemented!(),
+                };
+                FaissIndex::new(256, &desc)
+            }
         }
     }
 
     pub fn search<S: AsRef<str>>(
         &self,
-        index: &FaissSearcher,
+        index: &FaissIndex,
         image_path: S,
         orb: &mut Slam3ORB,
         knn: usize,

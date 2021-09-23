@@ -1,25 +1,46 @@
 use crate::matrix::Matrix;
 use itertools::Itertools;
-use std::ffi::{c_void, CString};
+use std::ffi::CString;
 use std::os::raw::c_char;
 
+#[repr(C)]
+#[derive(Debug, Copy, Clone)]
+struct FaissIndexBinary {
+    _unused: [u8; 0],
+}
+
+#[repr(C)]
+#[derive(Debug, Copy, Clone)]
+struct FaissIndexBinaryIVF {
+    _unused: [u8; 0],
+}
+
 extern "C" {
-    fn faiss_index_binary_factory(index: *mut *mut c_void, d: i32, description: *const c_char);
+    fn faiss_index_binary_factory(
+        index: *mut *mut FaissIndexBinary,
+        d: i32,
+        description: *const c_char,
+    );
 
-    fn faiss_IndexBinary_d(index: *const c_void) -> i32;
+    fn faiss_IndexBinary_d(index: *const FaissIndexBinary) -> i32;
 
-    fn faiss_IndexBinary_ntotal(index: *const c_void) -> i64;
+    fn faiss_IndexBinary_ntotal(index: *const FaissIndexBinary) -> i64;
 
-    fn faiss_IndexBinary_is_trained(index: *const c_void) -> bool;
+    fn faiss_IndexBinary_is_trained(index: *const FaissIndexBinary) -> bool;
 
-    fn faiss_IndexBinary_train(index: *mut c_void, n: i64, x: *const u8);
+    fn faiss_IndexBinary_train(index: *mut FaissIndexBinary, n: i64, x: *const u8);
 
-    fn faiss_IndexBinary_add(index: *mut c_void, n: i64, x: *const u8);
+    fn faiss_IndexBinary_add(index: *mut FaissIndexBinary, n: i64, x: *const u8);
 
-    fn faiss_IndexBinary_add_with_ids(index: *mut c_void, n: i64, x: *const u8, xids: *const i64);
+    fn faiss_IndexBinary_add_with_ids(
+        index: *mut FaissIndexBinary,
+        n: i64,
+        x: *const u8,
+        xids: *const i64,
+    );
 
     fn faiss_IndexBinary_search(
-        index: *const c_void,
+        index: *const FaissIndexBinary,
         n: i64,
         x: *const u8,
         k: i64,
@@ -27,11 +48,21 @@ extern "C" {
         labels: *mut i64,
     );
 
-    fn faiss_IndexBinary_free(index: *mut c_void);
+    fn faiss_IndexBinary_free(index: *mut FaissIndexBinary);
 
-    fn faiss_write_index_binary_fname(index: *const c_void, f: *const c_char);
+    fn faiss_write_index_binary_fname(index: *const FaissIndexBinary, f: *const c_char);
 
-    fn faiss_read_index_binary_fname(f: *const c_char, io_flags: i32, index: *mut *mut c_void);
+    fn faiss_read_index_binary_fname(
+        f: *const c_char,
+        io_flags: i32,
+        index: *mut *mut FaissIndexBinary,
+    );
+
+    fn faiss_IndexBinaryIVF_set_nprobe(index: *mut FaissIndexBinaryIVF, nprobe: usize);
+
+    fn faiss_IndexBinaryIVF_cast(index: *mut FaissIndexBinary) -> *mut FaissIndexBinaryIVF;
+
+    fn faiss_IndexBinaryIVF_nlist(index: *const FaissIndexBinaryIVF) -> usize;
 }
 
 pub struct Neighbor {
@@ -39,12 +70,12 @@ pub struct Neighbor {
     pub distance: u32,
 }
 
-pub struct FaissSearcher {
-    index: *mut c_void,
+pub struct FaissIndex {
+    index: *mut FaissIndexBinary,
     d: i32,
 }
 
-impl FaissSearcher {
+impl FaissIndex {
     pub fn new(d: i32, description: &str) -> Self {
         let index = std::ptr::null_mut();
         let description = std::ffi::CString::new(description).unwrap();
@@ -144,9 +175,23 @@ impl FaissSearcher {
             .map(|chunk| chunk.collect())
             .collect()
     }
+
+    pub fn set_nprobe(&mut self, nprobe: usize) {
+        unsafe {
+            let index = faiss_IndexBinaryIVF_cast(self.index);
+            faiss_IndexBinaryIVF_set_nprobe(index, nprobe);
+        }
+    }
+
+    pub fn nlist(&self) -> usize {
+        unsafe {
+            let index = faiss_IndexBinaryIVF_cast(self.index);
+            faiss_IndexBinaryIVF_nlist(index as *const FaissIndexBinaryIVF)
+        }
+    }
 }
 
-impl Drop for FaissSearcher {
+impl Drop for FaissIndex {
     fn drop(&mut self) {
         unsafe {
             faiss_IndexBinary_free(self.index);

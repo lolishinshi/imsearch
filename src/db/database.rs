@@ -107,9 +107,7 @@ impl ImageDB {
         Ok(self
             .db
             .get_cf(&image_list, hash)?
-            .map(|data| {
-                bytes_to_i32(data)
-            }))
+            .map(|data| bytes_to_i32(data)))
     }
 
     /// update image path
@@ -151,23 +149,23 @@ impl ImageDB {
         // insert image_hash => image_id
         batch.put_cf(&image_list, hash, image_id.to_le_bytes());
 
-        self.db.write(batch)?;
-
         let total_images = self.total_images.load(Ordering::SeqCst);
         let total_features = self.total_features.load(Ordering::SeqCst);
 
         // update total_images and total_features
         let meta_data = self.cf(ImageColumnFamily::MetaData);
-        self.db.put_cf(
+        batch.put_cf(
             &meta_data,
             MetaData::TotalImages,
             total_images.to_le_bytes(),
-        )?;
-        self.db.put_cf(
+        );
+        batch.put_cf(
             &meta_data,
             MetaData::TotalFeatures,
             total_features.to_le_bytes(),
-        )?;
+        );
+
+        self.db.write(batch)?;
 
         Ok(true)
     }
@@ -213,6 +211,10 @@ impl ImageDB {
         self.db.write(batch)?;
 
         Ok(())
+    }
+
+    pub fn total_features(&self) -> u64 {
+        self.total_features.load(Ordering::SeqCst)
     }
 
     fn read_opts() -> ReadOptions {
