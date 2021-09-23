@@ -13,13 +13,14 @@ use rayon::prelude::*;
 use regex::Regex;
 use structopt::StructOpt;
 use walkdir::WalkDir;
+use anyhow::Result;
 
 pub static OPTS: Lazy<Opts> = Lazy::new(Opts::from_args);
 thread_local! {
     static ORB: RefCell<Slam3ORB> = RefCell::new(Slam3ORB::from(&*OPTS));
 }
 
-fn show_keypoints(opts: &Opts, config: &ShowKeypoints) -> opencv::Result<()> {
+fn show_keypoints(opts: &Opts, config: &ShowKeypoints) -> Result<()> {
     let image = utils::imread(&config.image)?;
 
     let mut orb = Slam3ORB::from(opts);
@@ -35,7 +36,7 @@ fn show_keypoints(opts: &Opts, config: &ShowKeypoints) -> opencv::Result<()> {
     Ok(())
 }
 
-fn show_matches(opts: &Opts, config: &ShowMatches) -> opencv::Result<()> {
+fn show_matches(opts: &Opts, config: &ShowMatches) -> Result<()> {
     let img1 = utils::imread(&config.image1)?;
     let img2 = utils::imread(&config.image2)?;
 
@@ -95,7 +96,7 @@ fn add_images(opts: &Opts, config: &AddImages) -> anyhow::Result<()> {
                 .with(|orb| db.add_image(entry.to_string_lossy(), &mut *orb.borrow_mut()));
             match result {
                 Ok(_) => println!("[OK] Add {}", entry.display()),
-                Err(e) => eprintln!("[ERR] {}: {}", entry.display(), e),
+                Err(e) => eprintln!("[ERR] {}: {}\n{}", entry.display(), e, e.backtrace()),
             }
         });
     Ok(())

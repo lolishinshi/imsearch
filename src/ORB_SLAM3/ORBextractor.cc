@@ -538,9 +538,9 @@ namespace ORB_SLAM3
                                                          const int &maxX, const int &minY, const int &maxY, const int &N, const int &level)
     {
         // Compute how many initial nodes
-        const int nIni = max(1.0f, round(static_cast<float>(maxX-minX)/(maxY-minY)));
+        const int nIni = max(1, static_cast<int>(round(static_cast<float>(maxX-minX)/static_cast<float>(maxY-minY))));
 
-        const float hX = static_cast<float>(maxX-minX)/nIni;
+        const float hX = static_cast<float>(maxX-minX)/static_cast<float>(nIni);
 
         list<ExtractorNode> lNodes;
 
