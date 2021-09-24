@@ -4,6 +4,7 @@ use std::path::Path;
 use std::time::{Duration, Instant};
 
 use crate::slam3_orb::Slam3ORB;
+use anyhow::Result;
 use blake3::Hash;
 use dashmap::DashMap;
 use opencv::features2d;
@@ -12,7 +13,6 @@ use opencv::imgcodecs;
 use opencv::prelude::*;
 use opencv::types;
 use opencv::{core, imgproc};
-use anyhow::Result;
 
 pub fn detect_and_compute(
     orb: &mut Slam3ORB,

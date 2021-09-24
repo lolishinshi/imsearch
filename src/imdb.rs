@@ -47,23 +47,30 @@ impl IMDB {
             panic!("index hasn't been trained");
         }
 
+        let mut tmp_file = self.conf_dir.index();
+        tmp_file.set_extension(".tmp");
+
+        let add_index = |index: &mut FaissIndex, features: &FeatureWithId| -> Result<()> {
+            index.add_with_ids(features.features(), &features.ids());
+            index.write_file(&*tmp_file.to_str().unwrap());
+            self.db.mark_as_trained(&features.ids_u64())?;
+            std::fs::rename(&tmp_file, self.conf_dir.index())?;
+            Ok(())
+        };
+
         for (id, feature) in self.db.features(false) {
             features.add(id as i64, &*feature);
             if features.len() == chunk_size {
-                log::debug!("Building index: {}", chunk_size);
-                index.add_with_ids(features.features(), &features.ids());
-                self.db.mark_as_trained(&features.ids_u64())?;
+                log::info!("Building index: {} + {}", index.ntotal(), chunk_size);
+                add_index(&mut index, &features)?;
                 features.clear();
             }
         }
 
         if features.len() != 0 {
-            log::debug!("Building index: END");
-            index.add_with_ids(features.features(), &features.ids());
-            self.db.mark_as_trained(&features.ids_u64())?;
+            log::info!("Building index: END");
+            add_index(&mut index, &features)?;
         }
-
-        index.write_file(&*self.conf_dir.index().to_str().unwrap());
 
         Ok(())
     }

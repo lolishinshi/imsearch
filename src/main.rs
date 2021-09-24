@@ -2,6 +2,7 @@ use std::cell::RefCell;
 use std::path::PathBuf;
 use std::time::Instant;
 
+use anyhow::Result;
 use imsearch::config::*;
 use imsearch::slam3_orb::Slam3ORB;
 use imsearch::utils;
@@ -13,7 +14,6 @@ use rayon::prelude::*;
 use regex::Regex;
 use structopt::StructOpt;
 use walkdir::WalkDir;
-use anyhow::Result;
 
 pub static OPTS: Lazy<Opts> = Lazy::new(Opts::from_args);
 thread_local! {
@@ -75,7 +75,7 @@ fn show_matches(opts: &Opts, config: &ShowMatches) -> Result<()> {
     Ok(())
 }
 
-fn add_images(opts: &Opts, config: &AddImages) -> anyhow::Result<()> {
+fn add_images(opts: &Opts, config: &AddImages) -> Result<()> {
     let re = Regex::new(&config.suffix.replace(',', "|")).expect("failed to build regex");
     let db = IMDB::new(opts.conf_dir.clone(), false)?;
     WalkDir::new(&config.path)
@@ -92,8 +92,8 @@ fn add_images(opts: &Opts, config: &AddImages) -> anyhow::Result<()> {
                 return;
             }
 
-            let result = ORB
-                .with(|orb| db.add_image(entry.to_string_lossy(), &mut *orb.borrow_mut()));
+            let result =
+                ORB.with(|orb| db.add_image(entry.to_string_lossy(), &mut *orb.borrow_mut()));
             match result {
                 Ok(_) => println!("[OK] Add {}", entry.display()),
                 Err(e) => eprintln!("[ERR] {}: {}\n{}", entry.display(), e, e.backtrace()),
@@ -102,21 +102,28 @@ fn add_images(opts: &Opts, config: &AddImages) -> anyhow::Result<()> {
     Ok(())
 }
 
-fn search_image(opts: &Opts, config: &SearchImage) -> anyhow::Result<()> {
-    let db = IMDB::new(opts.conf_dir.clone(), true)?;
-    let mut orb = Slam3ORB::from(opts);
-    let index = db.get_index(opts.mmap);
-    let mut result = db.search(&index, &config.image, &mut orb, 3, opts.distance)?;
-    result.truncate(opts.output_count);
-    print_result(&result)
-}
-
-fn start_repl(opts: &Opts, config: &StartRepl) -> anyhow::Result<()> {
+fn search_image(opts: &Opts, config: &SearchImage) -> Result<()> {
     let db = IMDB::new(opts.conf_dir.clone(), true)?;
     let mut orb = Slam3ORB::from(opts);
 
     log::debug!("Reading index");
-    let index = db.get_index(opts.mmap);
+    let mut index = db.get_index(opts.mmap);
+    index.set_nprobe(opts.nprobe);
+
+    log::debug!("Searching");
+    let mut result = db.search(&index, &config.image, &mut orb, 3, opts.distance)?;
+
+    result.truncate(opts.output_count);
+    print_result(&result)
+}
+
+fn start_repl(opts: &Opts, config: &StartRepl) -> Result<()> {
+    let db = IMDB::new(opts.conf_dir.clone(), true)?;
+    let mut orb = Slam3ORB::from(opts);
+
+    log::debug!("Reading index");
+    let mut index = db.get_index(opts.mmap);
+    index.set_nprobe(opts.nprobe);
 
     log::debug!("Start REPL");
     while let Ok(line) = utils::read_line(&config.prompt) {
@@ -138,13 +145,20 @@ fn start_repl(opts: &Opts, config: &StartRepl) -> anyhow::Result<()> {
     Ok(())
 }
 
-fn build_index(opts: &Opts) -> anyhow::Result<()> {
+fn build_index(opts: &Opts) -> Result<()> {
     let db = IMDB::new(opts.conf_dir.clone(), false)?;
     db.build_index(opts.batch_size)
 }
 
+fn start_server(_opts: &Opts, _config: &StartServer) -> Result<()> {
+    unimplemented!()
+}
+
 fn main() {
     env_logger::init();
+
+    let fdlimit = fdlimit::raise_fd_limit();
+    log::debug!("raise fdlimit to {:?}", fdlimit);
 
     match &OPTS.subcmd {
         SubCommand::ShowKeypoints(config) => {
@@ -165,6 +179,8 @@ fn main() {
         SubCommand::BuildIndex => {
             build_index(&*OPTS).unwrap();
         }
+        SubCommand::StartServer(config) => start_server(&*OPTS, config).unwrap(),
+        SubCommand::ClearCache => unimplemented!(),
     }
 }
 

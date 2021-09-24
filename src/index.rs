@@ -60,8 +60,6 @@ extern "C" {
 
     fn faiss_IndexBinaryIVF_set_nprobe(index: *mut FaissIndexBinaryIVF, nprobe: usize);
 
-    fn faiss_IndexBinaryIVF_cast(index: *mut FaissIndexBinary) -> *mut FaissIndexBinaryIVF;
-
     fn faiss_IndexBinaryIVF_nlist(index: *const FaissIndexBinaryIVF) -> usize;
 }
 
@@ -89,7 +87,7 @@ impl FaissIndex {
         let index = std::ptr::null_mut();
         let path = CString::new(path).unwrap();
         let io_flags = match mmap {
-            true => 0x8 | 0x646f0000,
+            true => 0x2 | 0x8 | 0x646f0000,
             _ => 0,
         };
         unsafe {
@@ -178,16 +176,12 @@ impl FaissIndex {
 
     pub fn set_nprobe(&mut self, nprobe: usize) {
         unsafe {
-            let index = faiss_IndexBinaryIVF_cast(self.index);
-            faiss_IndexBinaryIVF_set_nprobe(index, nprobe);
+            faiss_IndexBinaryIVF_set_nprobe(self.index as *mut FaissIndexBinaryIVF, nprobe);
         }
     }
 
     pub fn nlist(&self) -> usize {
-        unsafe {
-            let index = faiss_IndexBinaryIVF_cast(self.index);
-            faiss_IndexBinaryIVF_nlist(index as *const FaissIndexBinaryIVF)
-        }
+        unsafe { faiss_IndexBinaryIVF_nlist(self.index as *const FaissIndexBinaryIVF) }
     }
 }
 

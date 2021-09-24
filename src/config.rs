@@ -64,6 +64,9 @@ pub struct Opts {
     /// Count of best matches found per each query descriptor
     #[structopt(long, value_name = "K", default_value = "3")]
     pub knn_k: usize,
+    /// How many bucket to search
+    #[structopt(long, value_name = "N", default_value = "3")]
+    pub nprobe: usize,
 
     #[structopt(subcommand)]
     pub subcmd: SubCommand,
@@ -81,9 +84,12 @@ pub enum SubCommand {
     SearchImage(SearchImage),
     /// Start interactive REPL
     StartRepl(StartRepl),
+    /// Start Web server
+    StartServer(StartServer),
     /// Build index
     BuildIndex,
-    // TODO: ClearCache
+    /// Clear cache
+    ClearCache,
 }
 
 #[derive(StructOpt)]
@@ -124,6 +130,13 @@ pub struct StartRepl {
     /// Promot
     #[structopt(short, long, default_value = "")]
     pub prompt: String,
+}
+
+#[derive(StructOpt)]
+pub struct StartServer {
+    /// Listen address
+    #[structopt(long, default_value = "127.0.0.1:8000")]
+    pub addr: String,
 }
 
 #[derive(StructOpt)]
