@@ -9,6 +9,7 @@ use crate::utils;
 use crate::utils::{hash_file, wilson_score};
 use anyhow::Result;
 use itertools::Itertools;
+use log::{debug, info};
 
 pub struct IMDB {
     conf_dir: ConfDir,
@@ -61,42 +62,51 @@ impl IMDB {
         for (id, feature) in self.db.features(false) {
             features.add(id as i64, &*feature);
             if features.len() == chunk_size {
-                log::info!("Building index: {} + {}", index.ntotal(), chunk_size);
+                info!("Building index: {} + {}", index.ntotal(), chunk_size);
                 add_index(&mut index, &features)?;
                 features.clear();
             }
         }
 
         if features.len() != 0 {
-            log::info!("Building index: END");
+            info!("Building index: END");
             add_index(&mut index, &features)?;
         }
 
         Ok(())
     }
 
-    pub fn get_index(&self, mmap: bool) -> FaissIndex {
+    fn create_index(&self) -> FaissIndex {
         let total_features = self.db.total_features();
-        let index_file = &*self.conf_dir.index();
-        match index_file.exists() {
-            true => FaissIndex::from_file(index_file.to_str().unwrap(), mmap),
-            _ => {
-                let desc = match total_features {
-                    // 0 ~ 1M
-                    0..=1000000 => {
-                        let k = 4 * (total_features as f32).sqrt() as u32;
-                        format!("BIVF{}", k)
-                    }
-                    // 1M ~ 10M
-                    1000001..=10000000 => String::from("BIVF65536"),
-                    // 10M ~ 100M
-                    10000001..=100000000 => String::from("BIVF262144"),
-                    // 100M ~ 10G
-                    100000001..=10000000000 => String::from("BIVF1048576"),
-                    _ => unimplemented!(),
-                };
-                FaissIndex::new(256, &desc)
+        let desc = match total_features {
+            // 0 ~ 1M
+            0..=1000000 => {
+                let k = 4 * (total_features as f32).sqrt() as u32;
+                format!("BIVF{}", k)
             }
+            // 1M ~ 10M
+            1000001..=10000000 => String::from("BIVF65536"),
+            // 10M ~ 100M
+            10000001..=100000000 => String::from("BIVF262144"),
+            // 100M ~ 10G
+            100000001..=10000000000 => String::from("BIVF1048576"),
+            _ => unimplemented!(),
+        };
+        debug!("creating index with {}", desc);
+        FaissIndex::new(256, &desc)
+    }
+
+    pub fn get_index(&self, mmap: bool) -> FaissIndex {
+        let index_file = &*self.conf_dir.index();
+        if index_file.exists() {
+            if !mmap {
+                debug!("reading index from {}", index_file.display());
+            }
+            let index = FaissIndex::from_file(index_file.to_str().unwrap(), mmap);
+            debug!("indexed features: {}", index.ntotal());
+            index
+        } else {
+            self.create_index()
         }
     }
 
@@ -108,6 +118,7 @@ impl IMDB {
         knn: usize,
         max_distance: u32,
     ) -> Result<Vec<(f32, String)>> {
+        debug!("searching {} nearest neighbors", knn);
         let image = utils::imread(image_path.as_ref())?;
         let (_, descriptors) = utils::detect_and_compute(orb, &image)?;
 

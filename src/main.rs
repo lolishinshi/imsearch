@@ -7,6 +7,7 @@ use imsearch::config::*;
 use imsearch::slam3_orb::Slam3ORB;
 use imsearch::utils;
 use imsearch::IMDB;
+use log::debug;
 use once_cell::sync::Lazy;
 use opencv::prelude::*;
 use opencv::{core, features2d, types};
@@ -106,12 +107,12 @@ fn search_image(opts: &Opts, config: &SearchImage) -> Result<()> {
     let db = IMDB::new(opts.conf_dir.clone(), true)?;
     let mut orb = Slam3ORB::from(opts);
 
-    log::debug!("Reading index");
     let mut index = db.get_index(opts.mmap);
     index.set_nprobe(opts.nprobe);
 
-    log::debug!("Searching");
+    let start = Instant::now();
     let mut result = db.search(&index, &config.image, &mut orb, 3, opts.distance)?;
+    debug!("search time: {:.2}s", start.elapsed().as_secs_f32());
 
     result.truncate(opts.output_count);
     print_result(&result)
@@ -121,24 +122,20 @@ fn start_repl(opts: &Opts, config: &StartRepl) -> Result<()> {
     let db = IMDB::new(opts.conf_dir.clone(), true)?;
     let mut orb = Slam3ORB::from(opts);
 
-    log::debug!("Reading index");
     let mut index = db.get_index(opts.mmap);
     index.set_nprobe(opts.nprobe);
 
-    log::debug!("Start REPL");
+    debug!("start REPL");
     while let Ok(line) = utils::read_line(&config.prompt) {
         if !PathBuf::from(&line).exists() {
             continue;
         }
 
-        log::debug!("Searching {:?}", line);
         let start = Instant::now();
-
         let mut result = db.search(&index, line, &mut orb, 3, opts.distance)?;
+        debug!("search time: {:.2}s", start.elapsed().as_secs_f32());
+
         result.truncate(opts.output_count);
-
-        log::debug!("Take time: {:.2}s", (Instant::now() - start).as_secs_f32());
-
         print_result(&result)?;
     }
 
@@ -158,7 +155,7 @@ fn main() {
     env_logger::init();
 
     let fdlimit = fdlimit::raise_fd_limit();
-    log::debug!("raise fdlimit to {:?}", fdlimit);
+    debug!("raise fdlimit to {:?}", fdlimit);
 
     match &OPTS.subcmd {
         SubCommand::ShowKeypoints(config) => {

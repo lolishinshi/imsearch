@@ -5,6 +5,7 @@ use crate::config::ConfDir;
 use crate::db::utils::{bytes_to_i32, bytes_to_u64};
 use crate::matrix::Matrix;
 use anyhow::Result;
+use log::debug;
 use rocksdb::{BoundColumnFamily, IteratorMode, Options, ReadOptions, WriteBatch, DB};
 
 #[derive(Debug, Hash, Eq, PartialEq)]
@@ -82,22 +83,27 @@ impl ImageDB {
 
         let column_family = ImageColumnFamily::all();
 
+        debug!("open database at {}", path.database().display());
+
         let db = match read_only {
             true => DB::open_cf_for_read_only(&options, path.database(), &column_family, false)?,
             false => DB::open_cf(&options, path.database(), &column_family)?,
         };
 
         let meta_data = db.cf_handle(ImageColumnFamily::MetaData.as_ref()).unwrap();
-        let total_images = db.get_cf(&meta_data, MetaData::TotalImages)?.unwrap();
-        let total_features = db.get_cf(&meta_data, MetaData::TotalFeatures)?.unwrap();
+        let total_images = bytes_to_u64(db.get_cf(&meta_data, MetaData::TotalImages)?.unwrap());
+        let total_features = bytes_to_u64(db.get_cf(&meta_data, MetaData::TotalFeatures)?.unwrap());
+
+        debug!("total images: {}", total_images);
+        debug!("total features: {}", total_features);
 
         // meta_data borrows db here
         drop(meta_data);
 
         Ok(Self {
             db,
-            total_images: AtomicU64::new(bytes_to_u64(total_images)),
-            total_features: AtomicU64::new(bytes_to_u64(total_features)),
+            total_images: AtomicU64::new(total_images),
+            total_features: AtomicU64::new(total_features),
         })
     }
 
