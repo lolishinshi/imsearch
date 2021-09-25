@@ -3,7 +3,7 @@ use std::collections::HashMap;
 use crate::config::ConfDir;
 use crate::db::ImageDB;
 use crate::index::FaissIndex;
-use crate::matrix::Matrix2D;
+use crate::matrix::{Matrix, Matrix2D};
 use crate::slam3_orb::Slam3ORB;
 use crate::utils;
 use crate::utils::{hash_file, wilson_score};
@@ -110,18 +110,13 @@ impl IMDB {
         }
     }
 
-    pub fn search<S: AsRef<str>>(
+    pub fn search_des<M: Matrix>(
         &self,
         index: &FaissIndex,
-        image_path: S,
-        orb: &mut Slam3ORB,
+        descriptors: M,
         knn: usize,
         max_distance: u32,
     ) -> Result<Vec<(f32, String)>> {
-        debug!("searching {} nearest neighbors", knn);
-        let image = utils::imread(image_path.as_ref())?;
-        let (_, descriptors) = utils::detect_and_compute(orb, &image)?;
-
         let mut counter = HashMap::new();
 
         for neighbors in index.search(&descriptors, knn) {
@@ -145,6 +140,21 @@ impl IMDB {
         results.sort_unstable_by(|a, b| b.0.partial_cmp(&a.0).unwrap());
 
         Ok(results)
+    }
+
+    pub fn search<S: AsRef<str>>(
+        &self,
+        index: &FaissIndex,
+        image_path: S,
+        orb: &mut Slam3ORB,
+        knn: usize,
+        max_distance: u32,
+    ) -> Result<Vec<(f32, String)>> {
+        debug!("searching {} nearest neighbors", knn);
+        let image = utils::imread(image_path.as_ref())?;
+        let (_, descriptors) = utils::detect_and_compute(orb, &image)?;
+
+        self.search_des(index, descriptors, knn, max_distance)
     }
 }
 

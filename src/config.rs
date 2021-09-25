@@ -18,7 +18,7 @@ fn default_config_dir() -> &'static str {
     CONF_DIR.path().to_str().unwrap()
 }
 
-#[derive(StructOpt)]
+#[derive(StructOpt, Debug, Clone)]
 #[structopt(name = "imsearch", global_setting(AppSettings::ColoredHelp))]
 pub struct Opts {
     /// Path to imsearch config
@@ -72,7 +72,7 @@ pub struct Opts {
     pub subcmd: SubCommand,
 }
 
-#[derive(StructOpt)]
+#[derive(StructOpt, Debug, Clone)]
 pub enum SubCommand {
     /// Show all features point for an image
     ShowKeypoints(ShowKeypoints),
@@ -92,7 +92,7 @@ pub enum SubCommand {
     ClearCache,
 }
 
-#[derive(StructOpt)]
+#[derive(StructOpt, Debug, Clone)]
 pub struct ShowKeypoints {
     /// Path to an image
     pub image: String,
@@ -100,7 +100,7 @@ pub struct ShowKeypoints {
     pub output: Option<String>,
 }
 
-#[derive(StructOpt)]
+#[derive(StructOpt, Debug, Clone)]
 pub struct ShowMatches {
     /// Path to image A
     pub image1: String,
@@ -110,7 +110,7 @@ pub struct ShowMatches {
     pub output: Option<String>,
 }
 
-#[derive(StructOpt)]
+#[derive(StructOpt, Debug, Clone)]
 pub struct AddImages {
     /// Path to an image or folder
     pub path: String,
@@ -119,33 +119,33 @@ pub struct AddImages {
     pub suffix: String,
 }
 
-#[derive(StructOpt)]
+#[derive(StructOpt, Debug, Clone)]
 pub struct SearchImage {
     /// Path to the image to search
     pub image: String,
 }
 
-#[derive(StructOpt)]
+#[derive(StructOpt, Debug, Clone)]
 pub struct StartRepl {
     /// Promot
     #[structopt(short, long, default_value = "")]
     pub prompt: String,
 }
 
-#[derive(StructOpt)]
+#[derive(StructOpt, Debug, Clone)]
 pub struct StartServer {
     /// Listen address
     #[structopt(long, default_value = "127.0.0.1:8000")]
     pub addr: String,
 }
 
-#[derive(StructOpt)]
+#[derive(StructOpt, Debug, Clone)]
 pub enum OutputFormat {
     Json,
     Table,
 }
 
-#[derive(StructOpt)]
+#[derive(StructOpt, Debug, Clone)]
 pub enum ScoreType {
     Wilson,
     Count,

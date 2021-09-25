@@ -192,3 +192,6 @@ impl Drop for FaissIndex {
         }
     }
 }
+
+unsafe impl Sync for FaissIndex {}
+unsafe impl Send for FaissIndex {}

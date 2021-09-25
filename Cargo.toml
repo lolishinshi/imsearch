@@ -24,6 +24,8 @@ dashmap = "4.0.2"
 crossbeam-utils = "0.8.5"
 libc = "0.2.101"
 blake3 = "1.0.0"
+rouille = "3.3.1"
+tempfile = "3.2.0"
 
 [dependencies.rocksdb]
 version = "0.17.0"

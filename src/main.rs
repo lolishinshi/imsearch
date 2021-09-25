@@ -10,9 +10,10 @@ use imsearch::IMDB;
 use log::debug;
 use once_cell::sync::Lazy;
 use opencv::prelude::*;
-use opencv::{core, features2d, types};
+use opencv::{core, features2d, imgcodecs, types};
 use rayon::prelude::*;
 use regex::Regex;
+use rouille::{post_input, router, try_or_400, Response};
 use structopt::StructOpt;
 use walkdir::WalkDir;
 
@@ -96,7 +97,10 @@ fn add_images(opts: &Opts, config: &AddImages) -> Result<()> {
             let result =
                 ORB.with(|orb| db.add_image(entry.to_string_lossy(), &mut *orb.borrow_mut()));
             match result {
-                Ok(_) => println!("[OK] Add {}", entry.display()),
+                Ok(add) => match add {
+                    true => println!("[OK] Add {}", entry.display()),
+                    false => println!("[OK] Update {}", entry.display()),
+                },
                 Err(e) => eprintln!("[ERR] {}: {}\n{}", entry.display(), e, e.backtrace()),
             }
         });
@@ -147,8 +151,47 @@ fn build_index(opts: &Opts) -> Result<()> {
     db.build_index(opts.batch_size)
 }
 
-fn start_server(_opts: &Opts, _config: &StartServer) -> Result<()> {
-    unimplemented!()
+fn start_server(opts: &Opts, config: &StartServer) -> Result<()> {
+    let db = IMDB::new(opts.conf_dir.clone(), true)?;
+
+    let mut index = db.get_index(opts.mmap);
+    index.set_nprobe(opts.nprobe);
+
+    let opts = opts.clone();
+
+    debug!("starting server at {}", &config.addr);
+    rouille::start_server(&config.addr, move |request| {
+        router!(request,
+            (POST) (/search) => {
+                let data = try_or_400!(post_input!(request, {
+                    file: rouille::input::post::BufferedFile,
+                }));
+                let mat = try_or_400!(Mat::from_slice(&data.file.data));
+                let img = try_or_400!(imgcodecs::imdecode(&mat, imgcodecs::IMREAD_GRAYSCALE));
+
+                let result = ORB.with(|orb| {
+                    utils::detect_and_compute(&mut *orb.borrow_mut(), &img)
+                        .and_then(|(_, descriptors)| {
+                        db.search_des(&index, descriptors, opts.knn_k, opts.distance)
+                    })
+                });
+
+                match result {
+                    Ok(mut result) => {
+                        result.truncate(opts.output_count);
+                        Response::json(&result)
+                    },
+                    Err(err) => {
+                        // TODO: 此处错误处理很简陋
+                        Response::json(&err.to_string()).with_status_code(400)
+                    },
+                }
+            },
+            _ => {
+                Response::empty_404()
+            }
+        )
+    });
 }
 
 fn main() {
