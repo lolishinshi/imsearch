@@ -20,7 +20,7 @@ pub(super) enum ImageColumnFamily {
     ImageList,
     /// See `MetaData`
     MetaData,
-    /// Just like IdToFeature, but only contains features which haven't been stored
+    /// Just like IdToFeature, but only contains features which haven't been indexed
     NewFeature,
 }
 
