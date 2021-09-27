@@ -24,7 +24,7 @@ impl IMDB {
 
     pub fn add_image<S: AsRef<str>>(&self, image_path: S, orb: &mut Slam3ORB) -> Result<bool> {
         let hash = hash_file(image_path.as_ref())?;
-        if let Some(id) = self.db.find_image_id(hash.as_bytes())? {
+        if let Some(id) = self.db.find_image_id_by_hash(hash.as_bytes())? {
             self.db.update_image_path(id, image_path.as_ref())?;
             return Ok(false);
         }
@@ -52,13 +52,14 @@ impl IMDB {
         tmp_file.set_extension(".tmp");
 
         let add_index = |index: &mut FaissIndex, features: &FeatureWithId| -> Result<()> {
-            index.add_with_ids(features.features(), &features.ids());
+            index.add_with_ids(features.features(), features.ids());
             index.write_file(&*tmp_file.to_str().unwrap());
             self.db.mark_as_trained(&features.ids_u64())?;
             std::fs::rename(&tmp_file, self.conf_dir.index())?;
             Ok(())
         };
 
+        // TODO: 丢弃迭代器以允许 RocksDB 从硬盘上删除不需要的数据
         for (id, feature) in self.db.features(false) {
             features.add(id as i64, &*feature);
             if features.len() == chunk_size {
@@ -68,9 +69,32 @@ impl IMDB {
             }
         }
 
-        if features.len() != 0 {
+        if !features.len() != 0 {
             info!("Building index: END");
             add_index(&mut index, &features)?;
+        }
+
+        Ok(())
+    }
+
+    pub fn mark_as_trained(&self, max_feature_id: u64, chunk_size: usize) -> Result<()> {
+        let mut idx = vec![];
+
+        for (id, _) in self.db.features(false) {
+            if id >= max_feature_id {
+                continue;
+            }
+            idx.push(id);
+            if idx.len() == chunk_size {
+                info!("mark as trained: {}", chunk_size);
+                self.db.mark_as_trained(&idx)?;
+                idx.clear();
+            }
+        }
+
+        if !idx.is_empty() {
+            info!("mark as trained: {}", idx.len());
+            self.db.mark_as_trained(&idx)?;
         }
 
         Ok(())
@@ -127,7 +151,7 @@ impl IMDB {
                 let image_index = self.db.find_image_path(neighbor.index as u64)?;
                 counter
                     .entry(image_index)
-                    .or_insert(vec![])
+                    .or_insert_with(Vec::new)
                     .push(1. - neighbor.distance as f32 / 256.);
             }
         }

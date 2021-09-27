@@ -151,6 +151,11 @@ fn build_index(opts: &Opts) -> Result<()> {
     db.build_index(opts.batch_size)
 }
 
+fn mark_as_trained(opts: &Opts, config: &MarkAsTrained) -> Result<()> {
+    let db = IMDB::new(opts.conf_dir.clone(), false)?;
+    db.mark_as_trained(config.max_feature_id, opts.batch_size)
+}
+
 fn start_server(opts: &Opts, config: &StartServer) -> Result<()> {
     let db = IMDB::new(opts.conf_dir.clone(), true)?;
 
@@ -221,6 +226,9 @@ fn main() {
         }
         SubCommand::StartServer(config) => start_server(&*OPTS, config).unwrap(),
         SubCommand::ClearCache => unimplemented!(),
+        SubCommand::MarkAsTrained(config) => {
+            mark_as_trained(&*OPTS, config).unwrap();
+        }
     }
 }
 

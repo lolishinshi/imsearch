@@ -6,7 +6,9 @@ use crate::db::utils::{bytes_to_i32, bytes_to_u64};
 use crate::matrix::Matrix;
 use anyhow::Result;
 use log::debug;
-use rocksdb::{BoundColumnFamily, IteratorMode, Options, ReadOptions, WriteBatch, DB};
+use rocksdb::{
+    BoundColumnFamily, DBCompressionType, IteratorMode, Options, ReadOptions, WriteBatch, DB,
+};
 
 #[derive(Debug, Hash, Eq, PartialEq)]
 pub(super) enum ImageColumnFamily {
@@ -71,16 +73,27 @@ pub struct ImageDB {
 }
 
 impl ImageDB {
-    /// Open the database, will create if not exists
-    pub fn open(path: &ConfDir, read_only: bool) -> Result<Self> {
-        super::update::check_db_update(path)?;
-
+    fn default_options() -> Options {
         let mut options = Options::default();
         options.increase_parallelism(num_cpus::get() as i32);
         options.set_keep_log_file_num(10);
         options.set_level_compaction_dynamic_level_bytes(true);
         options.set_max_total_wal_size(1 << 29);
+        options.set_compression_per_level(&[
+            DBCompressionType::None,
+            DBCompressionType::Lz4,
+            DBCompressionType::Lz4,
+            DBCompressionType::Zstd,
+            DBCompressionType::Zstd,
+        ]);
+        options
+    }
 
+    /// Open the database, will create if not exists
+    pub fn open(path: &ConfDir, read_only: bool) -> Result<Self> {
+        super::update::check_db_update(path)?;
+
+        let options = Self::default_options();
         let column_family = ImageColumnFamily::all();
 
         debug!("open database at {}", path.database().display());
@@ -108,12 +121,9 @@ impl ImageDB {
     }
 
     /// Check whether an image exists
-    pub fn find_image_id(&self, hash: &[u8]) -> Result<Option<i32>> {
+    pub fn find_image_id_by_hash(&self, hash: &[u8]) -> Result<Option<i32>> {
         let image_list = self.cf(ImageColumnFamily::ImageList);
-        Ok(self
-            .db
-            .get_cf(&image_list, hash)?
-            .map(|data| bytes_to_i32(data)))
+        Ok(self.db.get_cf(&image_list, hash)?.map(bytes_to_i32))
     }
 
     /// update image path
@@ -187,14 +197,18 @@ impl ImageDB {
             .map(|item| (bytes_to_u64(item.0), item.1))
     }
 
+    fn find_image_id_by_id(&self, feature_id: u64) -> Result<Option<i32>> {
+        let id_to_image_id = self.cf(ImageColumnFamily::IdToImageId);
+        Ok(self
+            .db
+            .get_cf(&id_to_image_id, feature_id.to_le_bytes())?
+            .map(bytes_to_i32))
+    }
+
     /// Find image according to feature id
     pub fn find_image_path(&self, feature_id: u64) -> Result<String> {
-        let id_to_image_id = self.cf(ImageColumnFamily::IdToImageId);
         let id_to_image = self.cf(ImageColumnFamily::IdToImage);
-        let image_id = self
-            .db
-            .get_cf(&id_to_image_id, feature_id.to_le_bytes())
-            .map(|data| bytes_to_i32(data.unwrap()))?;
+        let image_id = self.find_image_id_by_id(feature_id)?.unwrap();
         Ok(self
             .db
             .get_cf(&id_to_image, image_id.to_le_bytes())

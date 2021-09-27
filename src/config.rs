@@ -90,6 +90,8 @@ pub enum SubCommand {
     BuildIndex,
     /// Clear cache
     ClearCache,
+    /// Mark a range of features as trained
+    MarkAsTrained(MarkAsTrained),
 }
 
 #[derive(StructOpt, Debug, Clone)]
@@ -137,6 +139,13 @@ pub struct StartServer {
     /// Listen address
     #[structopt(long, default_value = "127.0.0.1:8000")]
     pub addr: String,
+}
+
+#[derive(StructOpt, Debug, Clone)]
+pub struct MarkAsTrained {
+    /// Mark feature in [0, max_feature_id) as trained
+    #[structopt(long)]
+    pub max_feature_id: u64,
 }
 
 #[derive(StructOpt, Debug, Clone)]

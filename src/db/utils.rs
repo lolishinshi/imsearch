@@ -6,7 +6,7 @@ use crate::db::database::MetaData;
 use rocksdb::{Error, Options, DB};
 
 pub fn init_column_family(db: &DB) -> Result<(), Error> {
-    let opts = &Options::default();
+    let opts = Options::default();
     db.create_cf(ImageColumnFamily::NewFeature, &opts)?;
     db.create_cf(ImageColumnFamily::IdToFeature, &opts)?;
     db.create_cf(ImageColumnFamily::IdToImageId, &opts)?;

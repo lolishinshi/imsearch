@@ -51,6 +51,7 @@ pub fn imwrite(filename: &str, img: &dyn core::ToInputArray) -> Result<bool> {
     Ok(imgcodecs::imwrite(filename, img, &flags)?)
 }
 
+// TODO: 对于长图，应该要增加特征点数量
 pub fn adjust_image_size(img: &Mat, width: i32, height: i32) -> Result<Mat> {
     if img.rows() <= height || img.cols() <= width {
         return Ok(img.clone());
@@ -108,6 +109,7 @@ pub fn draw_matches_knn(
     Ok(output)
 }
 
+#[derive(Debug, Default)]
 pub struct TimeMeasure(pub DashMap<String, Duration>);
 
 impl TimeMeasure {

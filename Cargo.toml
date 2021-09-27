@@ -30,7 +30,7 @@ tempfile = "3.2.0"
 [dependencies.rocksdb]
 version = "0.17.0"
 default-features = false
-features = ["zstd", "multi-threaded-cf"]
+features = ["lz4", "zstd", "multi-threaded-cf"]
 
 [build-dependencies]
 cc = "1.0.70"
