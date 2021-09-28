@@ -232,6 +232,7 @@ impl ImageDB {
     fn read_opts() -> ReadOptions {
         let mut options = ReadOptions::default();
         options.set_verify_checksums(false);
+        options.set_readahead_size(32 << 20);
         options
     }
 
