@@ -3,10 +3,28 @@ use std::mem;
 
 use crate::db::database::ImageColumnFamily;
 use crate::db::database::MetaData;
-use rocksdb::{Error, Options, DB};
+use rocksdb::{DBCompressionType, Error, Options, DB};
+
+pub fn default_options() -> Options {
+    let mut options = Options::default();
+    options.increase_parallelism(num_cpus::get() as i32);
+    options.set_keep_log_file_num(10);
+    options.set_level_compaction_dynamic_level_bytes(true);
+    options.set_max_total_wal_size(1 << 29);
+    options.set_compression_per_level(&[
+        DBCompressionType::None,
+        DBCompressionType::Lz4,
+        DBCompressionType::Lz4,
+        DBCompressionType::Zstd,
+        DBCompressionType::Zstd,
+        DBCompressionType::Zstd,
+        DBCompressionType::Zstd,
+    ]);
+    options
+}
 
 pub fn init_column_family(db: &DB) -> Result<(), Error> {
-    let opts = Options::default();
+    let opts = default_options();
     db.create_cf(ImageColumnFamily::NewFeature, &opts)?;
     db.create_cf(ImageColumnFamily::IdToFeature, &opts)?;
     db.create_cf(ImageColumnFamily::IdToImageId, &opts)?;

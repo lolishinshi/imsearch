@@ -2,12 +2,12 @@ use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
 
 use crate::config::ConfDir;
-use crate::db::utils::{bytes_to_i32, bytes_to_u64};
+use crate::db::utils::{bytes_to_i32, bytes_to_u64, default_options};
 use crate::matrix::Matrix;
 use anyhow::Result;
 use log::debug;
 use rocksdb::{
-    BoundColumnFamily, DBCompressionType, IteratorMode, Options, ReadOptions, WriteBatch, DB,
+    BoundColumnFamily, ColumnFamilyDescriptor, IteratorMode, ReadOptions, WriteBatch, DB,
 };
 
 #[derive(Debug, Hash, Eq, PartialEq)]
@@ -42,6 +42,13 @@ impl ImageColumnFamily {
             Self::IdToImage,
         ]
     }
+
+    pub fn descriptors() -> Vec<ColumnFamilyDescriptor> {
+        Self::all()
+            .into_iter()
+            .map(|cf| ColumnFamilyDescriptor::new(cf.as_ref(), default_options()))
+            .collect()
+    }
 }
 
 impl AsRef<str> for ImageColumnFamily {
@@ -73,34 +80,19 @@ pub struct ImageDB {
 }
 
 impl ImageDB {
-    fn default_options() -> Options {
-        let mut options = Options::default();
-        options.increase_parallelism(num_cpus::get() as i32);
-        options.set_keep_log_file_num(10);
-        options.set_level_compaction_dynamic_level_bytes(true);
-        options.set_max_total_wal_size(1 << 29);
-        options.set_compression_per_level(&[
-            DBCompressionType::None,
-            DBCompressionType::Lz4,
-            DBCompressionType::Lz4,
-            DBCompressionType::Zstd,
-            DBCompressionType::Zstd,
-        ]);
-        options
-    }
-
     /// Open the database, will create if not exists
     pub fn open(path: &ConfDir, read_only: bool) -> Result<Self> {
         super::update::check_db_update(path)?;
 
-        let options = Self::default_options();
-        let column_family = ImageColumnFamily::all();
+        let options = default_options();
+        let cfs = ImageColumnFamily::all();
+        let cf_descriptors = ImageColumnFamily::descriptors();
 
         debug!("open database at {}", path.database().display());
 
         let db = match read_only {
-            true => DB::open_cf_for_read_only(&options, path.database(), &column_family, false)?,
-            false => DB::open_cf(&options, path.database(), &column_family)?,
+            true => DB::open_cf_for_read_only(&options, path.database(), &cfs, false)?,
+            false => DB::open_cf_descriptors(&options, path.database(), cf_descriptors)?,
         };
 
         let meta_data = db.cf_handle(ImageColumnFamily::MetaData.as_ref()).unwrap();

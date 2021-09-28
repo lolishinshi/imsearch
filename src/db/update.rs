@@ -1,9 +1,9 @@
 use super::database::{ImageColumnFamily, MetaData};
 use crate::config::ConfDir;
-use crate::db::utils::init_column_family;
+use crate::db::utils::{default_options, init_column_family};
 use crate::utils::hash_file;
 use anyhow::Result;
-use rocksdb::{IteratorMode, Options, DB};
+use rocksdb::{IteratorMode, DB};
 
 /// check whether the database needs update
 pub fn check_db_update(path: &ConfDir) -> Result<()> {
@@ -29,12 +29,7 @@ pub fn check_db_update(path: &ConfDir) -> Result<()> {
 
 #[allow(unused)]
 fn update_from_2_to_3(path: &ConfDir) -> Result<()> {
-    let mut opts = Options::default();
-    opts.create_if_missing(true);
-    opts.increase_parallelism(num_cpus::get() as i32);
-    opts.set_keep_log_file_num(1);
-    opts.set_level_compaction_dynamic_level_bytes(true);
-    opts.set_max_total_wal_size(1 << 29);
+    let mut opts = default_options();
 
     let image_db = DB::open_for_read_only(&opts, path.path().join("image.db"), true)?;
     let features_db = DB::open_for_read_only(&opts, path.path().join("feature.db"), true)?;
