@@ -8,6 +8,7 @@ use imsearch::slam3_orb::Slam3ORB;
 use imsearch::utils;
 use imsearch::IMDB;
 use log::debug;
+use ndarray_npy::write_npy;
 use once_cell::sync::Lazy;
 use opencv::prelude::*;
 use opencv::{core, features2d, imgcodecs, types};
@@ -161,6 +162,13 @@ fn clear_cache(opts: &Opts, config: &ClearCache) -> Result<()> {
     db.clear_cache(config.unindexed)
 }
 
+fn export_data(opts: &Opts) -> Result<()> {
+    let db = IMDB::new(opts.conf_dir.clone(), true)?;
+    let data = db.export()?;
+    write_npy("train.npy", &data)?;
+    Ok(())
+}
+
 fn start_server(opts: &Opts, config: &StartServer) -> Result<()> {
     let db = IMDB::new(opts.conf_dir.clone(), true)?;
 
@@ -237,6 +245,9 @@ fn main() {
         }
         SubCommand::MarkAsIndexed(config) => {
             mark_as_trained(&*OPTS, config).unwrap();
+        }
+        SubCommand::ExportData => {
+            export_data(&*OPTS).unwrap();
         }
     }
 }

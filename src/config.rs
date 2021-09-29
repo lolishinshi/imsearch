@@ -92,6 +92,8 @@ pub enum SubCommand {
     ClearCache(ClearCache),
     /// Mark a range of features as trained
     MarkAsIndexed(MarkAsIndexed),
+    /// Export data for trainning
+    ExportData,
 }
 
 #[derive(StructOpt, Debug, Clone)]

@@ -10,6 +10,7 @@ use crate::utils::{hash_file, wilson_score};
 use anyhow::Result;
 use itertools::Itertools;
 use log::{debug, info};
+use ndarray::prelude::*;
 
 pub struct IMDB {
     conf_dir: ConfDir,
@@ -107,6 +108,15 @@ impl IMDB {
             self.db.clear_cache(false)?;
         }
         Ok(())
+    }
+
+    pub fn export(&self) -> Result<Array2<u8>> {
+        let mut arr = Array2::zeros((0, 32));
+        for (_, feature) in self.db.features(false) {
+            let tmp = ArrayView::from(&feature);
+            arr.push(Axis(0), tmp)?;
+        }
+        Ok(arr)
     }
 
     fn create_index(&self) -> FaissIndex {

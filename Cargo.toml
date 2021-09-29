@@ -26,6 +26,8 @@ libc = "0.2.101"
 blake3 = "1.0.0"
 rouille = "3.3.1"
 tempfile = "3.2.0"
+ndarray = "0.15.3"
+ndarray-npy = "0.8.0"
 
 [dependencies.rocksdb]
 version = "0.17.0"
