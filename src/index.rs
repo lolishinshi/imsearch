@@ -1,7 +1,9 @@
 use crate::matrix::Matrix;
 use itertools::Itertools;
+use log::debug;
 use std::ffi::CString;
 use std::os::raw::c_char;
+use std::time::Instant;
 
 #[repr(C)]
 #[derive(Debug, Copy, Clone)]
@@ -150,6 +152,8 @@ impl FaissIndex {
         assert_eq!(points.width() * 8, self.d as usize);
         let mut dists = vec![0i32; points.height() * knn];
         let mut indices = vec![0i64; points.height() * knn];
+
+        let start = Instant::now();
         unsafe {
             faiss_IndexBinary_search(
                 self.index,
@@ -160,6 +164,7 @@ impl FaissIndex {
                 indices.as_mut_ptr(),
             );
         }
+        debug!("search time: {:.2}s", start.elapsed().as_secs_f32());
 
         indices
             .into_iter()

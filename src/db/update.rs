@@ -3,10 +3,12 @@ use crate::config::ConfDir;
 use crate::db::utils::{default_options, init_column_family};
 use crate::utils::hash_file;
 use anyhow::Result;
+use log::info;
 use rocksdb::{IteratorMode, DB};
 
 /// check whether the database needs update
 pub fn check_db_update(path: &ConfDir) -> Result<()> {
+    info!("checking database update");
     let version_file = path.version();
 
     // v1, v2 => v3

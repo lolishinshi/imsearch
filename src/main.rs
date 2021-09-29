@@ -1,13 +1,12 @@
 use std::cell::RefCell;
 use std::path::PathBuf;
-use std::time::Instant;
 
 use anyhow::Result;
 use imsearch::config::*;
 use imsearch::slam3_orb::Slam3ORB;
 use imsearch::utils;
 use imsearch::IMDB;
-use log::debug;
+use log::{debug, info};
 use ndarray_npy::write_npy;
 use once_cell::sync::Lazy;
 use opencv::prelude::*;
@@ -115,9 +114,7 @@ fn search_image(opts: &Opts, config: &SearchImage) -> Result<()> {
     let mut index = db.get_index(opts.mmap);
     index.set_nprobe(opts.nprobe);
 
-    let start = Instant::now();
     let mut result = db.search(&index, &config.image, &mut orb, 3, opts.distance)?;
-    debug!("search time: {:.2}s", start.elapsed().as_secs_f32());
 
     result.truncate(opts.output_count);
     print_result(&result)
@@ -136,9 +133,7 @@ fn start_repl(opts: &Opts, config: &StartRepl) -> Result<()> {
             continue;
         }
 
-        let start = Instant::now();
         let mut result = db.search(&index, line, &mut orb, 3, opts.distance)?;
-        debug!("search time: {:.2}s", start.elapsed().as_secs_f32());
 
         result.truncate(opts.output_count);
         print_result(&result)?;
@@ -177,7 +172,7 @@ fn start_server(opts: &Opts, config: &StartServer) -> Result<()> {
 
     let opts = opts.clone();
 
-    debug!("starting server at {}", &config.addr);
+    info!("starting server at {}", &config.addr);
     rouille::start_server(&config.addr, move |request| {
         router!(request,
             (POST) (/search) => {
@@ -186,6 +181,8 @@ fn start_server(opts: &Opts, config: &StartServer) -> Result<()> {
                 }));
                 let mat = try_or_400!(Mat::from_slice(&data.file.data));
                 let img = try_or_400!(imgcodecs::imdecode(&mat, imgcodecs::IMREAD_GRAYSCALE));
+
+                info!("searching {:?}", data.file.filename);
 
                 let result = ORB.with(|orb| {
                     utils::detect_and_compute(&mut *orb.borrow_mut(), &img)

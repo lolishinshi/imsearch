@@ -160,6 +160,7 @@ impl IMDB {
         knn: usize,
         max_distance: u32,
     ) -> Result<Vec<(f32, String)>> {
+        debug!("searching {} nearest neighbors", knn);
         let mut counter = HashMap::new();
 
         for neighbors in index.search(&descriptors, knn) {
@@ -193,7 +194,6 @@ impl IMDB {
         knn: usize,
         max_distance: u32,
     ) -> Result<Vec<(f32, String)>> {
-        debug!("searching {} nearest neighbors", knn);
         let image = utils::imread(image_path.as_ref())?;
         let (_, descriptors) = utils::detect_and_compute(orb, &image)?;
 

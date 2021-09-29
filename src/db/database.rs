@@ -5,7 +5,7 @@ use crate::config::ConfDir;
 use crate::db::utils::{bytes_to_i32, bytes_to_u64, default_options};
 use crate::matrix::Matrix;
 use anyhow::Result;
-use log::debug;
+use log::{debug, info};
 use rocksdb::{
     BoundColumnFamily, ColumnFamilyDescriptor, IteratorMode, ReadOptions, WriteBatch, DB,
 };
@@ -88,7 +88,7 @@ impl ImageDB {
         let cfs = ImageColumnFamily::all();
         let cf_descriptors = ImageColumnFamily::descriptors();
 
-        debug!("open database at {}", path.database().display());
+        info!("open database at {}", path.database().display());
 
         let db = match read_only {
             true => DB::open_cf_for_read_only(&options, path.database(), &cfs, false)?,
