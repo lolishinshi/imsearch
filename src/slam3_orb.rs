@@ -1,7 +1,7 @@
 use std::ffi::c_void;
 
+use anyhow::Result;
 use opencv::prelude::*;
-use opencv::Result;
 use opencv::{core, sys};
 
 pub struct Slam3ORB {
@@ -34,7 +34,7 @@ impl Slam3ORB {
         keypoints: &mut core::Vector<core::KeyPoint>,
         descriptors: &mut dyn core::ToOutputArray,
         v_lapping_area: &core::Vector<i32>,
-    ) -> opencv::Result<()> {
+    ) -> Result<()> {
         let image = image.input_array()?;
         let mask = mask.input_array()?;
         let descriptors = descriptors.output_array()?;
@@ -60,6 +60,9 @@ impl Drop for Slam3ORB {
         }
     }
 }
+
+unsafe impl Sync for Slam3ORB {}
+unsafe impl Send for Slam3ORB {}
 
 extern "C" {
     fn slam3_ORB_create(

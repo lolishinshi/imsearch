@@ -1,9 +1,10 @@
 use std::fs::File;
-use std::io::{self, Read, Write};
+use std::io::{Read, Write};
 use std::path::Path;
 use std::time::{Duration, Instant};
 
 use crate::slam3_orb::Slam3ORB;
+use anyhow::Result;
 use blake3::Hash;
 use dashmap::DashMap;
 use opencv::features2d;
@@ -16,7 +17,7 @@ use opencv::{core, imgproc};
 pub fn detect_and_compute(
     orb: &mut Slam3ORB,
     image: &dyn core::ToInputArray,
-) -> opencv::Result<(types::VectorOfKeyPoint, Mat)> {
+) -> Result<(types::VectorOfKeyPoint, Mat)> {
     let mask = Mat::default();
     let lap = types::VectorOfi32::from(vec![0, 0]);
     let mut kps = types::VectorOfKeyPoint::new();
@@ -25,7 +26,7 @@ pub fn detect_and_compute(
     Ok((kps, des))
 }
 
-pub fn imread<S: AsRef<str>>(filename: S) -> opencv::Result<Mat> {
+pub fn imread<S: AsRef<str>>(filename: S) -> Result<Mat> {
     let mut img = imgcodecs::imread(filename.as_ref(), imgcodecs::IMREAD_GRAYSCALE)?;
     if img.cols() > 1920 || img.rows() > 1080 {
         img = adjust_image_size(&img, 1920, 1080)?;
@@ -33,7 +34,7 @@ pub fn imread<S: AsRef<str>>(filename: S) -> opencv::Result<Mat> {
     Ok(img)
 }
 
-pub fn imshow(winname: &str, mat: &dyn core::ToInputArray) -> opencv::Result<()> {
+pub fn imshow(winname: &str, mat: &dyn core::ToInputArray) -> Result<()> {
     highgui::imshow(winname, mat)?;
     while highgui::get_window_property(
         winname,
@@ -45,12 +46,13 @@ pub fn imshow(winname: &str, mat: &dyn core::ToInputArray) -> opencv::Result<()>
     Ok(())
 }
 
-pub fn imwrite(filename: &str, img: &dyn core::ToInputArray) -> opencv::Result<bool> {
+pub fn imwrite(filename: &str, img: &dyn core::ToInputArray) -> Result<bool> {
     let flags = types::VectorOfi32::new();
-    imgcodecs::imwrite(filename, img, &flags)
+    Ok(imgcodecs::imwrite(filename, img, &flags)?)
 }
 
-pub fn adjust_image_size(img: &Mat, width: i32, height: i32) -> opencv::Result<Mat> {
+// TODO: 对于长图，应该要增加特征点数量
+pub fn adjust_image_size(img: &Mat, width: i32, height: i32) -> Result<Mat> {
     if img.rows() <= height || img.cols() <= width {
         return Ok(img.clone());
     }
@@ -71,7 +73,7 @@ pub fn adjust_image_size(img: &Mat, width: i32, height: i32) -> opencv::Result<M
 pub fn draw_keypoints(
     image: &dyn core::ToInputArray,
     keypoints: &types::VectorOfKeyPoint,
-) -> opencv::Result<Mat> {
+) -> Result<Mat> {
     let mut output = core::Mat::default();
     features2d::draw_keypoints(
         image,
@@ -90,7 +92,7 @@ pub fn draw_matches_knn(
     keypoints2: &types::VectorOfKeyPoint,
     matches1to2: &types::VectorOfVectorOfDMatch,
     matches_mask: &types::VectorOfVectorOfi8,
-) -> opencv::Result<Mat> {
+) -> Result<Mat> {
     let mut output = core::Mat::default();
     features2d::draw_matches_knn(
         img1,
@@ -107,6 +109,7 @@ pub fn draw_matches_knn(
     Ok(output)
 }
 
+#[derive(Debug, Default)]
 pub struct TimeMeasure(pub DashMap<String, Duration>);
 
 impl TimeMeasure {
@@ -125,7 +128,7 @@ impl TimeMeasure {
     }
 }
 
-pub fn read_line(prompt: &str) -> anyhow::Result<String> {
+pub fn read_line(prompt: &str) -> Result<String> {
     print!("{}", prompt);
     std::io::stdout().flush()?;
     let v = std::io::stdin()
@@ -154,7 +157,7 @@ pub fn wilson_score(scores: &[f32]) -> f32 {
         / (1. + z.powi(2) / count)
 }
 
-pub fn hash_file<P: AsRef<Path>>(path: P) -> Result<Hash, io::Error> {
+pub fn hash_file<P: AsRef<Path>>(path: P) -> Result<Hash> {
     let mut file = File::open(path)?;
     let mut data = vec![];
     file.read_to_end(&mut data)?;
