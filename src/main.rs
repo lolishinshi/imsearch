@@ -151,9 +151,14 @@ fn build_index(opts: &Opts) -> Result<()> {
     db.build_index(opts.batch_size)
 }
 
-fn mark_as_trained(opts: &Opts, config: &MarkAsTrained) -> Result<()> {
+fn mark_as_trained(opts: &Opts, config: &MarkAsIndexed) -> Result<()> {
     let db = IMDB::new(opts.conf_dir.clone(), false)?;
-    db.mark_as_trained(config.max_feature_id, opts.batch_size)
+    db.mark_as_indexed(config.max_feature_id, opts.batch_size)
+}
+
+fn clear_cache(opts: &Opts, config: &ClearCache) -> Result<()> {
+    let db = IMDB::new(opts.conf_dir.clone(), false)?;
+    db.clear_cache(config.unindexed)
 }
 
 fn start_server(opts: &Opts, config: &StartServer) -> Result<()> {
@@ -224,9 +229,13 @@ fn main() {
         SubCommand::BuildIndex => {
             build_index(&*OPTS).unwrap();
         }
-        SubCommand::StartServer(config) => start_server(&*OPTS, config).unwrap(),
-        SubCommand::ClearCache => unimplemented!(),
-        SubCommand::MarkAsTrained(config) => {
+        SubCommand::StartServer(config) => {
+            start_server(&*OPTS, config).unwrap();
+        }
+        SubCommand::ClearCache(config) => {
+            clear_cache(&*OPTS, config).unwrap();
+        }
+        SubCommand::MarkAsIndexed(config) => {
             mark_as_trained(&*OPTS, config).unwrap();
         }
     }

@@ -208,7 +208,7 @@ impl ImageDB {
     }
 
     /// Mark a list of features as trained
-    pub fn mark_as_trained(&self, ids: &[u64]) -> Result<()> {
+    pub fn mark_as_indexed(&self, ids: &[u64]) -> Result<()> {
         let new_feature = self.cf(ImageColumnFamily::NewFeature);
         let id_to_feature = self.cf(ImageColumnFamily::IdToFeature);
 
@@ -221,6 +221,20 @@ impl ImageDB {
             batch.put_cf(&id_to_feature, id, feature);
         }
         self.db.write(batch)?;
+
+        Ok(())
+    }
+
+    /// Delete features
+    pub fn clear_cache(&self, indexed: bool) -> Result<()> {
+        let cf = match indexed {
+            true => self.cf(ImageColumnFamily::IdToFeature),
+            _ => self.cf(ImageColumnFamily::NewFeature),
+        };
+
+        for (id, _) in self.features(indexed) {
+            self.db.delete_cf(&cf, id.to_le_bytes())?;
+        }
 
         Ok(())
     }

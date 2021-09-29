@@ -88,10 +88,10 @@ pub enum SubCommand {
     StartServer(StartServer),
     /// Build index
     BuildIndex,
-    /// Clear cache
-    ClearCache,
+    /// Clear indexed (and unindexed) features
+    ClearCache(ClearCache),
     /// Mark a range of features as trained
-    MarkAsTrained(MarkAsTrained),
+    MarkAsIndexed(MarkAsIndexed),
 }
 
 #[derive(StructOpt, Debug, Clone)]
@@ -142,10 +142,17 @@ pub struct StartServer {
 }
 
 #[derive(StructOpt, Debug, Clone)]
-pub struct MarkAsTrained {
+pub struct MarkAsIndexed {
     /// Mark feature in [0, max_feature_id) as trained
     #[structopt(long)]
     pub max_feature_id: u64,
+}
+
+#[derive(StructOpt, Debug, Clone)]
+pub struct ClearCache {
+    /// Also clear unindexed features
+    #[structopt(long)]
+    pub unindexed: bool,
 }
 
 #[derive(StructOpt, Debug, Clone)]

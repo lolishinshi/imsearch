@@ -38,6 +38,7 @@ impl IMDB {
 
     pub fn train_index(&mut self) {
         let mut _index = self.get_index(false);
+        todo!()
     }
 
     pub fn build_index(&self, chunk_size: usize) -> Result<()> {
@@ -54,7 +55,7 @@ impl IMDB {
         let add_index = |index: &mut FaissIndex, features: &FeatureWithId| -> Result<()> {
             index.add_with_ids(features.features(), features.ids());
             index.write_file(&*tmp_file.to_str().unwrap());
-            self.db.mark_as_trained(&features.ids_u64())?;
+            self.db.mark_as_indexed(&features.ids_u64())?;
             std::fs::rename(&tmp_file, self.conf_dir.index())?;
             Ok(())
         };
@@ -77,7 +78,7 @@ impl IMDB {
         Ok(())
     }
 
-    pub fn mark_as_trained(&self, max_feature_id: u64, chunk_size: usize) -> Result<()> {
+    pub fn mark_as_indexed(&self, max_feature_id: u64, chunk_size: usize) -> Result<()> {
         let mut idx = vec![];
 
         for (id, _) in self.db.features(false) {
@@ -86,17 +87,25 @@ impl IMDB {
             }
             idx.push(id);
             if idx.len() == chunk_size {
-                info!("mark as trained: {}", chunk_size);
-                self.db.mark_as_trained(&idx)?;
+                info!("mark as indexed: {}", chunk_size);
+                self.db.mark_as_indexed(&idx)?;
                 idx.clear();
             }
         }
 
         if !idx.is_empty() {
-            info!("mark as trained: {}", idx.len());
-            self.db.mark_as_trained(&idx)?;
+            info!("mark as indexed: {}", idx.len());
+            self.db.mark_as_indexed(&idx)?;
         }
 
+        Ok(())
+    }
+
+    pub fn clear_cache(&self, unindexed: bool) -> Result<()> {
+        self.db.clear_cache(true)?;
+        if unindexed {
+            self.db.clear_cache(false)?;
+        }
         Ok(())
     }
 
