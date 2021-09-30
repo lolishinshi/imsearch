@@ -232,7 +232,12 @@ impl ImageDB {
             _ => self.cf(ImageColumnFamily::NewFeature),
         };
 
+        let mut n = 0;
         for (id, _) in self.features(indexed) {
+            n += 1;
+            if n % 100000 == 0 {
+                debug!("cleared {}", n);
+            }
             self.db.delete_cf(&cf, id.to_le_bytes())?;
         }
 
