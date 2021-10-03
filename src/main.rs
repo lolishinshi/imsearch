@@ -14,6 +14,7 @@ use opencv::{core, features2d, imgcodecs, types};
 use rayon::prelude::*;
 use regex::Regex;
 use rouille::{post_input, router, try_or_400, Response};
+use std::sync::RwLock;
 use structopt::StructOpt;
 use walkdir::WalkDir;
 
@@ -170,9 +171,10 @@ fn start_server(opts: &Opts, config: &StartServer) -> Result<()> {
     let mut index = db.get_index(opts.mmap);
     index.set_nprobe(opts.nprobe);
 
+    let index = RwLock::new(index);
     let opts = opts.clone();
 
-    info!("starting server at {}", &config.addr);
+    info!("starting server at http://{}", &config.addr);
     rouille::start_server(&config.addr, move |request| {
         router!(request,
             (POST) (/search) => {
@@ -187,7 +189,8 @@ fn start_server(opts: &Opts, config: &StartServer) -> Result<()> {
                 let result = ORB.with(|orb| {
                     utils::detect_and_compute(&mut *orb.borrow_mut(), &img)
                         .and_then(|(_, descriptors)| {
-                        db.search_des(&index, descriptors, opts.knn_k, opts.distance)
+                        let index = index.read().expect("failed to acquire rw lock");
+                        db.search_des(&*index, descriptors, opts.knn_k, opts.distance)
                     })
                 });
 
@@ -202,8 +205,20 @@ fn start_server(opts: &Opts, config: &StartServer) -> Result<()> {
                     },
                 }
             },
+            (POST) (/set_nprobe) => {
+                let data = try_or_400!(post_input!(request, {
+                    n: usize,
+                }));
+                try_or_400!(index.write()).set_nprobe(data.n);
+                Response::text("").with_status_code(200)
+            },
             _ => {
-                Response::empty_404()
+                Response::html(r#"
+                <p>
+                http --form http://127.0.0.1/search file@test.jpg</br>
+                http --form http://127.0.0.1/set_nprobe n=128
+                </p>
+                "#).with_status_code(404)
             }
         )
     });
