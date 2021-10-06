@@ -406,9 +406,9 @@ namespace ORB_SLAM3
             };
 
     ORBextractor::ORBextractor(int _nfeatures, float _scaleFactor, int _nlevels,
-                               int _iniThFAST, int _minThFAST):
+                               int _iniThFAST, int _minThFAST, int _interpolation, bool _angle):
             nfeatures(_nfeatures), scaleFactor(_scaleFactor), nlevels(_nlevels),
-            iniThFAST(_iniThFAST), minThFAST(_minThFAST)
+            iniThFAST(_iniThFAST), minThFAST(_minThFAST), interpolation(_interpolation), angle(_angle)
     {
         mvScaleFactor.resize(nlevels);
         mvLevelSigma2.resize(nlevels);
@@ -873,8 +873,10 @@ namespace ORB_SLAM3
         }
 
         // compute orientations
-        for (int level = 0; level < nlevels; ++level)
-            computeOrientation(mvImagePyramid[level], allKeypoints[level], umax);
+        if (angle) {
+            for (int level = 0; level < nlevels; ++level)
+                computeOrientation(mvImagePyramid[level], allKeypoints[level], umax);
+        }
     }
 
     void ORBextractor::ComputeKeyPointsOld(std::vector<std::vector<KeyPoint> > &allKeypoints)
@@ -1162,7 +1164,7 @@ namespace ORB_SLAM3
             // Compute the resized image
             if( level != 0 )
             {
-                resize(mvImagePyramid[level-1], mvImagePyramid[level], sz, 0, 0, INTER_LINEAR);
+                resize(mvImagePyramid[level-1], mvImagePyramid[level], sz, 0, 0, interpolation);
 
                 copyMakeBorder(mvImagePyramid[level], temp, EDGE_THRESHOLD, EDGE_THRESHOLD, EDGE_THRESHOLD, EDGE_THRESHOLD,
                                BORDER_REFLECT_101+BORDER_ISOLATED);

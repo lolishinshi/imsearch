@@ -2,7 +2,7 @@ use std::convert::Infallible;
 use std::path::{Path, PathBuf};
 use std::str::FromStr;
 
-use crate::slam3_orb::Slam3ORB;
+use crate::slam3_orb::{InterpolationFlags, Slam3ORB};
 use directories::ProjectDirs;
 use once_cell::sync::Lazy;
 use opencv::{core, features2d, flann};
@@ -40,6 +40,12 @@ pub struct Opts {
     /// Minimum fast threshold
     #[structopt(long, value_name = "THRESHOLD", default_value = "7")]
     pub orb_min_th_fast: u32,
+    /// Interpolation algorithm
+    #[structopt(long, value_name = "FLAG", default_value = "Liner")]
+    pub orb_interpolation: InterpolationFlags,
+    /// Record orientation info
+    #[structopt(long)]
+    pub orb_not_oriented: bool,
 
     /// Use mmap instead of read whole index to memory
     #[structopt(long)]
@@ -201,6 +207,8 @@ impl From<&Opts> for Slam3ORB {
             opts.orb_nlevels as i32,
             opts.orb_ini_th_fast as i32,
             opts.orb_min_th_fast as i32,
+            opts.orb_interpolation,
+            !opts.orb_not_oriented,
         )
         .expect("failed to build Slam3Orb")
     }

@@ -3,6 +3,30 @@ use std::ffi::c_void;
 use anyhow::Result;
 use opencv::prelude::*;
 use opencv::{core, sys};
+use std::str::FromStr;
+
+// TODO: 使用 OpenCV 自带的
+#[derive(Debug, Copy, Clone)]
+pub enum InterpolationFlags {
+    Liner = 1,
+    Cubic = 2,
+    Area = 3,
+    Lanczos4 = 4,
+}
+
+impl FromStr for InterpolationFlags {
+    type Err = anyhow::Error;
+
+    fn from_str(s: &str) -> std::prelude::rust_2015::Result<Self, Self::Err> {
+        Ok(match s.to_lowercase().as_str() {
+            "liner" => Self::Liner,
+            "cubic" => Self::Cubic,
+            "area" => Self::Area,
+            "lanczos4" => Self::Lanczos4,
+            _ => anyhow::bail!("Possible values: Liner, Lanczos4, Area, Lanczos4"),
+        })
+    }
+}
 
 pub struct Slam3ORB {
     raw: *const c_void,
@@ -15,16 +39,26 @@ impl Slam3ORB {
         nlevels: i32,
         ini_th_fast: i32,
         min_th_fast: i32,
+        interpolation: InterpolationFlags,
+        angle: bool,
     ) -> Result<Self> {
         let raw = unsafe {
-            slam3_ORB_create(nfeatures, scale_factor, nlevels, ini_th_fast, min_th_fast)
-                .into_result()?
+            slam3_ORB_create(
+                nfeatures,
+                scale_factor,
+                nlevels,
+                ini_th_fast,
+                min_th_fast,
+                interpolation as i32,
+                angle,
+            )
+            .into_result()?
         };
         Ok(Self { raw })
     }
 
     pub fn default() -> Result<Self> {
-        Self::create(500, 1.2, 8, 20, 7)
+        Self::create(500, 1.2, 8, 20, 7, InterpolationFlags::Liner, true)
     }
 
     pub fn detect_and_compute(
@@ -71,6 +105,8 @@ extern "C" {
         nlevels: i32,
         ini_th_fast: i32,
         min_th_fast: i32,
+        interpolation: i32,
+        angle: bool,
     ) -> sys::Result<*const c_void>;
     fn slam3_ORB_delete(orb: *const c_void);
     fn slam3_ORB_detect_and_compute(
