@@ -11,6 +11,7 @@ use anyhow::Result;
 use itertools::Itertools;
 use log::{debug, info};
 use ndarray::prelude::*;
+use std::time::Instant;
 
 pub struct IMDB {
     conf_dir: ConfDir,
@@ -161,6 +162,7 @@ impl IMDB {
         max_distance: u32,
     ) -> Result<Vec<(f32, String)>> {
         debug!("searching {} nearest neighbors", knn);
+        let instant = Instant::now();
         let mut counter = HashMap::new();
 
         for neighbors in index.search(&descriptors, knn) {
@@ -182,6 +184,8 @@ impl IMDB {
             .map(|(image, scores)| (100. * wilson_score(&*scores), image))
             .collect::<Vec<_>>();
         results.sort_unstable_by(|a, b| b.0.partial_cmp(&a.0).unwrap());
+
+        debug!("search time: {:.2}s", instant.elapsed().as_secs_f32());
 
         Ok(results)
     }

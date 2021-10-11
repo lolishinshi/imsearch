@@ -1,11 +1,9 @@
 use std::cell::RefCell;
 use std::path::PathBuf;
+use std::sync::RwLock;
+use std::time::Instant;
 
 use anyhow::Result;
-use imsearch::config::*;
-use imsearch::slam3_orb::Slam3ORB;
-use imsearch::utils;
-use imsearch::IMDB;
 use log::{debug, info};
 use ndarray_npy::write_npy;
 use once_cell::sync::Lazy;
@@ -14,9 +12,14 @@ use opencv::{core, features2d, imgcodecs, types};
 use rayon::prelude::*;
 use regex::Regex;
 use rouille::{post_input, router, try_or_400, Response};
-use std::sync::RwLock;
+use serde_json::json;
 use structopt::StructOpt;
 use walkdir::WalkDir;
+
+use imsearch::config::*;
+use imsearch::slam3_orb::Slam3ORB;
+use imsearch::utils;
+use imsearch::IMDB;
 
 pub static OPTS: Lazy<Opts> = Lazy::new(Opts::from_args);
 thread_local! {
@@ -186,6 +189,7 @@ fn start_server(opts: &Opts, config: &StartServer) -> Result<()> {
 
                 info!("searching {:?}", data.file.filename);
 
+                let start = Instant::now();
                 let result = ORB.with(|orb| {
                     utils::detect_and_compute(&mut *orb.borrow_mut(), &img)
                         .and_then(|(_, descriptors)| {
@@ -193,11 +197,15 @@ fn start_server(opts: &Opts, config: &StartServer) -> Result<()> {
                         db.search_des(&*index, descriptors, opts.knn_k, opts.distance)
                     })
                 });
+                let elapsed = start.elapsed().as_secs_f32();
 
                 match result {
                     Ok(mut result) => {
                         result.truncate(opts.output_count);
-                        Response::json(&result)
+                        Response::json(&json!({
+                            "time": elapsed,
+                            "result": result,
+                        }))
                     },
                     Err(err) => {
                         // TODO: 此处错误处理很简陋

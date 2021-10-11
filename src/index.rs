@@ -164,7 +164,7 @@ impl FaissIndex {
                 indices.as_mut_ptr(),
             );
         }
-        debug!("search time: {:.2}s", start.elapsed().as_secs_f32());
+        debug!("knn search time: {:.2}s", start.elapsed().as_secs_f32());
 
         indices
             .into_iter()
