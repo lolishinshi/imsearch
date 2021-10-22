@@ -146,9 +146,9 @@ fn start_repl(opts: &Opts, config: &StartRepl) -> Result<()> {
     Ok(())
 }
 
-fn build_index(opts: &Opts) -> Result<()> {
+fn build_index(opts: &Opts, config: &BuildIndex) -> Result<()> {
     let db = IMDB::new(opts.conf_dir.clone(), false)?;
-    db.build_index(opts.batch_size)
+    db.build_index(opts.batch_size, config.start, config.end)
 }
 
 fn mark_as_trained(opts: &Opts, config: &MarkAsIndexed) -> Result<()> {
@@ -254,8 +254,8 @@ fn main() {
         SubCommand::StartRepl(config) => {
             start_repl(&*OPTS, config).unwrap();
         }
-        SubCommand::BuildIndex => {
-            build_index(&*OPTS).unwrap();
+        SubCommand::BuildIndex(config) => {
+            build_index(&*OPTS, config).unwrap();
         }
         SubCommand::StartServer(config) => {
             start_server(&*OPTS, config).unwrap();

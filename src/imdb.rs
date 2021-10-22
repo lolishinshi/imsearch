@@ -43,7 +43,12 @@ impl IMDB {
         todo!()
     }
 
-    pub fn build_index(&self, chunk_size: usize) -> Result<()> {
+    pub fn build_index(
+        &self,
+        chunk_size: usize,
+        start: Option<u64>,
+        end: Option<u64>,
+    ) -> Result<()> {
         let mut index = self.get_index(false);
         let mut features = FeatureWithId::new();
 
@@ -64,6 +69,12 @@ impl IMDB {
 
         // TODO: 丢弃迭代器以允许 RocksDB 从硬盘上删除不需要的数据
         for (id, feature) in self.db.features(false) {
+            if start.is_some() && id < start.unwrap() {
+                continue;
+            }
+            if end.is_some() && id >= end.unwrap() {
+                continue;
+            }
             features.add(id as i64, &*feature);
             if features.len() == chunk_size {
                 info!("Building index: {} + {}", index.ntotal(), chunk_size);

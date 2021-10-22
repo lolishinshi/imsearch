@@ -93,7 +93,7 @@ pub enum SubCommand {
     /// Start Web server
     StartServer(StartServer),
     /// Build index
-    BuildIndex,
+    BuildIndex(BuildIndex),
     /// Clear indexed (and unindexed) features
     ClearCache(ClearCache),
     /// Mark a range of features as trained
@@ -161,6 +161,16 @@ pub struct ClearCache {
     /// Also clear unindexed features
     #[structopt(long)]
     pub unindexed: bool,
+}
+
+#[derive(StructOpt, Debug, Clone)]
+pub struct BuildIndex {
+    /// Skip index < start
+    #[structopt(long)]
+    pub start: Option<u64>,
+    /// Skip index >= end
+    #[structopt(long)]
+    pub end: Option<u64>,
 }
 
 #[derive(StructOpt, Debug, Clone)]
