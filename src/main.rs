@@ -1,5 +1,4 @@
 use std::cell::RefCell;
-use std::path::PathBuf;
 use std::sync::RwLock;
 use std::time::Instant;
 
@@ -115,35 +114,13 @@ fn search_image(opts: &Opts, config: &SearchImage) -> Result<()> {
     let db = IMDB::new(opts.conf_dir.clone(), true)?;
     let mut orb = Slam3ORB::from(opts);
 
-    let mut index = db.get_index(opts.mmap);
+    let mut index = db.get_multi_index(opts.mmap);
     index.set_nprobe(opts.nprobe);
 
     let mut result = db.search(&index, &config.image, &mut orb, 3, opts.distance)?;
 
     result.truncate(opts.output_count);
     print_result(&result)
-}
-
-fn start_repl(opts: &Opts, config: &StartRepl) -> Result<()> {
-    let db = IMDB::new(opts.conf_dir.clone(), true)?;
-    let mut orb = Slam3ORB::from(opts);
-
-    let mut index = db.get_index(opts.mmap);
-    index.set_nprobe(opts.nprobe);
-
-    debug!("start REPL");
-    while let Ok(line) = utils::read_line(&config.prompt) {
-        if !PathBuf::from(&line).exists() {
-            continue;
-        }
-
-        let mut result = db.search(&index, line, &mut orb, 3, opts.distance)?;
-
-        result.truncate(opts.output_count);
-        print_result(&result)?;
-    }
-
-    Ok(())
 }
 
 fn build_index(opts: &Opts, config: &BuildIndex) -> Result<()> {
@@ -171,7 +148,7 @@ fn export_data(opts: &Opts) -> Result<()> {
 fn start_server(opts: &Opts, config: &StartServer) -> Result<()> {
     let db = IMDB::new(opts.conf_dir.clone(), true)?;
 
-    let mut index = db.get_index(opts.mmap);
+    let mut index = db.get_multi_index(opts.mmap);
     index.set_nprobe(opts.nprobe);
 
     let index = RwLock::new(index);
@@ -250,9 +227,6 @@ fn main() {
         }
         SubCommand::SearchImage(config) => {
             search_image(&*OPTS, config).unwrap();
-        }
-        SubCommand::StartRepl(config) => {
-            start_repl(&*OPTS, config).unwrap();
         }
         SubCommand::BuildIndex(config) => {
             build_index(&*OPTS, config).unwrap();

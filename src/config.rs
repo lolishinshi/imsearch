@@ -88,8 +88,6 @@ pub enum SubCommand {
     AddImages(AddImages),
     /// Search image from database
     SearchImage(SearchImage),
-    /// Start interactive REPL
-    StartRepl(StartRepl),
     /// Start Web server
     StartServer(StartServer),
     /// Build index
