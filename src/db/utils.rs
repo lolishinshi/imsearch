@@ -7,8 +7,9 @@ use rocksdb::{BlockBasedOptions, Cache, DBCompressionType, Error, Options, DB};
 
 pub fn default_options() -> Options {
     let mut block_opts = BlockBasedOptions::default();
-    block_opts.set_block_size(64 << 10);
-    block_opts.set_block_cache(&Cache::new_lru_cache(128 << 20).unwrap());
+    block_opts.set_block_size(512 << 10);
+    block_opts.set_block_cache(&Cache::new_lru_cache(2 << 30).unwrap());
+    block_opts.set_bloom_filter(10, false);
 
     let mut options = Options::default();
     options.set_block_based_table_factory(&block_opts);
