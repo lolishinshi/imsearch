@@ -8,8 +8,8 @@ use rocksdb::{BlockBasedOptions, Cache, DBCompressionType, Error, Options, DB};
 pub fn default_options() -> Options {
     let mut block_opts = BlockBasedOptions::default();
     block_opts.set_block_size(512 << 10);
-    block_opts.set_block_cache(&Cache::new_lru_cache(2 << 30).unwrap());
-    block_opts.set_bloom_filter(10, false);
+    block_opts.set_block_cache(&Cache::new_lru_cache(10 << 30).unwrap());
+    block_opts.set_bloom_filter(15, false);
 
     let mut options = Options::default();
     options.set_block_based_table_factory(&block_opts);
@@ -20,8 +20,10 @@ pub fn default_options() -> Options {
     options.set_compaction_readahead_size(32 << 20);
     options.set_skip_stats_update_on_db_open(true);
     options.set_target_file_size_base(256 << 20);
+    options.set_compression_options(0, 0, 0, 256 << 10);
+    options.set_zstd_max_train_bytes(256 << 10);
     options.set_compression_per_level(&[
-        DBCompressionType::None,
+        DBCompressionType::Lz4,
         DBCompressionType::Lz4,
         DBCompressionType::Lz4,
         DBCompressionType::Zstd,
