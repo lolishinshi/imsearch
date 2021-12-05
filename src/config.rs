@@ -230,7 +230,7 @@ impl From<&Opts> for features2d::FlannBasedMatcher {
             flann::LshIndexParams::new(6, 12, 1).expect("failed to build LshIndexParams"),
         ));
         let search_params = core::Ptr::new(
-            flann::SearchParams::new_1(32, 0.0, true).expect("failed to build SearchParams"),
+            flann::SearchParams::new(32, 0.0, true).expect("failed to build SearchParams"),
         );
         features2d::FlannBasedMatcher::new(&index_params, &search_params)
             .expect("failed to build FlannBasedMatcher")
