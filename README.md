@@ -13,7 +13,7 @@
 
 注：编译 faiss 时建议设置 `-DFAISS_OPT_LEVEL=avx2` 以最大化性能
 
-2. `rustup run nightly cargo install --git https://github.com/lolishinshi/imsearch`
+2. `cargo +nightly install --git https://github.com/lolishinshi/imsearch`
 
 ## 用法
 
