@@ -18,7 +18,7 @@ def main():
     tr = np.load(argv[2], mmap_mode="r")
 
     index.train(tr)
-    faiss.write_index_binary(index, Path.home() / '.config/imsearch/index')
+    faiss.write_index_binary(index, str(Path.home() / '.config/imsearch/index'))
 
 
 if __name__ == '__main__':
