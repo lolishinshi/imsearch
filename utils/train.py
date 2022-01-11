@@ -23,9 +23,9 @@ def main():
 
     tr = np.load(argv[2], mmap_mode="r")
 
-    fn = str(Path.home() / '.config/imsearch/index')
     index.train(tr)
-    faiss.write_index_binary(index, fn)
+
+    faiss.write_index_binary(index, str(Path.home() / '.config/imsearch/index'))
 
 
 if __name__ == '__main__':
