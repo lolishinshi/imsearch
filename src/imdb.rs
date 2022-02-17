@@ -123,7 +123,7 @@ impl IMDB {
     }
 
     pub fn export(&self) -> Result<Array2<u8>> {
-        let mut arr = Array2::zeros((0, 32));
+        let mut arr = Array2::zeros((0, 16));
         for (_, feature) in self.db.features(false) {
             let tmp = ArrayView::from(&feature);
             arr.push(Axis(0), tmp)?;
@@ -148,7 +148,7 @@ impl IMDB {
             _ => unimplemented!(),
         };
         debug!("creating index with {}", desc);
-        FaissIndex::new(256, &desc)
+        FaissIndex::new(128, &desc)
     }
 
     pub fn get_index(&self, mmap: bool) -> FaissIndex {
@@ -221,7 +221,7 @@ struct FeatureWithId(Vec<i64>, Matrix2D);
 
 impl FeatureWithId {
     pub fn new() -> Self {
-        Self(vec![], Matrix2D::new(32))
+        Self(vec![], Matrix2D::new(16))
     }
 
     pub fn add(&mut self, id: i64, feature: &[u8]) {

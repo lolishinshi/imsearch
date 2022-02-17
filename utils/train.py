@@ -1,3 +1,4 @@
+#!/usr/bin/env python3
 from pathlib import Path
 from sys import argv
 import faiss
@@ -5,11 +6,12 @@ import numpy as np
 
 
 def main():
-    if len(argv) != 2:
+    if len(argv) != 3:
         print(f"Usage: {argv[0]} K train.npy")
+        return
 
     k = int(argv[1])
-    d = 256
+    d = 128
     quantizer = faiss.IndexBinaryFlat(d)
     index = faiss.IndexBinaryIVF(quantizer, d, k)
     clustering_index = faiss.index_cpu_to_all_gpus(faiss.IndexFlatL2(d))
