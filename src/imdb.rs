@@ -1,8 +1,10 @@
 use std::collections::HashMap;
+use std::os::unix::ffi::OsStrExt;
+use std::time::Instant;
 
 use crate::config::ConfDir;
 use crate::db::ImageDB;
-use crate::index::FaissIndex;
+use crate::index::{FaissIndex, MultiFaissIndex};
 use crate::matrix::{Matrix, Matrix2D};
 use crate::slam3_orb::Slam3ORB;
 use crate::utils;
@@ -11,7 +13,7 @@ use anyhow::Result;
 use itertools::Itertools;
 use log::{debug, info};
 use ndarray::prelude::*;
-use std::time::Instant;
+use walkdir::WalkDir;
 
 pub struct IMDB {
     conf_dir: ConfDir,
@@ -151,6 +153,18 @@ impl IMDB {
         FaissIndex::new(128, &desc)
     }
 
+    pub fn get_multi_index(&self, mmap: bool) -> MultiFaissIndex {
+        let index_file = &*self.conf_dir.index();
+        let index_files = WalkDir::new(index_file.parent().unwrap())
+            .max_depth(1)
+            .into_iter()
+            .filter_map(|entry| entry.ok())
+            .filter(|entry| entry.file_name().as_bytes().starts_with(b"index."))
+            .collect::<Vec<_>>();
+        let index_files = index_files.iter().map(|entry| entry.path());
+        MultiFaissIndex::from_file(index_files, mmap)
+    }
+
     pub fn get_index(&self, mmap: bool) -> FaissIndex {
         let index_file = &*self.conf_dir.index();
         if index_file.exists() {
@@ -167,7 +181,7 @@ impl IMDB {
 
     pub fn search_des<M: Matrix>(
         &self,
-        index: &FaissIndex,
+        index: &MultiFaissIndex,
         descriptors: M,
         knn: usize,
         max_distance: u32,
@@ -203,7 +217,7 @@ impl IMDB {
 
     pub fn search<S: AsRef<str>>(
         &self,
-        index: &FaissIndex,
+        index: &MultiFaissIndex,
         image_path: S,
         orb: &mut Slam3ORB,
         knn: usize,
