@@ -3,6 +3,7 @@ use std::path::{Path, PathBuf};
 use std::str::FromStr;
 
 use crate::slam3_orb::{InterpolationFlags, Slam3ORB};
+use crate::cmd::*;
 use directories::ProjectDirs;
 use once_cell::sync::Lazy;
 use opencv::{core, features2d, flann};
@@ -41,7 +42,7 @@ pub struct Opts {
     #[structopt(long, value_name = "THRESHOLD", default_value = "7")]
     pub orb_min_th_fast: u32,
     /// Interpolation algorithm
-    #[structopt(long, value_name = "FLAG", default_value = "Liner")]
+    #[structopt(long, value_name = "FLAG", default_value = "Area")]
     pub orb_interpolation: InterpolationFlags,
     /// Record orientation info
     #[structopt(long)]
@@ -98,24 +99,6 @@ pub enum SubCommand {
     MarkAsIndexed(MarkAsIndexed),
     /// Export data for trainning
     ExportData,
-}
-
-#[derive(StructOpt, Debug, Clone)]
-pub struct ShowKeypoints {
-    /// Path to an image
-    pub image: String,
-    /// Optional output image
-    pub output: Option<String>,
-}
-
-#[derive(StructOpt, Debug, Clone)]
-pub struct ShowMatches {
-    /// Path to image A
-    pub image1: String,
-    /// Path to image B
-    pub image2: String,
-    /// Optional output image
-    pub output: Option<String>,
 }
 
 #[derive(StructOpt, Debug, Clone)]
