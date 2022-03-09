@@ -179,6 +179,7 @@ fn start_server(opts: &Opts, config: &StartServer) -> Result<()> {
 
     info!("starting server at http://{}", &config.addr);
     rouille::start_server(&config.addr, move |request| {
+        let mut opts = opts.clone();
         router!(request,
             (POST) (/search) => {
                 let data = try_or_400!(post_input!(request, {
@@ -189,14 +190,14 @@ fn start_server(opts: &Opts, config: &StartServer) -> Result<()> {
 
                 info!("searching {:?}", data.file.filename);
 
+                let mut orb = Slam3ORB::from(&opts);
+
                 let start = Instant::now();
-                let result = ORB.with(|orb| {
-                    utils::detect_and_compute(&mut *orb.borrow_mut(), &img)
+                let result = utils::detect_and_compute(&mut orb, &img)
                         .and_then(|(_, descriptors)| {
                         let index = index.read().expect("failed to acquire rw lock");
                         db.search_des(&*index, descriptors, opts.knn_k, opts.distance)
-                    })
-                });
+                    });
                 let elapsed = start.elapsed().as_secs_f32();
 
                 match result {
@@ -220,11 +221,19 @@ fn start_server(opts: &Opts, config: &StartServer) -> Result<()> {
                 try_or_400!(index.write()).set_nprobe(data.n);
                 Response::text("").with_status_code(200)
             },
+            (POST) (/set_orb_scale_factor) => {
+                let data = try_or_400!(post_input!(request, {
+                    n: f32,
+                }));
+                opts.orb_scale_factor = data.n;
+                Response::text("").with_status_code(200)
+            },
             _ => {
                 Response::html(r#"
                 <p>
                 http --form http://127.0.0.1/search file@test.jpg</br>
                 http --form http://127.0.0.1/set_nprobe n=128
+                http --form http://127.0.0.1/set_orb_scale_factor n=1.2
                 </p>
                 "#).with_status_code(404)
             }
