@@ -184,12 +184,16 @@ fn start_server(opts: &Opts, config: &StartServer) -> Result<()> {
             (POST) (/search) => {
                 let data = try_or_400!(post_input!(request, {
                     file: rouille::input::post::BufferedFile,
+                    orb_scale_factor: Option<f32>,
                 }));
                 let mat = try_or_400!(Mat::from_slice(&data.file.data));
                 let img = try_or_400!(imgcodecs::imdecode(&mat, imgcodecs::IMREAD_GRAYSCALE));
 
                 info!("searching {:?}", data.file.filename);
 
+                if let Some(orb_scale_factor) = data.orb_scale_factor {
+                    opts.orb_scale_factor = orb_scale_factor;
+                }
                 let mut orb = Slam3ORB::from(&opts);
 
                 let start = Instant::now();
@@ -221,19 +225,11 @@ fn start_server(opts: &Opts, config: &StartServer) -> Result<()> {
                 try_or_400!(index.write()).set_nprobe(data.n);
                 Response::text("").with_status_code(200)
             },
-            (POST) (/set_orb_scale_factor) => {
-                let data = try_or_400!(post_input!(request, {
-                    n: f32,
-                }));
-                opts.orb_scale_factor = data.n;
-                Response::text("").with_status_code(200)
-            },
             _ => {
                 Response::html(r#"
                 <p>
-                http --form http://127.0.0.1/search file@test.jpg</br>
+                http --form http://127.0.0.1/search file@test.jpg orb_scale_factor=1.2</br>
                 http --form http://127.0.0.1/set_nprobe n=128
-                http --form http://127.0.0.1/set_orb_scale_factor n=1.2
                 </p>
                 "#).with_status_code(404)
             }
