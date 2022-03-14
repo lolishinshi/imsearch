@@ -179,7 +179,6 @@ fn start_server(opts: &Opts, config: &StartServer) -> Result<()> {
 
     info!("starting server at http://{}", &config.addr);
     rouille::start_server(&config.addr, move |request| {
-        let mut opts = opts.clone();
         router!(request,
             (POST) (/search) => {
                 let data = try_or_400!(post_input!(request, {
@@ -191,6 +190,7 @@ fn start_server(opts: &Opts, config: &StartServer) -> Result<()> {
 
                 info!("searching {:?}", data.file.filename);
 
+                let mut opts = opts.clone();
                 if let Some(orb_scale_factor) = data.orb_scale_factor {
                     opts.orb_scale_factor = orb_scale_factor;
                 }
