@@ -30,24 +30,30 @@ impl SubCommandExtend for StartServer {
 
         info!("starting server at http://{}", &self.addr);
         rouille::start_server(&self.addr, move |request| {
+            let mut opts = opts.clone();
             router!(request,
                 (POST) (/search) => {
                     let data = try_or_400!(post_input!(request, {
                         file: rouille::input::post::BufferedFile,
+                        orb_scale_factor: Option<f32>,
                     }));
                     let mat = try_or_400!(Mat::from_slice(&data.file.data));
                     let img = try_or_400!(imgcodecs::imdecode(&mat, imgcodecs::IMREAD_GRAYSCALE));
 
                     info!("searching {:?}", data.file.filename);
 
+                    let mut opts = opts.clone();
+                    if let Some(orb_scale_factor) = data.orb_scale_factor {
+                        opts.orb_scale_factor = orb_scale_factor;
+                    }
+                    let mut orb = Slam3ORB::from(&opts);
+
                     let start = Instant::now();
-                    let result = ORB.with(|orb| {
-                        utils::detect_and_compute(&mut *orb.borrow_mut(), &img)
+                    let result = utils::detect_and_compute(&mut orb, &img)
                             .and_then(|(_, descriptors)| {
                             let index = index.read().expect("failed to acquire rw lock");
                             db.search_des(&*index, descriptors, opts.knn_k, opts.distance)
-                        })
-                    });
+                        });
                     let elapsed = start.elapsed().as_secs_f32();
 
                     match result {
@@ -74,7 +80,7 @@ impl SubCommandExtend for StartServer {
                 _ => {
                     Response::html(r#"
                 <p>
-                http --form http://127.0.0.1/search file@test.jpg</br>
+                http --form http://127.0.0.1/search file@test.jpg orb_scale_factor=1.2</br>
                 http --form http://127.0.0.1/set_nprobe n=128
                 </p>
                 "#).with_status_code(404)
