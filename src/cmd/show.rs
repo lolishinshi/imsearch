@@ -1,11 +1,11 @@
-use anyhow::Result;
-use opencv::{features2d, types};
-use opencv::prelude::DescriptorMatcherConst;
-use structopt::StructOpt;
-use crate::cmd::SubCommand;
+use crate::cmd::SubCommandExtend;
 use crate::config::Opts;
 use crate::slam3_orb::Slam3ORB;
 use crate::utils;
+use anyhow::Result;
+use opencv::prelude::DescriptorMatcherConst;
+use opencv::{core, features2d, types};
+use structopt::StructOpt;
 
 #[derive(StructOpt, Debug, Clone)]
 pub struct ShowKeypoints {
@@ -15,15 +15,15 @@ pub struct ShowKeypoints {
     pub output: Option<String>,
 }
 
-impl SubCommand for ShowKeypoints {
+impl SubCommandExtend for ShowKeypoints {
     fn run(&self, opts: &Opts) -> Result<()> {
-        let image = utils::imread(&config.image)?;
+        let image = utils::imread(&self.image)?;
 
         let mut orb = Slam3ORB::from(opts);
         let (kps, _) = utils::detect_and_compute(&mut orb, &image)?;
         let output = utils::draw_keypoints(&image, &kps)?;
 
-        match &config.output {
+        match &self.output {
             Some(file) => {
                 utils::imwrite(file, &output)?;
             }
@@ -43,10 +43,10 @@ pub struct ShowMatches {
     pub output: Option<String>,
 }
 
-impl SubCommand for ShowMatches {
+impl SubCommandExtend for ShowMatches {
     fn run(&self, opts: &Opts) -> Result<()> {
-        let img1 = utils::imread(&config.image1)?;
-        let img2 = utils::imread(&config.image2)?;
+        let img1 = utils::imread(&self.image1)?;
+        let img2 = utils::imread(&self.image2)?;
 
         let mut orb = Slam3ORB::from(opts);
         let (kps1, des1) = utils::detect_and_compute(&mut orb, &img1)?;
@@ -73,7 +73,7 @@ impl SubCommand for ShowMatches {
         let matches_mask = types::VectorOfVectorOfi8::from(matches_mask);
 
         let output = utils::draw_matches_knn(&img1, &kps1, &img2, &kps2, &matches, &matches_mask)?;
-        match &config.output {
+        match &self.output {
             Some(file) => {
                 utils::imwrite(file, &output)?;
             }
