@@ -168,6 +168,7 @@ fn start_server(opts: &Opts, config: &StartServer) -> Result<()> {
 
                 info!("searching {:?}", data.file.filename);
 
+                let mut opts = opts.clone();
                 if let Some(orb_scale_factor) = data.orb_scale_factor {
                     opts.orb_scale_factor = orb_scale_factor;
                 }
