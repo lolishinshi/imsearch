@@ -20,7 +20,11 @@ def main():
     tr = np.load(argv[2], mmap_mode="r")
 
     index.train(tr)
-    faiss.write_index_binary(index, str(Path.home() / '.config/imsearch/index'))
+
+    dest = Path.home() / '.config/imsearch'
+    dest.mkdir(parents=True, exist_ok=True)
+
+    faiss.write_index_binary(index, str(dest / 'index'))
 
 
 if __name__ == '__main__':
