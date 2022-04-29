@@ -159,7 +159,7 @@ impl IMDB {
             .max_depth(1)
             .into_iter()
             .filter_map(|entry| entry.ok())
-            .filter(|entry| entry.file_name().as_bytes().starts_with(b"index."))
+            .filter(|entry| entry.file_name().as_bytes().starts_with(b"index"))
             .collect::<Vec<_>>();
         let index_files = index_files.iter().map(|entry| entry.path());
         MultiFaissIndex::from_file(index_files, mmap)
