@@ -1,7 +1,6 @@
 use crate::cmd::SubCommandExtend;
 use crate::utils;
-use crate::ORB;
-use crate::{Opts, IMDB};
+use crate::{Opts, IMDB, Slam3ORB};
 use log::info;
 use opencv::imgcodecs;
 use opencv::prelude::*;
@@ -30,7 +29,7 @@ impl SubCommandExtend for StartServer {
 
         info!("starting server at http://{}", &self.addr);
         rouille::start_server(&self.addr, move |request| {
-            let mut opts = opts.clone();
+            let opts = opts.clone();
             router!(request,
                 (POST) (/search) => {
                     let data = try_or_400!(post_input!(request, {
