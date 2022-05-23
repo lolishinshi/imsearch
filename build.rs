@@ -150,6 +150,7 @@ fn main() {
         .file("src/faiss/index_io_c.cpp")
         .file("src/faiss/IndexBinary_c.cpp")
         .file("src/faiss/IndexBinaryIVF_c.cpp")
+        .include("/home/yhb/.miniconda3/include")
         .flag("-Wno-strict-aliasing")
         .compile("faiss_wrapper");
 }
