@@ -19,6 +19,16 @@ pub fn check_db_update(path: &ConfDir) -> Result<()> {
         // update_from_2_to_3(path)?;
         std::fs::write(path.version(), "3")?;
     }
+    if !version_file.exists() {
+        std::fs::write(path.version(), "3")?;
+    }
+
+    let version = std::fs::read_to_string(version_file)?;
+
+    match version.as_str() {
+        "3" => {}
+        _ => {}
+    }
 
     // init
     if !path.database().exists() {

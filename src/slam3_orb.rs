@@ -58,7 +58,7 @@ impl Slam3ORB {
     }
 
     pub fn default() -> Result<Self> {
-        Self::create(500, 1.2, 8, 20, 7, InterpolationFlags::Liner, true)
+        Self::create(500, 1.2, 8, 20, 7, InterpolationFlags::Area, true)
     }
 
     pub fn detect_and_compute(
