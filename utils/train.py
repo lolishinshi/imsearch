@@ -1,3 +1,4 @@
+#!/usr/bin/env python3
 from pathlib import Path
 from sys import argv
 import faiss
@@ -5,8 +6,9 @@ import numpy as np
 
 
 def main():
-    if len(argv) != 2:
+    if len(argv) != 3:
         print(f"Usage: {argv[0]} K train.npy")
+        return
 
     k = int(argv[1])
     d = 256
@@ -18,7 +20,11 @@ def main():
     tr = np.load(argv[2], mmap_mode="r")
 
     index.train(tr)
-    faiss.write_index_binary(index, str(Path.home() / '.config/imsearch/index'))
+
+    dest = Path.home() / '.config/imsearch'
+    dest.mkdir(parents=True, exist_ok=True)
+
+    faiss.write_index_binary(index, str(dest / 'index'))
 
 
 if __name__ == '__main__':

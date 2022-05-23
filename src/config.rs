@@ -2,6 +2,7 @@ use std::convert::Infallible;
 use std::path::{Path, PathBuf};
 use std::str::FromStr;
 
+use crate::cmd::*;
 use crate::slam3_orb::{InterpolationFlags, Slam3ORB};
 use directories::ProjectDirs;
 use once_cell::sync::Lazy;
@@ -41,7 +42,7 @@ pub struct Opts {
     #[structopt(long, value_name = "THRESHOLD", default_value = "7")]
     pub orb_min_th_fast: u32,
     /// Interpolation algorithm
-    #[structopt(long, value_name = "FLAG", default_value = "Liner")]
+    #[structopt(long, value_name = "FLAG", default_value = "Area")]
     pub orb_interpolation: InterpolationFlags,
     /// Record orientation info
     #[structopt(long)]
@@ -88,8 +89,6 @@ pub enum SubCommand {
     AddImages(AddImages),
     /// Search image from database
     SearchImage(SearchImage),
-    /// Start interactive REPL
-    StartRepl(StartRepl),
     /// Start Web server
     StartServer(StartServer),
     /// Build index
@@ -99,78 +98,7 @@ pub enum SubCommand {
     /// Mark a range of features as trained
     MarkAsIndexed(MarkAsIndexed),
     /// Export data for trainning
-    ExportData,
-}
-
-#[derive(StructOpt, Debug, Clone)]
-pub struct ShowKeypoints {
-    /// Path to an image
-    pub image: String,
-    /// Optional output image
-    pub output: Option<String>,
-}
-
-#[derive(StructOpt, Debug, Clone)]
-pub struct ShowMatches {
-    /// Path to image A
-    pub image1: String,
-    /// Path to image B
-    pub image2: String,
-    /// Optional output image
-    pub output: Option<String>,
-}
-
-#[derive(StructOpt, Debug, Clone)]
-pub struct AddImages {
-    /// Path to an image or folder
-    pub path: String,
-    /// Scan image with these suffixes
-    #[structopt(short, long, default_value = "jpg,png")]
-    pub suffix: String,
-}
-
-#[derive(StructOpt, Debug, Clone)]
-pub struct SearchImage {
-    /// Path to the image to search
-    pub image: String,
-}
-
-#[derive(StructOpt, Debug, Clone)]
-pub struct StartRepl {
-    /// Promot
-    #[structopt(short, long, default_value = "")]
-    pub prompt: String,
-}
-
-#[derive(StructOpt, Debug, Clone)]
-pub struct StartServer {
-    /// Listen address
-    #[structopt(long, default_value = "127.0.0.1:8000")]
-    pub addr: String,
-}
-
-#[derive(StructOpt, Debug, Clone)]
-pub struct MarkAsIndexed {
-    /// Mark feature in [0, max_feature_id) as trained
-    #[structopt(long)]
-    pub max_feature_id: u64,
-}
-
-#[derive(StructOpt, Debug, Clone)]
-pub struct ClearCache {
-    /// Also clear unindexed features
-    #[structopt(long)]
-    pub unindexed: bool,
-}
-
-#[derive(StructOpt, Debug, Clone)]
-pub struct BuildIndex {
-    /// Skip index < start
-    #[structopt(long)]
-    pub start: Option<u64>,
-    /// Skip index >= end
-    #[structopt(long)]
-    pub end: Option<u64>,
+    ExportData(ExportData),
 }
 
 #[derive(StructOpt, Debug, Clone)]

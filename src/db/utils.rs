@@ -3,14 +3,14 @@ use std::mem;
 
 use crate::db::database::ImageColumnFamily;
 use crate::db::database::MetaData;
-use rocksdb::{BlockBasedOptions, Cache, DBCompressionType, Error, Options, DB, BlockBasedIndexType};
+use rocksdb::{BlockBasedOptions, DBCompressionType, Error, Options, DB, BlockBasedIndexType};
 
 pub fn default_options() -> Options {
     let mut block_opts = BlockBasedOptions::default();
     block_opts.set_block_size(16 << 10);
     block_opts.set_index_type(BlockBasedIndexType::TwoLevelIndexSearch);
     block_opts.set_bloom_filter(10, false);
-    block_opts.set_metadata_block_size(4 << 1024);
+    block_opts.set_metadata_block_size(4 << 10);
     block_opts.set_cache_index_and_filter_blocks(true);
     block_opts.set_pin_top_level_index_and_filter(true);
     block_opts.set_pin_l0_filter_and_index_blocks_in_cache(true);
