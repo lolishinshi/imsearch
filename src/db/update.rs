@@ -20,6 +20,7 @@ pub fn check_db_update(path: &ConfDir) -> Result<()> {
         std::fs::write(path.version(), "3")?;
     }
     if !version_file.exists() {
+        std::fs::create_dir_all(path.path())?;
         std::fs::write(path.version(), "3")?;
     }
 
