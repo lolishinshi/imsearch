@@ -3,34 +3,30 @@ use std::mem;
 
 use crate::db::database::ImageColumnFamily;
 use crate::db::database::MetaData;
-use rocksdb::{BlockBasedOptions, Cache, DBCompressionType, Error, Options, DB};
+use rocksdb::{BlockBasedOptions, Cache, DBCompressionType, Error, Options, DB, BlockBasedIndexType};
 
 pub fn default_options() -> Options {
     let mut block_opts = BlockBasedOptions::default();
-    block_opts.set_block_size(512 << 10);
-    block_opts.set_block_cache(&Cache::new_lru_cache(10 << 30).unwrap());
-    block_opts.set_bloom_filter(15, false);
+    block_opts.set_block_size(16 << 10);
+    block_opts.set_index_type(BlockBasedIndexType::TwoLevelIndexSearch);
+    block_opts.set_bloom_filter(10, false);
+    block_opts.set_metadata_block_size(4 << 1024);
+    block_opts.set_cache_index_and_filter_blocks(true);
+    block_opts.set_pin_top_level_index_and_filter(true);
+    block_opts.set_pin_l0_filter_and_index_blocks_in_cache(true);
+
 
     let mut options = Options::default();
     options.set_block_based_table_factory(&block_opts);
+    options.set_compression_type(DBCompressionType::Zstd);
     options.increase_parallelism(num_cpus::get() as i32);
+    options.create_if_missing(true);
     options.set_keep_log_file_num(10);
     options.set_level_compaction_dynamic_level_bytes(true);
     options.set_max_total_wal_size(512 << 20);
-    options.set_compaction_readahead_size(32 << 20);
+    options.set_compaction_readahead_size(16 << 20);
     options.set_skip_stats_update_on_db_open(true);
-    options.set_target_file_size_base(256 << 20);
-    options.set_compression_options(0, 0, 0, 256 << 10);
-    options.set_zstd_max_train_bytes(256 << 10);
-    options.set_compression_per_level(&[
-        DBCompressionType::Lz4,
-        DBCompressionType::Lz4,
-        DBCompressionType::Lz4,
-        DBCompressionType::Zstd,
-        DBCompressionType::Zstd,
-        DBCompressionType::Zstd,
-        DBCompressionType::Zstd,
-    ]);
+
     options
 }
 
