@@ -105,7 +105,7 @@ fn add_images(opts: &Opts, config: &AddImages) -> Result<()> {
                     true => println!("[OK] Add {}", entry.display()),
                     false => println!("[OK] Update {}", entry.display()),
                 },
-                Err(e) => eprintln!("[ERR] {}: {}\n{}", entry.display(), e, e.backtrace()),
+                Err(e) => eprintln!("[ERR] {}: {}\n{:?}", entry.display(), e, e.backtrace()),
             }
         });
     Ok(())
