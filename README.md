@@ -8,7 +8,7 @@
 
 ## 安装方式
 
-1. 安装 OpenCV、[faiss](https://github.com/facebookresearch/faiss/blob/main/INSTALL.md#building-from-source)
+1. 安装 OpenCV、[faiss](https://github.com/facebookresearch/faiss/blob/main/INSTALL.md#building-from-source)、vtk、glew
 
 注：编译 faiss 时建议设置 `-DFAISS_OPT_LEVEL=avx2` 以最大化性能
 
