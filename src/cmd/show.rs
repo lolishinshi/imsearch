@@ -3,7 +3,7 @@ use crate::config::Opts;
 use crate::slam3_orb::Slam3ORB;
 use crate::utils;
 use anyhow::Result;
-use opencv::prelude::DescriptorMatcherConst;
+use opencv::prelude::DescriptorMatcherTraitConst;
 use opencv::{core, features2d, types};
 use structopt::StructOpt;
 

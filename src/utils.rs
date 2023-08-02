@@ -16,7 +16,7 @@ use opencv::{core, imgproc};
 
 pub fn detect_and_compute(
     orb: &mut Slam3ORB,
-    image: &dyn core::ToInputArray,
+    image: &impl core::ToInputArray,
 ) -> Result<(types::VectorOfKeyPoint, Mat)> {
     let mask = Mat::default();
     let lap = types::VectorOfi32::from(vec![0, 0]);
@@ -34,7 +34,7 @@ pub fn imread<S: AsRef<str>>(filename: S) -> Result<Mat> {
     Ok(img)
 }
 
-pub fn imshow(winname: &str, mat: &dyn core::ToInputArray) -> Result<()> {
+pub fn imshow(winname: &str, mat: &impl core::ToInputArray) -> Result<()> {
     highgui::imshow(winname, mat)?;
     while highgui::get_window_property(
         winname,
@@ -46,7 +46,7 @@ pub fn imshow(winname: &str, mat: &dyn core::ToInputArray) -> Result<()> {
     Ok(())
 }
 
-pub fn imwrite(filename: &str, img: &dyn core::ToInputArray) -> Result<bool> {
+pub fn imwrite(filename: &str, img: &impl core::ToInputArray) -> Result<bool> {
     let flags = types::VectorOfi32::new();
     Ok(imgcodecs::imwrite(filename, img, &flags)?)
 }
@@ -71,7 +71,7 @@ pub fn adjust_image_size(img: &Mat, width: i32, height: i32) -> Result<Mat> {
 }
 
 pub fn draw_keypoints(
-    image: &dyn core::ToInputArray,
+    image: &impl core::ToInputArray,
     keypoints: &types::VectorOfKeyPoint,
 ) -> Result<Mat> {
     let mut output = core::Mat::default();
@@ -86,9 +86,9 @@ pub fn draw_keypoints(
 }
 
 pub fn draw_matches_knn(
-    img1: &dyn core::ToInputArray,
+    img1: &impl core::ToInputArray,
     keypoints1: &types::VectorOfKeyPoint,
-    img2: &dyn core::ToInputArray,
+    img2: &impl core::ToInputArray,
     keypoints2: &types::VectorOfKeyPoint,
     matches1to2: &types::VectorOfVectorOfDMatch,
     matches_mask: &types::VectorOfVectorOfi8,

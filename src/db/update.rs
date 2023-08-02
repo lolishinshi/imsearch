@@ -68,6 +68,7 @@ fn update_from_2_to_3(path: &ConfDir) -> Result<()> {
 
     let mut total_features = 0u64;
     for (idx, data) in features_db.iterator(IteratorMode::Start).enumerate() {
+        let data = data?;
         // features_db contains: feature([u8; 32]) => image_id(i32)
         print!("\r{}", idx);
         let idx = idx.to_le_bytes();
@@ -82,6 +83,7 @@ fn update_from_2_to_3(path: &ConfDir) -> Result<()> {
 
     let mut total_images = 0u64;
     for (idx, data) in image_db.iterator(IteratorMode::Start).enumerate() {
+        let data = data?;
         // image_db contains:
         //  image_id(i32)      => image_path(String)
         //  image_path(String) => image_id(u32)      [skip]

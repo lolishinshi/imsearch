@@ -179,14 +179,14 @@ impl ImageDB {
     }
 
     /// Return an iterator of features
-    pub fn features(&self, indexed: bool) -> impl Iterator<Item = (u64, Box<[u8]>)> + '_ {
+    pub fn features(&self, indexed: bool) -> impl Iterator<Item = Result<(u64, Box<[u8]>), rocksdb::Error>> + '_ {
         let family = match indexed {
             true => ImageColumnFamily::IdToFeature,
             false => ImageColumnFamily::NewFeature,
         };
         self.db
             .iterator_cf_opt(&self.cf(family), Self::read_opts(), IteratorMode::Start)
-            .map(|item| (bytes_to_u64(item.0), item.1))
+            .map(|item| item.map(|item| (bytes_to_u64(item.0), item.1)))
     }
 
     fn find_image_id_by_id(&self, feature_id: u64) -> Result<Option<i32>> {

@@ -56,7 +56,7 @@ impl Matrix for Mat {
     }
 
     fn as_ptr(&self) -> *const u8 {
-        self.data().unwrap() as *const u8
+        self.data()
     }
 
     fn line(&self, n: usize) -> &[u8] {

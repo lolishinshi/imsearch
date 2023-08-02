@@ -70,7 +70,8 @@ impl IMDB {
         };
 
         // TODO: 丢弃迭代器以允许 RocksDB 从硬盘上删除不需要的数据
-        for (id, feature) in self.db.features(false) {
+        for item in self.db.features(false) {
+            let (id, feature) = item?;
             if start.is_some() && id < start.unwrap() {
                 continue;
             }
@@ -96,7 +97,8 @@ impl IMDB {
     pub fn mark_as_indexed(&self, max_feature_id: u64, chunk_size: usize) -> Result<()> {
         let mut idx = vec![];
 
-        for (id, _) in self.db.features(false) {
+        for item in self.db.features(false) {
+            let (id, _) = item?;
             if id >= max_feature_id {
                 continue;
             }
@@ -126,7 +128,8 @@ impl IMDB {
 
     pub fn export(&self) -> Result<Array2<u8>> {
         let mut arr = Array2::zeros((0, 32));
-        for (_, feature) in self.db.features(false) {
+        for item in self.db.features(false) {
+            let (_, feature) = item?;
             let tmp = ArrayView::from(&feature);
             arr.push(Axis(0), tmp)?;
         }
