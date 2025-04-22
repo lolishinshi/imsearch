@@ -3,47 +3,11 @@ use faiss_sys::*;
 use itertools::Itertools;
 use log::debug;
 use std::ffi::CString;
-use std::path::Path;
 use std::time::Instant;
 
 pub struct Neighbor {
     pub index: usize,
     pub distance: u32,
-}
-
-pub struct MultiFaissIndex {
-    index: Vec<FaissIndex>,
-}
-
-impl MultiFaissIndex {
-    pub fn from_file<I, P>(path: I, mmap: bool) -> Self
-    where
-        I: IntoIterator<Item = P>,
-        P: AsRef<Path>,
-    {
-        let index = path
-            .into_iter()
-            .map(|path| FaissIndex::from_file(&*path.as_ref().to_string_lossy(), mmap))
-            .collect();
-        Self { index }
-    }
-
-    pub fn search<M>(&self, points: &M, knn: usize) -> Vec<Vec<Neighbor>>
-    where
-        M: Matrix,
-    {
-        let mut v = vec![];
-        for index in self.index.iter() {
-            v.extend(index.search(points, knn))
-        }
-        v
-    }
-
-    pub fn set_nprobe(&mut self, nprobe: usize) {
-        for index in self.index.iter_mut() {
-            index.set_nprobe(nprobe)
-        }
-    }
 }
 
 pub struct FaissIndex {

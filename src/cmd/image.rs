@@ -61,7 +61,7 @@ impl SubCommandExtend for SearchImage {
         let db = IMDB::new(opts.conf_dir.clone(), true)?;
         let mut orb = Slam3ORB::from(opts);
 
-        let mut index = db.get_multi_index(opts.mmap);
+        let mut index = db.get_index(opts.mmap);
         index.set_nprobe(opts.nprobe);
 
         let mut result = db.search(&index, &self.image, &mut orb, 3, opts.distance)?;

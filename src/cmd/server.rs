@@ -1,6 +1,6 @@
 use crate::cmd::SubCommandExtend;
 use crate::utils;
-use crate::{Opts, IMDB, Slam3ORB};
+use crate::{Opts, Slam3ORB, IMDB};
 use log::info;
 use opencv::imgcodecs;
 use opencv::prelude::*;
@@ -21,7 +21,7 @@ impl SubCommandExtend for StartServer {
     fn run(&self, opts: &Opts) -> anyhow::Result<()> {
         let db = IMDB::new(opts.conf_dir.clone(), true)?;
 
-        let mut index = db.get_multi_index(opts.mmap);
+        let mut index = db.get_index(opts.mmap);
         index.set_nprobe(opts.nprobe);
 
         let index = RwLock::new(index);
