@@ -140,16 +140,15 @@ impl FaissIndex {
                 indices.as_mut_ptr(),
             );
         }
-        debug!("knn search time: {:.2}s", start.elapsed().as_secs_f32());
 
-        unsafe {
-            let stats = *faiss_get_indexIVF_stats();
-            debug!("ndis             : {}", stats.nq);
-            debug!("nprobe           : {}", stats.nlist);
-            debug!("nheap_updates    : {}", stats.nheap_updates);
-            debug!("quantization_time: {}", stats.quantization_time);
-            debug!("search_time      : {}", stats.search_time);
-        }
+        let stats = unsafe { *faiss_get_indexIVF_stats() };
+
+        debug!("knn search time  : {}ms", start.elapsed().as_millis());
+        debug!("ndis             : {}", stats.nq);
+        debug!("nprobe           : {}", stats.nlist);
+        debug!("nheap_updates    : {}", stats.nheap_updates);
+        debug!("quantization_time: {:.2}ms", stats.quantization_time);
+        debug!("search_time      : {:.2}ms", stats.search_time);
 
         indices
             .into_iter()
@@ -165,7 +164,9 @@ impl FaissIndex {
     }
 
     pub fn set_nprobe(&mut self, nprobe: usize) {
-        unimplemented!()
+        unsafe {
+            faiss_IndexBinaryIVF_set_nprobe(self.index, nprobe);
+        }
     }
 }
 

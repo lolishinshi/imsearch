@@ -3,14 +3,13 @@
 基于特征点匹配的的局部图像搜索工具
 
 主要基于以下项目：
+
 - [ORB_SLAM3](https://github.com/UZ-SLAMLab/ORB_SLAM3) - 解决了传统 ORB 算法中存在的特征点过于集中的问题
 - [faiss](https://github.com/facebookresearch/faiss) - 对大规模向量进行搜索
 
 ## 安装方式
 
-1. 安装 OpenCV、[faiss](https://github.com/facebookresearch/faiss/blob/main/INSTALL.md#building-from-source)
-
-注：编译 faiss 时建议设置 `-DFAISS_OPT_LEVEL=avx2` 以最大化性能
+1. 安装 OpenCV
 
 2. `cargo install --git https://github.com/lolishinshi/imsearch`
 
@@ -39,7 +38,7 @@
 
 ### 构建索引
 
-使用 `imsearch build-index` 构建索引，这个过程同样非常慢，在 3970x 上，需要约 20～40 分钟构建 10k 张图片的索引
+使用 `imsearch build-index` 构建索引，这个过程同样非常慢，在 3970x 上，需要约 20 ～ 40 分钟构建 10k 张图片的索引
 
 注：可以设置 `RUST_LOG=debug` 来打印详细日志以观察进度
 
