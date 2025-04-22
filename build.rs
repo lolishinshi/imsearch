@@ -128,8 +128,6 @@ fn get_version_from_headers(header_dir: &Path) -> Option<Version> {
 
 fn main() {
     println!("cargo:rerun-if-changed=src/ORB_SLAM3");
-    println!("cargo:rerun-if-changed=src/faiss");
-    println!("cargo:rustc-link-lib=faiss_avx2");
     println!("cargo:rustc-link-lib=gomp");
     println!("cargo:rustc-link-lib=stdc++");
     println!("cargo:rustc-link-lib=blas");
@@ -141,16 +139,10 @@ fn main() {
         .file("src/ORB_SLAM3/ORBwrapper.cc")
         .includes(&library.include_paths)
         .flag("-Wno-unused")
+        .define(
+            "OCVRS_FFI_EXPORT_SUFFIX",
+            // NOTE: 0.94.4 is the version of OpenCV
+            &*format!("_{}", "0.94.4".replace(".", "_")),
+        )
         .compile("ORBextractor3");
-
-    cc::Build::new()
-        .include("src/faiss")
-        .file("src/faiss/error_impl.cpp")
-        .file("src/faiss/index_factory_c.cpp")
-        .file("src/faiss/index_io_c.cpp")
-        .file("src/faiss/IndexBinary_c.cpp")
-        .file("src/faiss/IndexBinaryIVF_c.cpp")
-        // .include("/home/yhb/.miniconda3/include")
-        .flag("-Wno-strict-aliasing")
-        .compile("faiss_wrapper");
 }

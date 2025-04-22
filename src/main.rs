@@ -8,7 +8,7 @@ fn main() {
     env_logger::init();
 
     let fdlimit = fdlimit::raise_fd_limit();
-    debug!("raise fdlimit to {:?}", fdlimit);
+    // debug!("raise fdlimit to {:?}", fdlimit);
 
     match &OPTS.subcmd {
         SubCommand::ShowKeypoints(config) => {

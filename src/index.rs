@@ -1,70 +1,10 @@
 use crate::matrix::Matrix;
+use faiss_sys::*;
 use itertools::Itertools;
 use log::debug;
 use std::ffi::CString;
-use std::os::raw::c_char;
 use std::path::Path;
 use std::time::Instant;
-
-#[repr(C)]
-#[derive(Debug, Copy, Clone)]
-struct FaissIndexBinary {
-    _unused: [u8; 0],
-}
-
-#[repr(C)]
-#[derive(Debug, Copy, Clone)]
-struct FaissIndexBinaryIVF {
-    _unused: [u8; 0],
-}
-
-extern "C" {
-    fn faiss_index_binary_factory(
-        index: *mut *mut FaissIndexBinary,
-        d: i32,
-        description: *const c_char,
-    );
-
-    fn faiss_IndexBinary_d(index: *const FaissIndexBinary) -> i32;
-
-    fn faiss_IndexBinary_ntotal(index: *const FaissIndexBinary) -> i64;
-
-    fn faiss_IndexBinary_is_trained(index: *const FaissIndexBinary) -> bool;
-
-    fn faiss_IndexBinary_train(index: *mut FaissIndexBinary, n: i64, x: *const u8);
-
-    fn faiss_IndexBinary_add(index: *mut FaissIndexBinary, n: i64, x: *const u8);
-
-    fn faiss_IndexBinary_add_with_ids(
-        index: *mut FaissIndexBinary,
-        n: i64,
-        x: *const u8,
-        xids: *const i64,
-    );
-
-    fn faiss_IndexBinary_search(
-        index: *const FaissIndexBinary,
-        n: i64,
-        x: *const u8,
-        k: i64,
-        distances: *mut i32,
-        labels: *mut i64,
-    );
-
-    fn faiss_IndexBinary_free(index: *mut FaissIndexBinary);
-
-    fn faiss_write_index_binary_fname(index: *const FaissIndexBinary, f: *const c_char);
-
-    fn faiss_read_index_binary_fname(
-        f: *const c_char,
-        io_flags: i32,
-        index: *mut *mut FaissIndexBinary,
-    );
-
-    fn faiss_IndexBinaryIVF_set_nprobe(index: *mut FaissIndexBinaryIVF, nprobe: usize);
-
-    fn faiss_IndexBinaryIVF_nlist(index: *const FaissIndexBinaryIVF) -> usize;
-}
 
 pub struct Neighbor {
     pub index: usize,
@@ -140,7 +80,7 @@ impl FaissIndex {
     }
 
     pub fn is_trained(&self) -> bool {
-        unsafe { faiss_IndexBinary_is_trained(self.index) }
+        unsafe { faiss_IndexBinary_is_trained(self.index) != 0 }
     }
 
     pub fn write_file(&self, path: &str) {
@@ -202,6 +142,15 @@ impl FaissIndex {
         }
         debug!("knn search time: {:.2}s", start.elapsed().as_secs_f32());
 
+        unsafe {
+            let stats = *faiss_get_indexIVF_stats();
+            debug!("ndis             : {}", stats.nq);
+            debug!("nprobe           : {}", stats.nlist);
+            debug!("nheap_updates    : {}", stats.nheap_updates);
+            debug!("quantization_time: {}", stats.quantization_time);
+            debug!("search_time      : {}", stats.search_time);
+        }
+
         indices
             .into_iter()
             .zip(dists.into_iter())
@@ -216,13 +165,7 @@ impl FaissIndex {
     }
 
     pub fn set_nprobe(&mut self, nprobe: usize) {
-        unsafe {
-            faiss_IndexBinaryIVF_set_nprobe(self.index as *mut FaissIndexBinaryIVF, nprobe);
-        }
-    }
-
-    pub fn nlist(&self) -> usize {
-        unsafe { faiss_IndexBinaryIVF_nlist(self.index as *const FaissIndexBinaryIVF) }
+        unimplemented!()
     }
 }
 

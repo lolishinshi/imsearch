@@ -11,16 +11,15 @@ use opencv::features2d;
 use opencv::highgui;
 use opencv::imgcodecs;
 use opencv::prelude::*;
-use opencv::types;
-use opencv::{core, imgproc};
+use opencv::{core::*, imgproc};
 
 pub fn detect_and_compute(
     orb: &mut Slam3ORB,
-    image: &impl core::ToInputArray,
-) -> Result<(types::VectorOfKeyPoint, Mat)> {
+    image: &impl ToInputArray,
+) -> Result<(Vector<KeyPoint>, Mat)> {
     let mask = Mat::default();
-    let lap = types::VectorOfi32::from(vec![0, 0]);
-    let mut kps = types::VectorOfKeyPoint::new();
+    let lap = Vector::<i32>::from(vec![0, 0]);
+    let mut kps = Vector::<KeyPoint>::new();
     let mut des = Mat::default();
     orb.detect_and_compute(image, &mask, &mut kps, &mut des, &lap)?;
     Ok((kps, des))
@@ -34,7 +33,7 @@ pub fn imread<S: AsRef<str>>(filename: S) -> Result<Mat> {
     Ok(img)
 }
 
-pub fn imshow(winname: &str, mat: &impl core::ToInputArray) -> Result<()> {
+pub fn imshow(winname: &str, mat: &impl ToInputArray) -> Result<()> {
     highgui::imshow(winname, mat)?;
     while highgui::get_window_property(
         winname,
@@ -46,8 +45,8 @@ pub fn imshow(winname: &str, mat: &impl core::ToInputArray) -> Result<()> {
     Ok(())
 }
 
-pub fn imwrite(filename: &str, img: &impl core::ToInputArray) -> Result<bool> {
-    let flags = types::VectorOfi32::new();
+pub fn imwrite(filename: &str, img: &impl ToInputArray) -> Result<bool> {
+    let flags = Vector::<i32>::new();
     Ok(imgcodecs::imwrite(filename, img, &flags)?)
 }
 
@@ -62,7 +61,7 @@ pub fn adjust_image_size(img: &Mat, width: i32, height: i32) -> Result<Mat> {
     imgproc::resize(
         img,
         &mut output,
-        core::Size::default(),
+        Size::default(),
         scale,
         scale,
         imgproc::InterpolationFlags::INTER_AREA as i32,
@@ -70,30 +69,27 @@ pub fn adjust_image_size(img: &Mat, width: i32, height: i32) -> Result<Mat> {
     Ok(output)
 }
 
-pub fn draw_keypoints(
-    image: &impl core::ToInputArray,
-    keypoints: &types::VectorOfKeyPoint,
-) -> Result<Mat> {
-    let mut output = core::Mat::default();
+pub fn draw_keypoints(image: &impl ToInputArray, keypoints: &Vector<KeyPoint>) -> Result<Mat> {
+    let mut output = Mat::default();
     features2d::draw_keypoints(
         image,
         keypoints,
         &mut output,
-        core::Scalar::all(-1.0),
+        Scalar::all(-1.0),
         features2d::DrawMatchesFlags::DEFAULT,
     )?;
     Ok(output)
 }
 
 pub fn draw_matches_knn(
-    img1: &impl core::ToInputArray,
-    keypoints1: &types::VectorOfKeyPoint,
-    img2: &impl core::ToInputArray,
-    keypoints2: &types::VectorOfKeyPoint,
-    matches1to2: &types::VectorOfVectorOfDMatch,
-    matches_mask: &types::VectorOfVectorOfi8,
+    img1: &impl ToInputArray,
+    keypoints1: &Vector<KeyPoint>,
+    img2: &impl ToInputArray,
+    keypoints2: &Vector<KeyPoint>,
+    matches1to2: &Vector<Vector<DMatch>>,
+    matches_mask: &Vector<Vector<i8>>,
 ) -> Result<Mat> {
-    let mut output = core::Mat::default();
+    let mut output = Mat::default();
     features2d::draw_matches_knn(
         img1,
         keypoints1,
@@ -101,8 +97,8 @@ pub fn draw_matches_knn(
         keypoints2,
         matches1to2,
         &mut output,
-        core::Scalar::from((0., 255., 0.)),
-        core::Scalar::from((255., 0., 0.)),
+        Scalar::from((0., 255., 0.)),
+        Scalar::from((255., 0., 0.)),
         matches_mask,
         features2d::DrawMatchesFlags::DEFAULT,
     )?;
