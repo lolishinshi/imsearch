@@ -3,6 +3,7 @@ use std::path::{Path, PathBuf};
 use std::str::FromStr;
 
 use crate::cmd::*;
+use crate::imdb::SearchStrategy;
 use crate::slam3_orb::{InterpolationFlags, Slam3ORB};
 use directories::ProjectDirs;
 use once_cell::sync::Lazy;
@@ -68,9 +69,9 @@ pub struct Opts {
     /// 每个查询描述符找到的最佳匹配数量
     #[structopt(long, value_name = "K", default_value = "3")]
     pub knn_k: usize,
-    /// 是否使用倒排列表优先搜索策略
-    #[structopt(long)]
-    pub per_invlist_search: bool,
+    /// 搜索策略
+    #[structopt(long, value_name = "STRATEGY", default_value = "heap", possible_values = &["heap", "per_invlist", "count"])]
+    pub strategy: SearchStrategy,
 
     #[structopt(subcommand)]
     pub subcmd: SubCommand,

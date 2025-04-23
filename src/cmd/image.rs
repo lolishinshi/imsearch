@@ -68,12 +68,19 @@ impl SubCommandExtend for SearchImage {
         let db = IMDB::new(opts.conf_dir.clone(), true)?;
         let mut orb = Slam3ORB::from(opts);
 
-        let index = db.get_index(opts.mmap, opts.per_invlist_search);
+        let index = db.get_index(opts.mmap, opts.strategy);
         let params = FaissSearchParams {
             nprobe: self.nprobe,
             max_codes: self.max_codes,
         };
-        let mut result = db.search(&index, &self.image, &mut orb, 3, opts.distance, params)?;
+        let mut result = db.search(
+            &index,
+            &self.image,
+            &mut orb,
+            opts.knn_k,
+            opts.distance,
+            params,
+        )?;
 
         result.truncate(opts.output_count);
         print_result(&result, opts)

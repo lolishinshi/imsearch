@@ -1,4 +1,5 @@
 use std::collections::HashMap;
+use std::str::FromStr;
 use std::time::Instant;
 
 use crate::config::ConfDir;
@@ -63,7 +64,7 @@ impl IMDB {
         start: Option<u64>,
         end: Option<u64>,
     ) -> Result<()> {
-        let mut index = self.get_index(false, false);
+        let mut index = self.get_index(false, SearchStrategy::Heap);
         let mut features = FeatureWithId::new();
 
         if !index.is_trained() {
@@ -186,8 +187,8 @@ impl IMDB {
     /// # Arguments
     ///
     /// * `mmap` - 是否使用 mmap 模式加载索引
-    /// * `per_invlist_search` - 是否使用 per_invlist_search 搜索策略
-    pub fn get_index(&self, mmap: bool, per_invlist_search: bool) -> FaissIndex {
+    /// * `strategy` - 搜索策略
+    pub fn get_index(&self, mmap: bool, strategy: SearchStrategy) -> FaissIndex {
         let index_file = &*self.conf_dir.index();
         let mut index = if index_file.exists() {
             if !mmap {
@@ -200,11 +201,13 @@ impl IMDB {
             self.create_index()
         };
 
-        if per_invlist_search {
-            index.set_per_invlit_search(true);
-            index.set_use_heap(false);
-        } else {
-            index.set_use_heap(true);
+        index.set_use_heap(false);
+        index.set_per_invlit_search(false);
+
+        match strategy {
+            SearchStrategy::PerInvlist => index.set_per_invlit_search(true),
+            SearchStrategy::Heap => index.set_use_heap(true),
+            SearchStrategy::Count => { /* 全部关闭就是计数排序 */ }
         }
 
         index
@@ -314,5 +317,29 @@ impl FeatureWithId {
 
     pub fn ids_u64(&self) -> Vec<u64> {
         self.0.iter().map(|&n| n as u64).collect_vec()
+    }
+}
+
+/// Faiss 搜索策略
+#[derive(Debug, Clone, Copy)]
+pub enum SearchStrategy {
+    /// 倒序列表优先
+    PerInvlist,
+    /// 使用堆排序
+    Heap,
+    /// 使用计数排序
+    Count,
+}
+
+impl FromStr for SearchStrategy {
+    type Err = anyhow::Error;
+
+    fn from_str(s: &str) -> Result<Self> {
+        match s {
+            "per_invlist" => Ok(SearchStrategy::PerInvlist),
+            "heap" => Ok(SearchStrategy::Heap),
+            "count" => Ok(SearchStrategy::Count),
+            _ => Err(anyhow::anyhow!("invalid search strategy")),
+        }
     }
 }
