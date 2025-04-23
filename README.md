@@ -23,12 +23,22 @@
 - 2w ～ 20w：K 取 262144，至少需要 21k 张图片训练
 - 20w ~ 200w：K 取 1048576，至少需要 82k 张图片训练
 
-然后将训练图片放到 train 文件夹内，并使用 `imsearch add-images train` 添加图片
+然后将训练图片放到 train 文件夹内，并使用以下命令提取图片特征点：
 
-再使用 `imsearch export-data` 导出 `train.npy`
+```bash
+imsearch add-images ./train
+imsearch export-data
+# 最终在当前目录下生成一个 train.npy
+```
 
-再使用 `python utils/train.py K train.npy` 训练索引，
-训练完的结果会保存在 `~/.config/imsearch/index`
+DESCRIPTION 可以为 BIVF{K} 或 BIVF{k}\_HNSW32。
+
+前者精度更高、但速度稍慢，后者精度略低、但速度更快。以下均采用前者作为例子。
+
+```bash
+python utils/train.py DESCRIPTION train.npy
+# 训练结果会保存为 {DESCRIPTION}.train
+```
 
 注：大数据集上的训练非常耗时，在 K = 1048576，训练图片为 100k 张时，两张 3080 花了 16 个小时才训练完成。
 
