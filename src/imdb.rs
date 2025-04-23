@@ -68,7 +68,7 @@ impl IMDB {
         let mut features = FeatureWithId::new();
 
         if !index.is_trained() {
-            panic!("index hasn't been trained");
+            panic!("该索引未训练！");
         }
 
         let mut tmp_file = self.conf_dir.index();
@@ -76,7 +76,9 @@ impl IMDB {
 
         let add_index = |index: &mut FaissIndex, features: &FeatureWithId| -> Result<()> {
             index.add_with_ids(features.features(), features.ids());
+            debug!("正在写入文件");
             index.write_file(&*tmp_file.to_str().unwrap());
+            debug!("标记已索引特征点");
             self.db.mark_as_indexed(&features.ids_u64())?;
             std::fs::rename(&tmp_file, self.conf_dir.index())?;
             Ok(())
@@ -93,14 +95,14 @@ impl IMDB {
             }
             features.add(id as i64, &*feature);
             if features.len() == chunk_size {
-                info!("Building index: {} + {}", index.ntotal(), chunk_size);
+                info!("构建索引: {} + {}", index.ntotal(), chunk_size);
                 add_index(&mut index, &features)?;
                 features.clear();
             }
         }
 
         if !features.len() != 0 {
-            info!("Building index: END");
+            info!("构建索引：结束");
             add_index(&mut index, &features)?;
         }
 
@@ -192,10 +194,13 @@ impl IMDB {
         let index_file = &*self.conf_dir.index();
         let mut index = if index_file.exists() {
             if !mmap {
-                debug!("reading index from {}", index_file.display());
+                debug!("正在加载索引 {}", index_file.display());
             }
             let index = FaissIndex::from_file(index_file.to_str().unwrap(), mmap);
-            debug!("indexed features: {}", index.ntotal());
+            debug!("已添加特征点 : {}", index.ntotal());
+            debug!("倒排列表数量 : {}", index.nlist());
+            debug!("不平衡度     : {}", index.imbalance_factor());
+            index.print_stats();
             index
         } else {
             self.create_index()

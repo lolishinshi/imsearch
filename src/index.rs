@@ -1,7 +1,7 @@
 use crate::matrix::Matrix;
 use faiss_sys::*;
 use itertools::Itertools;
-use log::debug;
+use log::{debug, info};
 use std::ffi::CString;
 use std::mem::MaybeUninit;
 use std::ptr;
@@ -183,6 +183,25 @@ impl FaissIndex {
         unsafe {
             faiss_IndexBinaryIVF_set_per_invlist_search(self.index, use_per_invlit_search as i32);
         }
+    }
+
+    /// 索引的不平衡度
+    /// 1 表示完全平衡，越大表示越不平衡
+    pub fn imbalance_factor(&self) -> f64 {
+        let imbalance = unsafe { faiss_IndexBinaryIVF_imbalance_factor(self.index) };
+        imbalance
+    }
+
+    /// 打印倒排列表信息
+    pub fn print_stats(&self) {
+        unsafe {
+            faiss_IndexBinaryIVF_print_stats(self.index);
+        }
+    }
+
+    /// 索引倒排列表数量
+    pub fn nlist(&self) -> usize {
+        unsafe { faiss_IndexBinaryIVF_nlist(self.index) }
     }
 }
 
