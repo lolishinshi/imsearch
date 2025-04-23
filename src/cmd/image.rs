@@ -6,8 +6,12 @@ use crate::IMDB;
 use crate::ORB;
 use anyhow::Result;
 use clap::Parser;
+use indicatif::ParallelProgressIterator;
+use indicatif::{ProgressBar, ProgressStyle};
+use log::info;
 use rayon::prelude::*;
 use regex::Regex;
+use std::path::PathBuf;
 use walkdir::WalkDir;
 
 #[derive(Parser, Debug, Clone)]
@@ -35,30 +39,54 @@ impl SubCommandExtend for AddImages {
     fn run(&self, opts: &Opts) -> anyhow::Result<()> {
         let re = Regex::new(&self.suffix.replace(',', "|")).expect("failed to build regex");
         let db = IMDB::new(opts.conf_dir.clone(), false)?;
-        WalkDir::new(&self.path)
+
+        // 收集所有符合条件的文件路径
+        info!("开始扫描目录: {}", self.path);
+        let entries: Vec<PathBuf> = WalkDir::new(&self.path)
             .into_iter()
             .filter_map(|entry| entry.ok())
-            .par_bridge()
-            .for_each(|entry| {
-                let entry = entry.into_path();
-                if entry
-                    .extension()
-                    .map(|s| re.is_match(&*s.to_string_lossy()))
-                    != Some(true)
-                {
-                    return;
-                }
+            .map(|entry| entry.into_path())
+            .filter(|path| {
+                path.extension().map(|s| re.is_match(&*s.to_string_lossy())) == Some(true)
+            })
+            .collect();
 
+        // 创建进度条
+        let pb = ProgressBar::new(entries.len() as u64);
+        pb.set_style(
+            ProgressStyle::default_bar()
+                .template("{spinner:.green} [{elapsed_precise}] [{bar:40.cyan/blue}] {pos}/{len} ({eta}) {msg}")
+                .unwrap()
+                .progress_chars("#>-")
+        );
+        pb.set_message("处理图片中...");
+
+        // 使用进度条处理图片
+        entries
+            .into_par_iter()
+            .progress_with(pb.clone())
+            .for_each(|entry| {
                 let result =
                     ORB.with(|orb| db.add_image(entry.to_string_lossy(), &mut *orb.borrow_mut()));
-                match result {
+
+                let status_msg = match &result {
                     Ok(add) => match add {
-                        true => println!("[OK] Add {}", entry.display()),
-                        false => println!("[OK] Update {}", entry.display()),
+                        true => format!("Add {}", entry.display()),
+                        false => format!("Update {}", entry.display()),
                     },
-                    Err(e) => eprintln!("[ERR] {}: {}\n{}", entry.display(), e, e.backtrace()),
+                    Err(e) => format!("Skip {}", e),
+                };
+
+                // 更新进度条消息
+                pb.set_message(status_msg.clone());
+
+                if let Err(e) = &result {
+                    pb.println(format!("{}: {}", entry.display(), e));
                 }
             });
+
+        // 完成后的消息
+        pb.finish_with_message("图片处理完成！");
         Ok(())
     }
 }
