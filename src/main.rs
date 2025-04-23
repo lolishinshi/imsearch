@@ -1,13 +1,11 @@
-use log::debug;
-
 use imsearch::cmd::SubCommandExtend;
 use imsearch::config::*;
 use imsearch::OPTS;
 
-fn main() {
+fn main() -> anyhow::Result<()> {
     env_logger::init();
 
-    let fdlimit = fdlimit::raise_fd_limit();
+    fdlimit::raise_fd_limit()?;
     // debug!("raise fdlimit to {:?}", fdlimit);
 
     match &OPTS.subcmd {
@@ -39,4 +37,6 @@ fn main() {
             config.run(&*OPTS).unwrap();
         }
     }
+
+    Ok(())
 }

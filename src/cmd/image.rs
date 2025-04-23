@@ -1,5 +1,6 @@
 use crate::cmd::SubCommandExtend;
 use crate::config::{Opts, OutputFormat};
+use crate::index::FaissSearchParams;
 use crate::slam3_orb::Slam3ORB;
 use crate::IMDB;
 use crate::ORB;
@@ -11,17 +12,23 @@ use walkdir::WalkDir;
 
 #[derive(StructOpt, Debug, Clone)]
 pub struct AddImages {
-    /// Path to an image or folder
+    /// 图片或目录的路径
     pub path: String,
-    /// Scan image with these suffixes
+    /// 扫描的文件后缀名，多个后缀用逗号分隔
     #[structopt(short, long, default_value = "jpg,png")]
     pub suffix: String,
 }
 
 #[derive(StructOpt, Debug, Clone)]
 pub struct SearchImage {
-    /// Path to the image to search
+    /// 被搜索的图片路径
     pub image: String,
+    /// 搜索的倒排列表数量
+    #[structopt(short, long, default_value = "1")]
+    pub nprobe: usize,
+    /// 搜索的最大向量数量
+    #[structopt(short, long, default_value = "0")]
+    pub max_codes: usize,
 }
 
 impl SubCommandExtend for AddImages {
@@ -61,10 +68,12 @@ impl SubCommandExtend for SearchImage {
         let db = IMDB::new(opts.conf_dir.clone(), true)?;
         let mut orb = Slam3ORB::from(opts);
 
-        let mut index = db.get_index(opts.mmap);
-        index.set_nprobe(opts.nprobe);
-
-        let mut result = db.search(&index, &self.image, &mut orb, 3, opts.distance)?;
+        let index = db.get_index(opts.mmap, opts.per_invlist_search);
+        let params = FaissSearchParams {
+            nprobe: self.nprobe,
+            max_codes: self.max_codes,
+        };
+        let mut result = db.search(&index, &self.image, &mut orb, 3, opts.distance, params)?;
 
         result.truncate(opts.output_count);
         print_result(&result, opts)

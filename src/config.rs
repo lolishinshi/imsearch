@@ -22,58 +22,55 @@ fn default_config_dir() -> &'static str {
 #[derive(StructOpt, Debug, Clone)]
 #[structopt(name = "imsearch", global_setting(AppSettings::ColoredHelp))]
 pub struct Opts {
-    /// Path to imsearch config
+    /// imsearch 配置文件目录
     #[structopt(short, long, default_value = default_config_dir())]
     pub conf_dir: ConfDir,
 
-    /// The maximum number of features to retain
+    /// ORB 特征点最大保留数量
     #[structopt(short = "n", value_name = "N", long, default_value = "500")]
     pub orb_nfeatures: u32,
-    /// Pyramid decimation ratio, greater than 1
+    /// ORB 特征金字塔缩放因子
     #[structopt(long, value_name = "SCALE", default_value = "1.2")]
     pub orb_scale_factor: f32,
-    /// The number of pyramid levels
+    /// ORB 特征金字塔层数
     #[structopt(long, value_name = "N", default_value = "8")]
     pub orb_nlevels: u32,
-    /// Initial fast threshold
-    #[structopt(long, value_name = "THRESHOLD", default_value = "20")]
-    pub orb_ini_th_fast: u32,
-    /// Minimum fast threshold
-    #[structopt(long, value_name = "THRESHOLD", default_value = "7")]
-    pub orb_min_th_fast: u32,
-    /// Interpolation algorithm
+    /// ORB 特征点金字塔缩放插值方式
     #[structopt(long, value_name = "FLAG", default_value = "Area")]
     pub orb_interpolation: InterpolationFlags,
-    /// Record orientation info
+    /// ORB FAST 角点检测器初始阈值
+    #[structopt(long, value_name = "THRESHOLD", default_value = "20")]
+    pub orb_ini_th_fast: u32,
+    /// ORB FAST 角点检测器最小阈值
+    #[structopt(long, value_name = "THRESHOLD", default_value = "7")]
+    pub orb_min_th_fast: u32,
+    /// ORB 特征点是否不需要方向信息
     #[structopt(long)]
     pub orb_not_oriented: bool,
 
-    /// Use mmap instead of read whole index to memory
+    /// 使用 mmap 模式加载索引，而不是一次性全部加载到内存
     #[structopt(long)]
     pub mmap: bool,
 
-    /// Number of features to search per iteration
+    /// 构建索引时的批次大小
     #[structopt(long, value_name = "SIZE", default_value = "5000000")]
     pub batch_size: usize,
-    /// Maximum distance allowed for match, from 0 ~ 255
+    /// 两个相似向量的允许的最大距离，范围从 0 到 255
     #[structopt(long, value_name = "N", default_value = "64")]
     pub distance: u32,
 
-    /// How to calculate the score
-    #[structopt(long, value_name = "TYPE", default_value = "wilson", possible_values = &["wilson", "count"])]
-    pub score_type: ScoreType,
-    /// How many results to show
+    /// 显示的结果数量
     #[structopt(long, value_name = "COUNT", default_value = "10")]
     pub output_count: usize,
-    /// Output format
+    /// 输出格式
     #[structopt(long, value_name = "FORMAT", default_value = "table", possible_values = &["table", "json"])]
     pub output_format: OutputFormat,
-    /// Count of best matches found per each query descriptor
+    /// 每个查询描述符找到的最佳匹配数量
     #[structopt(long, value_name = "K", default_value = "3")]
     pub knn_k: usize,
-    /// How many bucket to search
-    #[structopt(long, value_name = "N", default_value = "3")]
-    pub nprobe: usize,
+    /// 是否使用倒排列表优先搜索策略
+    #[structopt(long)]
+    pub per_invlist_search: bool,
 
     #[structopt(subcommand)]
     pub subcmd: SubCommand,
@@ -105,24 +102,6 @@ pub enum SubCommand {
 pub enum OutputFormat {
     Json,
     Table,
-}
-
-#[derive(StructOpt, Debug, Clone)]
-pub enum ScoreType {
-    Wilson,
-    Count,
-}
-
-impl FromStr for ScoreType {
-    type Err = String;
-
-    fn from_str(s: &str) -> Result<Self, String> {
-        match s {
-            "wilson" => Ok(Self::Wilson),
-            "count" => Ok(Self::Count),
-            _ => unreachable!(),
-        }
-    }
 }
 
 impl FromStr for OutputFormat {

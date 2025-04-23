@@ -1,19 +1,20 @@
 use crate::cmd::SubCommandExtend;
+use crate::index::FaissSearchParams;
 use crate::utils;
 use crate::{index::FaissIndex, Opts, Slam3ORB, IMDB};
+use anyhow::Context;
 use axum::{
     body::Body,
     extract::{Multipart, State},
     http::StatusCode,
-    response::Response,
+    response::{IntoResponse, Response},
     routing::{get, post},
     Json, Router,
 };
 use log::info;
 use opencv::imgcodecs;
 use opencv::prelude::*;
-use serde::Deserialize;
-use serde_json::json;
+use serde_json::{json, Value};
 use std::sync::{Arc, RwLock};
 use std::time::Instant;
 use structopt::StructOpt;
@@ -35,19 +36,12 @@ struct AppState {
     opts: Opts,
 }
 
-// 定义请求和响应类型
-#[derive(Deserialize)]
-struct SetNprobeRequest {
-    n: usize,
-}
-
 impl SubCommandExtend for StartServer {
     #[tokio::main]
     async fn run(&self, opts: &Opts) -> anyhow::Result<()> {
         let db = IMDB::new(opts.conf_dir.clone(), true)?;
 
-        let mut index = db.get_index(opts.mmap);
-        index.set_nprobe(opts.nprobe);
+        let index = db.get_index(opts.mmap, opts.per_invlist_search);
 
         // 创建共享状态
         let state = Arc::new(AppState {
@@ -60,7 +54,6 @@ impl SubCommandExtend for StartServer {
         let app = Router::new()
             .route("/", get(index_handler))
             .route("/search", post(search_handler))
-            .route("/set_nprobe", post(set_nprobe_handler))
             // 限制上传文件大小为50MB
             .layer(RequestBodyLimitLayer::new(1024 * 1024 * 50))
             .with_state(state);
@@ -87,7 +80,6 @@ async fn index_handler() -> Response<Body> {
         <br>
         <code>http --form http://127.0.0.1:8000/search file@test.jpg orb_scale_factor=1.2</code>
         <br>
-        <code>http --json http://127.0.0.1:8000/set_nprobe n=128</code>
         </p>
         "#,
         ))
@@ -98,51 +90,46 @@ async fn index_handler() -> Response<Body> {
 async fn search_handler(
     State(state): State<Arc<AppState>>,
     mut multipart: Multipart,
-) -> Response<Body> {
+) -> Result<Json<Value>, AppError> {
     // 处理上传的文件和参数
-    let mut file_data = Vec::new();
+    let mut file_data = None;
     let mut orb_scale_factor = None;
+    let mut nprobe = None;
+    let mut max_codes = None;
 
     while let Ok(Some(field)) = multipart.next_field().await {
         let name = field.name().unwrap_or("").to_string();
 
         if name == "file" {
             if let Ok(data) = field.bytes().await {
-                file_data = data.to_vec();
+                file_data = Some(data);
             }
         } else if name == "orb_scale_factor" {
             if let Ok(value) = field.text().await {
                 orb_scale_factor = value.parse::<f32>().ok();
             }
+        } else if name == "nprobe" {
+            if let Ok(value) = field.text().await {
+                nprobe = value.parse::<usize>().ok();
+            }
+        } else if name == "max_codes" {
+            if let Ok(value) = field.text().await {
+                max_codes = value.parse::<usize>().ok();
+            }
         }
     }
 
-    if file_data.is_empty() {
-        return error_response(StatusCode::BAD_REQUEST, "No file uploaded");
-    }
+    // 加载图片
+    let file_data = file_data.context("没有找到上传文件")?;
+    let img = Mat::from_slice(&file_data)
+        .and_then(|mat| {
+            Ok(block_in_place(|| {
+                imgcodecs::imdecode(&mat, imgcodecs::IMREAD_GRAYSCALE)
+            })?)
+        })
+        .context("无法加载图片")?;
 
-    // 处理图像
-    let mat = match Mat::from_slice(&file_data) {
-        Ok(mat) => mat,
-        Err(e) => {
-            return error_response(
-                StatusCode::BAD_REQUEST,
-                format!("Invalid image data: {}", e),
-            )
-        }
-    };
-
-    let img = match block_in_place(|| imgcodecs::imdecode(&mat, imgcodecs::IMREAD_GRAYSCALE)) {
-        Ok(img) => img,
-        Err(e) => {
-            return error_response(
-                StatusCode::BAD_REQUEST,
-                format!("Failed to decode image: {}", e),
-            )
-        }
-    };
-
-    info!("searching uploaded image");
+    info!("正在搜索上传图片...");
 
     // 处理搜索
     let mut opts = state.opts.clone();
@@ -151,80 +138,49 @@ async fn search_handler(
     }
     let mut orb = Slam3ORB::from(&opts);
 
+    let mut params = FaissSearchParams::default();
+    if let Some(n) = nprobe {
+        params.nprobe = n;
+    }
+    if let Some(m) = max_codes {
+        params.max_codes = m;
+    }
+
     let start = Instant::now();
     let result = block_in_place(|| {
         utils::detect_and_compute(&mut orb, &img).and_then(|(_, descriptors)| {
             let index = state.index.read().expect("failed to acquire rw lock");
             state
                 .db
-                .search_des(&*index, descriptors, opts.knn_k, opts.distance)
+                .search_des(&*index, descriptors, opts.knn_k, opts.distance, params)
         })
-    });
+    })
+    .context("搜索失败")?;
     let elapsed = start.elapsed().as_secs_f32();
 
-    match result {
-        Ok(mut result) => {
-            result.truncate(opts.output_count);
-            json_response(json!({
-                "time": elapsed,
-                "result": result,
-            }))
-        }
-        Err(err) => error_response(StatusCode::BAD_REQUEST, err.to_string()),
-    }
+    Ok(Json(json!({
+        "time": elapsed,
+        "result": result,
+    })))
 }
 
-// 处理设置nprobe请求
-async fn set_nprobe_handler(
-    State(state): State<Arc<AppState>>,
-    Json(payload): Json<SetNprobeRequest>,
-) -> Response<Body> {
-    match state.index.write() {
-        Ok(mut index) => {
-            index.set_nprobe(payload.n);
-            Response::builder()
-                .status(StatusCode::OK)
-                .body(Body::from(""))
-                .unwrap_or_else(|_| {
-                    error_response(
-                        StatusCode::INTERNAL_SERVER_ERROR,
-                        "Failed to build response",
-                    )
-                })
-        }
-        Err(_) => error_response(
+struct AppError(anyhow::Error);
+
+impl IntoResponse for AppError {
+    fn into_response(self) -> Response {
+        (
             StatusCode::INTERNAL_SERVER_ERROR,
-            "Failed to acquire write lock on index",
-        ),
+            format!("Something went wrong: {}", self.0),
+        )
+            .into_response()
     }
 }
 
-// 创建一个辅助函数来生成错误响应
-fn error_response(status: StatusCode, message: impl Into<String>) -> Response<Body> {
-    Response::builder()
-        .status(status)
-        .header("Content-Type", "application/json")
-        .body(Body::from(json!({"error": message.into()}).to_string()))
-        .unwrap_or_else(|_| {
-            // 如果构建响应失败，返回500错误
-            Response::builder()
-                .status(StatusCode::INTERNAL_SERVER_ERROR)
-                .body(Body::from("Internal server error"))
-                .unwrap()
-        })
-}
-
-// 创建一个辅助函数来生成成功响应
-fn json_response<T: serde::Serialize>(data: T) -> Response<Body> {
-    Response::builder()
-        .status(StatusCode::OK)
-        .header("Content-Type", "application/json")
-        .body(Body::from(json!(data).to_string()))
-        .unwrap_or_else(|_| {
-            // 如果构建响应失败，返回500错误
-            Response::builder()
-                .status(StatusCode::INTERNAL_SERVER_ERROR)
-                .body(Body::from("Internal server error"))
-                .unwrap()
-        })
+impl<E> From<E> for AppError
+where
+    E: Into<anyhow::Error>,
+{
+    fn from(err: E) -> Self {
+        Self(err.into())
+    }
 }

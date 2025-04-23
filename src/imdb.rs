@@ -3,7 +3,7 @@ use std::time::Instant;
 
 use crate::config::ConfDir;
 use crate::db::ImageDB;
-use crate::index::FaissIndex;
+use crate::index::{FaissIndex, FaissSearchParams};
 use crate::matrix::{Matrix, Matrix2D};
 use crate::slam3_orb::Slam3ORB;
 use crate::utils;
@@ -19,11 +19,23 @@ pub struct IMDB {
 }
 
 impl IMDB {
+    /// 创建或打开一个新的 IMDB 实例
+    ///
+    /// # Arguments
+    ///
+    /// * `conf_dir` - 配置目录
+    /// * `read_only` - 是否只读模式
     pub fn new(conf_dir: ConfDir, read_only: bool) -> Result<Self> {
         let db = ImageDB::open(&conf_dir, read_only)?;
         Ok(Self { db, conf_dir })
     }
 
+    /// 添加图片到数据库
+    ///
+    /// # Arguments
+    ///
+    /// * `image_path` - 图片路径
+    /// * `orb` - ORB 特征点检测器
     pub fn add_image<S: AsRef<str>>(&self, image_path: S, orb: &mut Slam3ORB) -> Result<bool> {
         let hash = hash_file(image_path.as_ref())?;
         if let Some(id) = self.db.find_image_id_by_hash(hash.as_bytes())? {
@@ -38,18 +50,20 @@ impl IMDB {
             .add_image(image_path.as_ref(), hash.as_bytes(), descriptors)
     }
 
-    pub fn train_index(&mut self) {
-        let mut _index = self.get_index(false);
-        todo!()
-    }
-
+    /// 构建索引
+    ///
+    /// # Arguments
+    ///
+    /// * `chunk_size` - 每次添加到索引的特征数量
+    /// * `start` - 开始的特征 ID
+    /// * `end` - 结束的特征 ID
     pub fn build_index(
         &self,
         chunk_size: usize,
         start: Option<u64>,
         end: Option<u64>,
     ) -> Result<()> {
-        let mut index = self.get_index(false);
+        let mut index = self.get_index(false, false);
         let mut features = FeatureWithId::new();
 
         if !index.is_trained() {
@@ -92,6 +106,12 @@ impl IMDB {
         Ok(())
     }
 
+    /// 将索引标记为已索引
+    ///
+    /// # Arguments
+    ///
+    /// * `max_feature_id` - 最大特征 ID
+    /// * `chunk_size` - 每次标记的特征数量
     pub fn mark_as_indexed(&self, max_feature_id: u64, chunk_size: usize) -> Result<()> {
         let mut idx = vec![];
 
@@ -116,6 +136,11 @@ impl IMDB {
         Ok(())
     }
 
+    /// 清除索引缓存
+    ///
+    /// # Arguments
+    ///
+    /// * `unindexed` - 是否清除未索引的缓存
     pub fn clear_cache(&self, unindexed: bool) -> Result<()> {
         self.db.clear_cache(true)?;
         if unindexed {
@@ -124,6 +149,7 @@ impl IMDB {
         Ok(())
     }
 
+    /// 导出所有特征到一个二维数组
     pub fn export(&self) -> Result<Array2<u8>> {
         let mut arr = Array2::zeros((0, 32));
         for item in self.db.features(false) {
@@ -134,6 +160,7 @@ impl IMDB {
         Ok(arr)
     }
 
+    /// 创建索引
     fn create_index(&self) -> FaissIndex {
         let total_features = self.db.total_features();
         let desc = match total_features {
@@ -154,9 +181,15 @@ impl IMDB {
         FaissIndex::new(256, &desc)
     }
 
-    pub fn get_index(&self, mmap: bool) -> FaissIndex {
+    /// 获取索引，如果索引文件存在，则从文件中加载索引，否则创建一个新的索引
+    ///
+    /// # Arguments
+    ///
+    /// * `mmap` - 是否使用 mmap 模式加载索引
+    /// * `per_invlist_search` - 是否使用 per_invlist_search 搜索策略
+    pub fn get_index(&self, mmap: bool, per_invlist_search: bool) -> FaissIndex {
         let index_file = &*self.conf_dir.index();
-        if index_file.exists() {
+        let mut index = if index_file.exists() {
             if !mmap {
                 debug!("reading index from {}", index_file.display());
             }
@@ -165,21 +198,40 @@ impl IMDB {
             index
         } else {
             self.create_index()
+        };
+
+        if per_invlist_search {
+            index.set_per_invlit_search(true);
+            index.set_use_heap(false);
+        } else {
+            index.set_use_heap(true);
         }
+
+        index
     }
 
+    /// 在索引中搜索描述符，返回 Vec<(分数, 图片路径)>
+    ///
+    /// # Arguments
+    ///
+    /// * `index` - 索引
+    /// * `descriptors` - 描述符
+    /// * `knn` - KNN 搜索的数量
+    /// * `max_distance` - 最大距离
+    /// * `params` - 搜索参数
     pub fn search_des<M: Matrix>(
         &self,
         index: &FaissIndex,
         descriptors: M,
         knn: usize,
         max_distance: u32,
+        params: FaissSearchParams,
     ) -> Result<Vec<(f32, String)>> {
         debug!("searching {} nearest neighbors", knn);
         let instant = Instant::now();
         let mut counter = HashMap::new();
 
-        for neighbors in index.search(&descriptors, knn) {
+        for neighbors in index.search(&descriptors, knn, params) {
             for neighbor in neighbors {
                 if neighbor.distance > max_distance {
                     continue;
@@ -204,6 +256,16 @@ impl IMDB {
         Ok(results)
     }
 
+    /// 在索引中搜索图片
+    ///
+    /// # Arguments
+    ///
+    /// * `index` - 索引
+    /// * `image_path` - 图片路径
+    /// * `orb` - ORB 特征点检测器
+    /// * `knn` - KNN 搜索的数量
+    /// * `max_distance` - 最大距离
+    /// * `params` - 搜索参数
     pub fn search<S: AsRef<str>>(
         &self,
         index: &FaissIndex,
@@ -211,11 +273,12 @@ impl IMDB {
         orb: &mut Slam3ORB,
         knn: usize,
         max_distance: u32,
+        params: FaissSearchParams,
     ) -> Result<Vec<(f32, String)>> {
         let image = utils::imread(image_path.as_ref())?;
         let (_, descriptors) = utils::detect_and_compute(orb, &image)?;
 
-        self.search_des(index, descriptors, knn, max_distance)
+        self.search_des(index, descriptors, knn, max_distance, params)
     }
 }
 
