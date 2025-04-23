@@ -5,29 +5,29 @@ use crate::slam3_orb::Slam3ORB;
 use crate::IMDB;
 use crate::ORB;
 use anyhow::Result;
+use clap::Parser;
 use rayon::prelude::*;
 use regex::Regex;
-use structopt::StructOpt;
 use walkdir::WalkDir;
 
-#[derive(StructOpt, Debug, Clone)]
+#[derive(Parser, Debug, Clone)]
 pub struct AddImages {
     /// 图片或目录的路径
     pub path: String,
     /// 扫描的文件后缀名，多个后缀用逗号分隔
-    #[structopt(short, long, default_value = "jpg,png")]
+    #[arg(short, long, default_value = "jpg,png")]
     pub suffix: String,
 }
 
-#[derive(StructOpt, Debug, Clone)]
+#[derive(Parser, Debug, Clone)]
 pub struct SearchImage {
     /// 被搜索的图片路径
     pub image: String,
     /// 搜索的倒排列表数量
-    #[structopt(short, long, default_value = "1")]
+    #[arg(short, long, default_value = "1")]
     pub nprobe: usize,
     /// 搜索的最大向量数量
-    #[structopt(short, long, default_value = "0")]
+    #[arg(short, long, default_value = "0")]
     pub max_codes: usize,
 }
 

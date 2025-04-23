@@ -1,34 +1,34 @@
 use crate::cmd::SubCommandExtend;
 use crate::{Opts, IMDB};
 use anyhow::Result;
+use clap::Parser;
 use ndarray_npy::write_npy;
-use structopt::StructOpt;
 
-#[derive(StructOpt, Debug, Clone)]
+#[derive(Parser, Debug, Clone)]
 pub struct MarkAsIndexed {
     /// Mark feature in [0, max_feature_id) as trained
-    #[structopt(long)]
+    #[arg(long)]
     pub max_feature_id: u64,
 }
 
-#[derive(StructOpt, Debug, Clone)]
+#[derive(Parser, Debug, Clone)]
 pub struct ClearCache {
     /// Also clear unindexed features
-    #[structopt(long)]
+    #[arg(long)]
     pub unindexed: bool,
 }
 
-#[derive(StructOpt, Debug, Clone)]
+#[derive(Parser, Debug, Clone)]
 pub struct BuildIndex {
     /// Skip index < start
-    #[structopt(long)]
+    #[arg(long)]
     pub start: Option<u64>,
     /// Skip index >= end
-    #[structopt(long)]
+    #[arg(long)]
     pub end: Option<u64>,
 }
 
-#[derive(StructOpt, Debug, Clone)]
+#[derive(Parser, Debug, Clone)]
 pub struct ExportData {}
 
 impl SubCommandExtend for MarkAsIndexed {

@@ -3,11 +3,11 @@ use crate::config::Opts;
 use crate::slam3_orb::Slam3ORB;
 use crate::utils;
 use anyhow::Result;
+use clap::Parser;
 use opencv::prelude::DescriptorMatcherTraitConst;
 use opencv::{core::*, features2d};
-use structopt::StructOpt;
 
-#[derive(StructOpt, Debug, Clone)]
+#[derive(Parser, Debug, Clone)]
 pub struct ShowKeypoints {
     /// Path to an image
     pub image: String,
@@ -33,7 +33,7 @@ impl SubCommandExtend for ShowKeypoints {
     }
 }
 
-#[derive(StructOpt, Debug, Clone)]
+#[derive(Parser, Debug, Clone)]
 pub struct ShowMatches {
     /// Path to image A
     pub image1: String,

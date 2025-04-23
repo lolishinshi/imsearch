@@ -5,11 +5,10 @@ use std::str::FromStr;
 use crate::cmd::*;
 use crate::imdb::SearchStrategy;
 use crate::slam3_orb::{InterpolationFlags, Slam3ORB};
+use clap::{Parser, Subcommand, ValueEnum};
 use directories::ProjectDirs;
 use once_cell::sync::Lazy;
 use opencv::{core, features2d, flann};
-use structopt::clap::AppSettings;
-use structopt::StructOpt;
 
 static CONF_DIR: Lazy<ConfDir> = Lazy::new(|| {
     let proj_dirs = ProjectDirs::from("", "aloxaf", "imsearch").expect("failed to get project dir");
@@ -20,64 +19,64 @@ fn default_config_dir() -> &'static str {
     CONF_DIR.path().to_str().unwrap()
 }
 
-#[derive(StructOpt, Debug, Clone)]
-#[structopt(name = "imsearch", global_setting(AppSettings::ColoredHelp))]
+#[derive(Parser, Debug, Clone)]
+#[command(name = "imsearch")]
 pub struct Opts {
     /// imsearch 配置文件目录
-    #[structopt(short, long, default_value = default_config_dir())]
+    #[arg(short, long, default_value = default_config_dir())]
     pub conf_dir: ConfDir,
 
     /// ORB 特征点最大保留数量
-    #[structopt(short = "n", value_name = "N", long, default_value = "500")]
+    #[arg(short = 'n', value_name = "N", long, default_value = "500")]
     pub orb_nfeatures: u32,
     /// ORB 特征金字塔缩放因子
-    #[structopt(long, value_name = "SCALE", default_value = "1.2")]
+    #[arg(long, value_name = "SCALE", default_value = "1.2")]
     pub orb_scale_factor: f32,
     /// ORB 特征金字塔层数
-    #[structopt(long, value_name = "N", default_value = "8")]
+    #[arg(long, value_name = "N", default_value = "8")]
     pub orb_nlevels: u32,
     /// ORB 特征点金字塔缩放插值方式
-    #[structopt(long, value_name = "FLAG", default_value = "Area")]
+    #[arg(long, value_name = "FLAG", default_value = "Area")]
     pub orb_interpolation: InterpolationFlags,
     /// ORB FAST 角点检测器初始阈值
-    #[structopt(long, value_name = "THRESHOLD", default_value = "20")]
+    #[arg(long, value_name = "THRESHOLD", default_value = "20")]
     pub orb_ini_th_fast: u32,
     /// ORB FAST 角点检测器最小阈值
-    #[structopt(long, value_name = "THRESHOLD", default_value = "7")]
+    #[arg(long, value_name = "THRESHOLD", default_value = "7")]
     pub orb_min_th_fast: u32,
     /// ORB 特征点是否不需要方向信息
-    #[structopt(long)]
+    #[arg(long)]
     pub orb_not_oriented: bool,
 
     /// 使用 mmap 模式加载索引，而不是一次性全部加载到内存
-    #[structopt(long)]
+    #[arg(long)]
     pub mmap: bool,
 
     /// 构建索引时的批次大小
-    #[structopt(long, value_name = "SIZE", default_value = "5000000")]
+    #[arg(long, value_name = "SIZE", default_value = "5000000")]
     pub batch_size: usize,
     /// 两个相似向量的允许的最大距离，范围从 0 到 255
-    #[structopt(long, value_name = "N", default_value = "64")]
+    #[arg(long, value_name = "N", default_value = "64")]
     pub distance: u32,
 
     /// 显示的结果数量
-    #[structopt(long, value_name = "COUNT", default_value = "10")]
+    #[arg(long, value_name = "COUNT", default_value = "10")]
     pub output_count: usize,
     /// 输出格式
-    #[structopt(long, value_name = "FORMAT", default_value = "table", possible_values = &["table", "json"])]
+    #[arg(long, value_name = "FORMAT", default_value = "table")]
     pub output_format: OutputFormat,
     /// 每个查询描述符找到的最佳匹配数量
-    #[structopt(long, value_name = "K", default_value = "3")]
+    #[arg(long, value_name = "K", default_value = "3")]
     pub knn_k: usize,
     /// 搜索策略
-    #[structopt(long, value_name = "STRATEGY", default_value = "heap", possible_values = &["heap", "per_invlist", "count"])]
+    #[arg(long, value_name = "STRATEGY", default_value = "heap")]
     pub strategy: SearchStrategy,
 
-    #[structopt(subcommand)]
+    #[command(subcommand)]
     pub subcmd: SubCommand,
 }
 
-#[derive(StructOpt, Debug, Clone)]
+#[derive(Subcommand, Debug, Clone)]
 pub enum SubCommand {
     /// Show all features point for an image
     ShowKeypoints(ShowKeypoints),
@@ -99,7 +98,7 @@ pub enum SubCommand {
     ExportData(ExportData),
 }
 
-#[derive(StructOpt, Debug, Clone)]
+#[derive(ValueEnum, Debug, Clone)]
 pub enum OutputFormat {
     Json,
     Table,

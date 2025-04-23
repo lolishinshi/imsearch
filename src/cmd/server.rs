@@ -11,21 +11,21 @@ use axum::{
     routing::{get, post},
     Json, Router,
 };
+use clap::Parser;
 use log::info;
 use opencv::imgcodecs;
 use opencv::prelude::*;
 use serde_json::{json, Value};
 use std::sync::{Arc, RwLock};
 use std::time::Instant;
-use structopt::StructOpt;
 use tokio::net::TcpListener;
 use tokio::task::block_in_place;
 use tower_http::limit::RequestBodyLimitLayer;
 
-#[derive(StructOpt, Debug, Clone)]
+#[derive(Parser, Debug, Clone)]
 pub struct StartServer {
     /// Listen address
-    #[structopt(long, default_value = "127.0.0.1:8000")]
+    #[arg(long, default_value = "127.0.0.1:8000")]
     pub addr: String,
 }
 
