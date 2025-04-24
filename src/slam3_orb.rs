@@ -1,6 +1,6 @@
 use std::ffi::{c_int, c_void};
 
-use anyhow::Result;
+use anyhow::{Result, anyhow, bail};
 use opencv::core::*;
 use std::str::FromStr;
 
@@ -25,7 +25,7 @@ impl<T> RawResult<T> {
                 format!("错误码: {}", self.error_code)
             };
 
-            return Err(anyhow::anyhow!(error_string));
+            return Err(anyhow!(error_string));
         }
 
         Ok(self.result)
@@ -51,7 +51,7 @@ impl RawResultVoid {
                 format!("错误码: {}", self.error_code)
             };
 
-            return Err(anyhow::anyhow!(error_string));
+            return Err(anyhow!(error_string));
         }
 
         Ok(())
@@ -76,7 +76,7 @@ impl FromStr for InterpolationFlags {
             "cubic" => Self::Cubic,
             "area" => Self::Area,
             "lanczos4" => Self::Lanczos4,
-            _ => anyhow::bail!("Possible values: Liner, Lanczos4, Area, Lanczos4"),
+            _ => bail!("Possible values: Liner, Lanczos4, Area, Lanczos4"),
         })
     }
 }
@@ -113,10 +113,6 @@ impl Slam3ORB {
         let raw = raw_result.into_result()?;
 
         Ok(Self { raw })
-    }
-
-    pub fn default() -> Result<Self> {
-        Self::create(500, 1.2, 8, 20, 7, InterpolationFlags::Area, true)
     }
 
     pub fn detect_and_compute(
@@ -156,6 +152,12 @@ impl Drop for Slam3ORB {
         unsafe {
             slam3_ORB_delete(self.raw);
         }
+    }
+}
+
+impl Default for Slam3ORB {
+    fn default() -> Self {
+        Self::create(500, 1.2, 8, 20, 7, InterpolationFlags::Area, true).unwrap()
     }
 }
 
@@ -201,8 +203,7 @@ mod test {
         let mut kps = Vector::<KeyPoint>::new();
         let mut des = Mat::default();
         let mut orb = Slam3ORB::default().unwrap();
-        orb.detect_and_compute(&img, &mask, &mut kps, &mut des, &lap)
-            .unwrap();
+        orb.detect_and_compute(&img, &mask, &mut kps, &mut des, &lap).unwrap();
 
         let mut output = Mat::default();
         features2d::draw_keypoints(
@@ -214,10 +215,8 @@ mod test {
         )
         .unwrap();
 
-        let flags = Vector::<i32>::from(vec![
-            imgcodecs::ImwriteFlags::IMWRITE_PNG_COMPRESSION as i32,
-            9,
-        ]);
+        let flags =
+            Vector::<i32>::from(vec![imgcodecs::ImwriteFlags::IMWRITE_PNG_COMPRESSION as i32, 9]);
         imgcodecs::imwrite("slam3_orb.png", &output, &flags).unwrap();
     }
 }

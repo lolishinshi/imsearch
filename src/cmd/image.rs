@@ -55,7 +55,7 @@ impl SubCommandExtend for AddImages {
                 entry.ok().and_then(|entry| {
                     let path = entry.path().to_path_buf();
                     if path.is_file()
-                        && re.is_match(&*path.extension().unwrap_or_default().to_string_lossy())
+                        && re.is_match(&path.extension().unwrap_or_default().to_string_lossy())
                     {
                         Some(path)
                     } else {

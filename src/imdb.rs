@@ -93,11 +93,11 @@ impl IMDB {
 
             tokio::task::block_in_place(|| {
                 index.add_with_ids(features.features(), features.ids());
-                index.write_file(&self.conf_dir.index_tmp());
+                index.write_file(self.conf_dir.index_tmp());
             });
 
             crud::set_indexed_batch(&self.db, &images).await?;
-            std::fs::rename(&self.conf_dir.index_tmp(), self.conf_dir.index())?;
+            std::fs::rename(self.conf_dir.index_tmp(), self.conf_dir.index())?;
         }
 
         Ok(())
@@ -206,7 +206,7 @@ impl IMDB {
 
         let mut results = counter
             .into_iter()
-            .map(|(path, scores)| (100. * utils::wilson_score(&*scores), path))
+            .map(|(path, scores)| (100. * utils::wilson_score(&scores), path))
             .collect::<Vec<_>>();
         results.sort_unstable_by(|a, b| b.0.partial_cmp(&a.0).unwrap());
 

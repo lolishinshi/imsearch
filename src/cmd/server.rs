@@ -120,9 +120,7 @@ async fn search_handler(
     // 加载图片
     let file_data = file_data.context("没有找到上传文件")?;
     let img = Mat::from_slice(&file_data)
-        .and_then(|mat| {
-            Ok(block_in_place(|| imgcodecs::imdecode(&mat, imgcodecs::IMREAD_GRAYSCALE))?)
-        })
+        .and_then(|mat| block_in_place(|| imgcodecs::imdecode(&mat, imgcodecs::IMREAD_GRAYSCALE)))
         .context("无法加载图片")?;
 
     info!("正在搜索上传图片...");
@@ -146,7 +144,7 @@ async fn search_handler(
     let start = Instant::now();
     let (_, des) = block_in_place(|| utils::detect_and_compute(&mut orb, &img))?;
     let index = state.index.read().await;
-    let result = state.db.search(&*index, des, opts.knn_k, opts.distance, params).await?;
+    let result = state.db.search(&index, des, opts.knn_k, opts.distance, params).await?;
 
     Ok(Json(json!({
         "time": start.elapsed().as_secs_f32(),

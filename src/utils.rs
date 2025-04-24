@@ -1,12 +1,10 @@
 use std::fs::File;
-use std::io::{Read, Write};
+use std::io::Read;
 use std::path::Path;
-use std::time::{Duration, Instant};
 
 use crate::slam3_orb::Slam3ORB;
 use anyhow::Result;
 use blake3::Hash;
-use dashmap::DashMap;
 use opencv::features2d;
 use opencv::highgui;
 use opencv::imgcodecs;
@@ -103,38 +101,6 @@ pub fn draw_matches_knn(
         features2d::DrawMatchesFlags::DEFAULT,
     )?;
     Ok(output)
-}
-
-#[derive(Debug, Default)]
-pub struct TimeMeasure(pub DashMap<String, Duration>);
-
-impl TimeMeasure {
-    pub fn new() -> Self {
-        Self(DashMap::new())
-    }
-
-    pub fn measure<F, R>(&self, key: &str, f: F) -> R
-    where
-        F: FnOnce() -> R,
-    {
-        let start = Instant::now();
-        let r = f();
-        *self.0.entry(key.to_owned()).or_insert(Duration::default()) += Instant::now() - start;
-        r
-    }
-}
-
-pub fn read_line(prompt: &str) -> Result<String> {
-    print!("{}", prompt);
-    std::io::stdout().flush()?;
-    let v = std::io::stdin()
-        .bytes()
-        .take_while(|c| c.as_ref().ok() != Some(&b'\n'))
-        .collect::<Result<Vec<_>, _>>()?;
-    if v.is_empty() {
-        anyhow::bail!("EOF");
-    }
-    Ok(String::from_utf8(v)?.trim().to_owned())
 }
 
 /// 威尔逊得分

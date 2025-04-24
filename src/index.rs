@@ -5,7 +5,7 @@ use log::debug;
 use std::ffi::CString;
 use std::mem::MaybeUninit;
 use std::path::Path;
-use std::ptr;
+use std::ptr::null_mut;
 
 /// Faiss 搜索结果
 pub struct Neighbor {
@@ -30,8 +30,8 @@ impl FaissIndex {
     /// * `d` - 向量维数，对于二进制向量来说，是总 bit 数
     /// * `description` - 索引的描述字符串
     pub fn new(d: i32, description: &str) -> Self {
-        let index = std::ptr::null_mut();
-        let description = std::ffi::CString::new(description).unwrap();
+        let index = null_mut();
+        let description = CString::new(description).unwrap();
         unsafe {
             faiss_index_binary_factory(&index as *const _ as *mut _, d, description.as_ptr());
         }
@@ -45,7 +45,7 @@ impl FaissIndex {
     /// * `d` - 文件路径
     /// * `mmap` - 是否使用 mmap 模式加载
     pub fn from_file(path: &str, mmap: bool) -> Self {
-        let index = std::ptr::null_mut();
+        let index = null_mut();
         let path = CString::new(path).unwrap();
         let io_flags = match mmap {
             true => 0x2 | 0x8 | 0x646f0000,
@@ -115,7 +115,7 @@ impl FaissIndex {
         unsafe {
             faiss_SearchParametersIVF_new_with(
                 raw_params.as_mut_ptr(),
-                ptr::null_mut(),
+                null_mut(),
                 params.nprobe,
                 params.max_codes,
             )
@@ -153,7 +153,7 @@ impl FaissIndex {
         // 整理结果
         indices
             .into_iter()
-            .zip(dists.into_iter())
+            .zip(dists)
             .map(|(index, distance)| Neighbor { index, distance })
             .chunks(knn)
             .into_iter()
@@ -184,8 +184,7 @@ impl FaissIndex {
     /// 索引的不平衡度
     /// 1 表示完全平衡，越大表示越不平衡
     pub fn imbalance_factor(&self) -> f64 {
-        let imbalance = unsafe { faiss_IndexBinaryIVF_imbalance_factor(self.index) };
-        imbalance
+        unsafe { faiss_IndexBinaryIVF_imbalance_factor(self.index) }
     }
 
     /// 打印倒排列表信息

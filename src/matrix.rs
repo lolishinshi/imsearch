@@ -28,7 +28,7 @@ impl<'a> Iterator for MatrixLineIterator<'a> {
     type Item = &'a [u8];
 
     fn next(&mut self) -> Option<Self::Item> {
-        if self.current_line < self.matrix.height() as usize {
+        if self.current_line < self.matrix.height() {
             self.current_line += 1;
             Some(self.matrix.line(self.current_line - 1))
         } else {
@@ -41,7 +41,7 @@ impl<'a> Iterator for MatrixLineIterator<'a> {
     }
 }
 
-impl<'a> ExactSizeIterator for MatrixLineIterator<'a> {}
+impl ExactSizeIterator for MatrixLineIterator<'_> {}
 
 impl Matrix for Mat {
     fn width(&self) -> usize {
