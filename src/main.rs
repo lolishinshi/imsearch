@@ -30,9 +30,6 @@ fn main() -> anyhow::Result<()> {
         SubCommand::ExportData(config) => {
             config.run(&OPTS)?;
         }
-        SubCommand::MergeIndex(config) => {
-            config.run(&OPTS).unwrap();
-        }
         #[cfg(feature = "rocksdb")]
         SubCommand::UpdateDB(config) => {
             config.run(&*OPTS)?;

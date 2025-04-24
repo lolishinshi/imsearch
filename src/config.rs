@@ -94,7 +94,6 @@ pub enum SubCommand {
     ClearCache(ClearCache),
     /// 导出 npy 格式的特征点，供训练使用
     ExportData(ExportData),
-    MergeIndex(MergeIndex),
     #[cfg(feature = "rocksdb")]
     /// 从 rocksdb 格式的旧数据库中更新为新的数据库格式
     UpdateDB(crate::cmd::rocks::UpdateDB),
@@ -154,20 +153,39 @@ impl ConfDir {
         self.0.as_path()
     }
 
+    /// 返回数据库文件的路径
     pub fn database(&self) -> PathBuf {
         self.0.join("imsearch.db")
     }
 
+    /// 返回索引文件的路径
     pub fn index(&self) -> PathBuf {
         self.0.join("index")
     }
 
-    pub fn index_tmp(&self) -> PathBuf {
-        self.0.join("index.tmp")
+    /// 返回子索引文件的路径
+    pub fn index_sub(&self) -> PathBuf {
+        for i in 1.. {
+            let path = self.0.join(format!("index.{}", i));
+            if !path.exists() {
+                return path;
+            }
+        }
+        unreachable!()
     }
 
-    pub fn version(&self) -> PathBuf {
-        self.0.join("version")
+    pub fn index_sub_with(&self, i: usize) -> PathBuf {
+        self.0.join(format!("index.{}", i))
+    }
+
+    /// 返回索引模板文件的路径
+    pub fn index_template(&self) -> PathBuf {
+        self.0.join("index.template")
+    }
+
+    /// 返回索引临时文件的路径
+    pub fn index_tmp(&self) -> PathBuf {
+        self.0.join("index.tmp")
     }
 }
 

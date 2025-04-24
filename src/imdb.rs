@@ -64,17 +64,17 @@ impl IMDB {
     /// # Arguments
     ///
     /// * `chunk_size` - 每次添加到索引的**图片**数量
-    pub async fn build_index(&self, chunk_size: usize) -> Result<()> {
-        let mut index = self.get_index(false, SearchStrategy::Heap);
-
-        if !index.is_trained() {
-            panic!("该索引未训练！");
-        }
-
+    /// * `mmap` - 合并阶段是否使用 mmap
+    pub async fn build_index(&self, chunk_size: usize, mmap: bool) -> Result<()> {
         let stream = crud::get_vectors(&self.db).await?;
         let mut stream = stream.chunks(chunk_size);
 
         while let Some(chunk) = stream.next().await {
+            let mut index = self.get_index_template();
+            if !index.is_trained() {
+                panic!("该索引未训练！");
+            }
+
             let mut features = FeatureWithId::new();
             let mut images = vec![];
 
@@ -89,15 +89,35 @@ impl IMDB {
                 images.push(record.id);
             }
 
-            info!("构建索引: {} + {}", index.ntotal(), features.len());
+            info!("构建索引: {}", features.len());
 
-            tokio::task::block_in_place(|| {
+            block_in_place(|| {
                 index.add_with_ids(features.features(), features.ids());
                 index.write_file(self.conf_dir.index_tmp());
             });
 
             crud::set_indexed_batch(&self.db, &images).await?;
-            std::fs::rename(self.conf_dir.index_tmp(), self.conf_dir.index())?;
+            std::fs::rename(self.conf_dir.index_tmp(), self.conf_dir.index_sub())?;
+        }
+
+        info!("合并索引中……");
+        let mut index = self.get_index(mmap, SearchStrategy::Heap);
+        let mut files = vec![];
+        for i in 1.. {
+            let index_file = self.conf_dir.index_sub_with(i);
+            if !index_file.exists() {
+                break;
+            }
+            let sub_index = FaissIndex::from_file(index_file.to_str().unwrap(), false);
+            info!("合并索引: {} + {}", index.ntotal(), sub_index.ntotal());
+            block_in_place(|| index.merge_from(&sub_index, 0));
+            files.push(index_file);
+        }
+
+        block_in_place(|| index.write_file(self.conf_dir.index()));
+
+        for file in files {
+            std::fs::remove_file(file)?;
         }
 
         Ok(())
@@ -129,6 +149,17 @@ impl IMDB {
         Ok(arr)
     }
 
+    /// 获取模板索引
+    fn get_index_template(&self) -> FaissIndex {
+        let index_file = self.conf_dir.index_template();
+        if index_file.exists() {
+            let index = FaissIndex::from_file(index_file.to_str().unwrap(), false);
+            index
+        } else {
+            panic!("模板索引不存在，请先训练索引，并保存为 {}", index_file.display());
+        }
+    }
+
     /// 获取索引
     ///
     /// # Arguments
@@ -136,7 +167,7 @@ impl IMDB {
     /// * `mmap` - 是否使用 mmap 模式加载索引
     /// * `strategy` - 搜索策略
     pub fn get_index(&self, mmap: bool, strategy: SearchStrategy) -> FaissIndex {
-        let index_file = &*self.conf_dir.index();
+        let index_file = self.conf_dir.index();
         let mut index = if index_file.exists() {
             if !mmap {
                 debug!("正在加载索引 {}", index_file.display());
@@ -148,7 +179,7 @@ impl IMDB {
             index.print_stats();
             index
         } else {
-            panic!("索引文件不存在，请先构建索引");
+            self.get_index_template()
         };
 
         index.set_use_heap(false);
