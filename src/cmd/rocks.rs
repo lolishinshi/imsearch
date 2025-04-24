@@ -27,7 +27,8 @@ impl SubCommandExtend for UpdateDB {
         info!("正在统计特征点信息");
         let pb = ProgressBar::new(rocks.total_features()).with_style(pb_style.clone());
         let mut map = vec![0u16; rocks.total_images() as usize];
-        for (image_id, _) in rocks.features().progress_with(pb) {
+        for features in rocks.features().progress_with(pb) {
+            let (image_id, _feature_id) = features?;
             map[image_id as usize] += 1;
         }
 
