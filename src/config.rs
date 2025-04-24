@@ -4,7 +4,6 @@ use std::str::FromStr;
 use std::sync::LazyLock;
 
 use crate::cmd::*;
-use crate::imdb::SearchStrategy;
 use crate::slam3_orb::{InterpolationFlags, Slam3ORB};
 use clap::{Parser, Subcommand, ValueEnum};
 use directories::ProjectDirs;
@@ -68,9 +67,6 @@ pub struct Opts {
     /// 每个查询描述符找到的最佳匹配数量
     #[arg(long, value_name = "K", default_value = "3")]
     pub knn_k: usize,
-    /// 搜索策略
-    #[arg(long, value_name = "STRATEGY", default_value = "heap")]
-    pub strategy: SearchStrategy,
 
     #[command(subcommand)]
     pub subcmd: SubCommand,

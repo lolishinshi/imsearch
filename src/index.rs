@@ -106,8 +106,8 @@ impl FaissIndex {
         M: Matrix,
     {
         assert_eq!(points.width() * 8, self.d as usize);
-        let mut dists = vec![0i32; points.height() * knn];
-        let mut indices = vec![0i64; points.height() * knn];
+        let mut distances = vec![0i32; points.height() * knn];
+        let mut labels = vec![0i64; points.height() * knn];
 
         // 初始化参数
         let mut raw_params = MaybeUninit::<*mut FaissSearchParametersIVF>::uninit();
@@ -129,8 +129,8 @@ impl FaissIndex {
                 points.as_ptr(),
                 knn as i64,
                 params,
-                dists.as_mut_ptr(),
-                indices.as_mut_ptr(),
+                distances.as_mut_ptr(),
+                labels.as_mut_ptr(),
             );
             faiss_SearchParametersIVF_free(params);
         }
@@ -151,10 +151,10 @@ impl FaissIndex {
 
         // 整理结果
         let mut result = vec![];
-        for (indices, dists) in indices.chunks(knn).zip(dists.chunks(knn)) {
-            let neighbors = indices
+        for (labels, distances) in labels.chunks(knn).zip(distances.chunks(knn)) {
+            let neighbors = labels
                 .iter()
-                .zip(dists)
+                .zip(distances)
                 .map(|(index, distance)| Neighbor { index: *index, distance: *distance })
                 .collect::<Vec<_>>();
             result.push(neighbors);

@@ -42,7 +42,7 @@ impl SubCommandExtend for StartServer {
     async fn run(&self, opts: &Opts) -> anyhow::Result<()> {
         let db = IMDB::new(opts.conf_dir.clone()).await?;
 
-        let index = db.get_index(opts.mmap, opts.strategy);
+        let index = db.get_index(opts.mmap);
 
         // 创建共享状态
         let state = Arc::new(AppState { index: RwLock::new(index), db, opts: opts.clone() });

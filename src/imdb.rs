@@ -1,5 +1,4 @@
 use std::collections::HashMap;
-use std::str::FromStr;
 use std::time::Instant;
 
 use crate::config::ConfDir;
@@ -101,7 +100,7 @@ impl IMDB {
         }
 
         info!("合并索引中……");
-        let mut index = self.get_index(mmap, SearchStrategy::Heap);
+        let mut index = self.get_index(mmap);
         let mut files = vec![];
         for i in 1.. {
             let index_file = self.conf_dir.index_sub_with(i);
@@ -166,9 +165,9 @@ impl IMDB {
     ///
     /// * `mmap` - 是否使用 mmap 模式加载索引
     /// * `strategy` - 搜索策略
-    pub fn get_index(&self, mmap: bool, strategy: SearchStrategy) -> FaissIndex {
+    pub fn get_index(&self, mmap: bool) -> FaissIndex {
         let index_file = self.conf_dir.index();
-        let mut index = if index_file.exists() {
+        let index = if index_file.exists() {
             if !mmap {
                 debug!("正在加载索引 {}", index_file.display());
             }
@@ -181,15 +180,6 @@ impl IMDB {
         } else {
             self.get_index_template()
         };
-
-        index.set_use_heap(false);
-        index.set_per_invlit_search(false);
-
-        match strategy {
-            SearchStrategy::PerInvlist => index.set_per_invlit_search(true),
-            SearchStrategy::Heap => index.set_use_heap(true),
-            SearchStrategy::Count => { /* 全部关闭就是计数排序 */ }
-        }
 
         index
     }
@@ -270,29 +260,5 @@ impl FeatureWithId {
 
     pub fn ids(&self) -> &[i64] {
         &self.0
-    }
-}
-
-/// Faiss 搜索策略
-#[derive(Debug, Clone, Copy)]
-pub enum SearchStrategy {
-    /// 倒序列表优先
-    PerInvlist,
-    /// 使用堆排序
-    Heap,
-    /// 使用计数排序
-    Count,
-}
-
-impl FromStr for SearchStrategy {
-    type Err = anyhow::Error;
-
-    fn from_str(s: &str) -> Result<Self> {
-        match s {
-            "per_invlist" => Ok(SearchStrategy::PerInvlist),
-            "heap" => Ok(SearchStrategy::Heap),
-            "count" => Ok(SearchStrategy::Count),
-            _ => Err(anyhow::anyhow!("invalid search strategy")),
-        }
     }
 }
