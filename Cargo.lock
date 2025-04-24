@@ -257,7 +257,7 @@ dependencies = [
  "bitflags 2.9.0",
  "cexpr",
  "clang-sys",
- "itertools 0.13.0",
+ "itertools",
  "proc-macro2",
  "quote",
  "regex",
@@ -711,16 +711,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "37909eebbb50d72f9059c3b6d82c0463f2ff062c9e95845c43a6c9c0355411be"
 
 [[package]]
-name = "fdlimit"
-version = "0.3.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "e182f7dbc2ef73d9ef67351c5fbbea084729c48362d3ce9dd44c28e32e277fe5"
-dependencies = [
- "libc",
- "thiserror 1.0.69",
-]
-
-[[package]]
 name = "flate2"
 version = "1.0.26"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1072,21 +1062,17 @@ dependencies = [
  "blake3",
  "cc",
  "clap",
- "crossbeam-utils",
  "directories",
  "dunce",
  "env_logger",
  "faiss-sys",
- "fdlimit",
  "futures",
  "glob",
  "indicatif",
- "itertools 0.14.0",
  "log",
  "ndarray",
  "ndarray-npy",
  "num_cpus",
- "once_cell",
  "opencv",
  "pkg-config",
  "rayon",
@@ -1097,7 +1083,6 @@ dependencies = [
  "serde_json",
  "shlex",
  "sqlx",
- "tempfile",
  "tokio",
  "tower-http",
  "vcpkg",
@@ -1139,15 +1124,6 @@ name = "itertools"
 version = "0.13.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "413ee7dfc52ee1a4949ceeb7dbc8a33f2d6c088194d9f922fb8318faf1f01186"
-dependencies = [
- "either",
-]
-
-[[package]]
-name = "itertools"
-version = "0.14.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "2b192c782037fadd9cfa75548310488aabdbf3d2da73885b31bd0abd03351285"
 dependencies = [
  "either",
 ]

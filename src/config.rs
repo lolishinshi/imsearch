@@ -1,16 +1,16 @@
 use std::convert::Infallible;
 use std::path::{Path, PathBuf};
 use std::str::FromStr;
+use std::sync::LazyLock;
 
 use crate::cmd::*;
 use crate::imdb::SearchStrategy;
 use crate::slam3_orb::{InterpolationFlags, Slam3ORB};
 use clap::{Parser, Subcommand, ValueEnum};
 use directories::ProjectDirs;
-use once_cell::sync::Lazy;
 use opencv::{core, features2d, flann};
 
-static CONF_DIR: Lazy<ConfDir> = Lazy::new(|| {
+static CONF_DIR: LazyLock<ConfDir> = LazyLock::new(|| {
     let proj_dirs = ProjectDirs::from("", "aloxaf", "imsearch").expect("failed to get project dir");
     ConfDir(proj_dirs.config_dir().to_path_buf())
 });

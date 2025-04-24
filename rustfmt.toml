@@ -1,4 +1,2 @@
-group_imports = "StdExternalCrate"
 use_small_heuristics = "Max"
-imports_granularity = "Module"
 max_width = 100

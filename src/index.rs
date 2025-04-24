@@ -1,6 +1,5 @@
 use crate::matrix::Matrix;
 use faiss_sys::*;
-use itertools::Itertools;
 use log::debug;
 use std::ffi::CString;
 use std::mem::MaybeUninit;
@@ -151,14 +150,17 @@ impl FaissIndex {
         }
 
         // 整理结果
-        indices
-            .into_iter()
-            .zip(dists)
-            .map(|(index, distance)| Neighbor { index, distance })
-            .chunks(knn)
-            .into_iter()
-            .map(|chunk| chunk.collect())
-            .collect()
+        let mut result = vec![];
+        for (indices, dists) in indices.chunks(knn).zip(dists.chunks(knn)) {
+            let neighbors = indices
+                .iter()
+                .zip(dists)
+                .map(|(index, distance)| Neighbor { index: *index, distance: *distance })
+                .collect::<Vec<_>>();
+            result.push(neighbors);
+        }
+
+        result
     }
 
     /// knn 搜索时使用堆排序，默认开启。关闭时使用计数排序。

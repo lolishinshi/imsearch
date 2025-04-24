@@ -8,17 +8,17 @@ use std::ffi::OsStr;
 use std::fs::File;
 use std::io::{BufRead, BufReader};
 use std::path::{Path, PathBuf};
+use std::sync::LazyLock;
 
-use once_cell::sync::Lazy;
 use semver::Version;
 
 use library::Library;
 
 type Result<T, E = Box<dyn std::error::Error>> = std::result::Result<T, E>;
 
-static OUT_DIR: Lazy<PathBuf> =
-    Lazy::new(|| PathBuf::from(env::var_os("OUT_DIR").expect("Can't read OUT_DIR env var")));
-static MANIFEST_DIR: Lazy<PathBuf> = Lazy::new(|| {
+static OUT_DIR: LazyLock<PathBuf> =
+    LazyLock::new(|| PathBuf::from(env::var_os("OUT_DIR").expect("Can't read OUT_DIR env var")));
+static MANIFEST_DIR: LazyLock<PathBuf> = LazyLock::new(|| {
     PathBuf::from(env::var_os("CARGO_MANIFEST_DIR").expect("Can't read CARGO_MANIFEST_DIR env var"))
 });
 
@@ -26,23 +26,12 @@ fn cleanup_lib_filename(filename: &OsStr) -> Option<&OsStr> {
     let mut strip_performed = false;
     let mut filename_path = Path::new(filename);
     // used to check for the file extension (with dots stripped) and for the part of the filename
-    const LIB_EXTS: [&str; 7] = [
-        ".so.",
-        ".a.",
-        ".dll.",
-        ".lib.",
-        ".dylib.",
-        ".framework.",
-        ".tbd.",
-    ];
-    if let (Some(stem), Some(extension)) = (
-        filename_path.file_stem(),
-        filename_path.extension().and_then(OsStr::to_str),
-    ) {
-        if LIB_EXTS
-            .iter()
-            .any(|e| e.trim_matches('.').eq_ignore_ascii_case(extension))
-        {
+    const LIB_EXTS: [&str; 7] =
+        [".so.", ".a.", ".dll.", ".lib.", ".dylib.", ".framework.", ".tbd."];
+    if let (Some(stem), Some(extension)) =
+        (filename_path.file_stem(), filename_path.extension().and_then(OsStr::to_str))
+    {
+        if LIB_EXTS.iter().any(|e| e.trim_matches('.').eq_ignore_ascii_case(extension)) {
             filename_path = Path::new(stem);
             strip_performed = true;
         }
@@ -61,11 +50,7 @@ fn cleanup_lib_filename(filename: &OsStr) -> Option<&OsStr> {
             filename_path = Path::new(file);
         }
     }
-    if strip_performed {
-        Some(filename_path.as_os_str())
-    } else {
-        None
-    }
+    if strip_performed { Some(filename_path.as_os_str()) } else { None }
 }
 
 fn get_version_header(header_dir: &Path) -> Option<PathBuf> {
@@ -74,11 +59,7 @@ fn get_version_header(header_dir: &Path) -> Option<PathBuf> {
         Some(out)
     } else {
         let out = header_dir.join("Headers/core/version.hpp");
-        if out.is_file() {
-            Some(out)
-        } else {
-            None
-        }
+        if out.is_file() { Some(out) } else { None }
     }
 }
 
@@ -116,11 +97,7 @@ fn get_version_from_headers(header_dir: &Path) -> Option<Version> {
         line.clear();
     }
     if let (Some(major), Some(minor), Some(revision)) = (major, minor, revision) {
-        Some(Version::new(
-            major.parse().ok()?,
-            minor.parse().ok()?,
-            revision.parse().ok()?,
-        ))
+        Some(Version::new(major.parse().ok()?, minor.parse().ok()?, revision.parse().ok()?))
     } else {
         Some(Version::new(0, 0, 0))
     }

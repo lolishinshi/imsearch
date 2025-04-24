@@ -14,10 +14,11 @@ pub use imdb::IMDB;
 use crate::config::Opts;
 use crate::slam3_orb::Slam3ORB;
 use clap::Parser;
-use once_cell::sync::Lazy;
 use std::cell::RefCell;
+use std::sync::LazyLock;
 
-pub static OPTS: Lazy<Opts> = Lazy::new(config::Opts::parse);
+pub static OPTS: LazyLock<Opts> = LazyLock::new(config::Opts::parse);
+
 thread_local! {
     pub static ORB: RefCell<Slam3ORB> = RefCell::new(Slam3ORB::from(&*OPTS));
 }

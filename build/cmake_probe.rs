@@ -98,11 +98,7 @@ impl<'r> CmakeProbe<'r> {
                     match name {
                         Some("OCVRS_INCLUDE_DIRS") => {
                             opencv_include_paths.extend(value.split(';').filter_map(|s| {
-                                if !s.is_empty() {
-                                    Some(PathBuf::from(s.trim()))
-                                } else {
-                                    None
-                                }
+                                if !s.is_empty() { Some(PathBuf::from(s.trim())) } else { None }
                             }));
                         }
                         Some("OCVRS_VERSION") => {
@@ -137,9 +133,8 @@ impl<'r> CmakeProbe<'r> {
                 if !include_paths.contains(&path) {
                     include_paths.push(path);
                 }
-            } else if let Some(path) = arg
-                .strip_prefix("-L")
-                .or_else(|| arg.strip_prefix("-Wl,-rpath,"))
+            } else if let Some(path) =
+                arg.strip_prefix("-L").or_else(|| arg.strip_prefix("-Wl,-rpath,"))
             {
                 let path = PathBuf::from(path.trim_start());
                 if !link_paths.contains(&path) {
@@ -224,21 +219,14 @@ impl<'r> CmakeProbe<'r> {
         let mut link_libs = Vec::with_capacity(64);
 
         eprintln!("=== cmake makefiles probe command: {:?}", cmd);
-        cmd.output()
-            .map_err(Box::<dyn std::error::Error>::from)
-            .and_then(|output| {
-                Self::extract_from_output(&output, &mut version, &mut include_paths)
-            })?;
+        cmd.output().map_err(Box::<dyn std::error::Error>::from).and_then(|output| {
+            Self::extract_from_output(&output, &mut version, &mut include_paths)
+        })?;
 
         self.extract_from_makefile(&mut link_paths, &mut link_libs)?;
 
         self.cleanup()?;
-        Ok(ProbeResult {
-            version,
-            include_paths,
-            link_paths,
-            link_libs,
-        })
+        Ok(ProbeResult { version, include_paths, link_paths, link_libs })
     }
 
     pub fn probe_ninja(&self, ninja_bin: Option<&Path>) -> Result<ProbeResult> {
@@ -259,21 +247,14 @@ impl<'r> CmakeProbe<'r> {
         let mut link_libs = Vec::with_capacity(64);
 
         eprintln!("=== cmake ninja probe command: {:?}", cmd);
-        cmd.output()
-            .map_err(Box::<dyn std::error::Error>::from)
-            .and_then(|output| {
-                Self::extract_from_output(&output, &mut version, &mut include_paths)
-            })?;
+        cmd.output().map_err(Box::<dyn std::error::Error>::from).and_then(|output| {
+            Self::extract_from_output(&output, &mut version, &mut include_paths)
+        })?;
 
         self.extract_from_ninja(&mut include_paths, &mut link_paths, &mut link_libs)?;
 
         self.cleanup()?;
-        Ok(ProbeResult {
-            version,
-            include_paths,
-            link_paths,
-            link_libs,
-        })
+        Ok(ProbeResult { version, include_paths, link_paths, link_libs })
     }
 
     pub fn probe_find_package(&self) -> Result<ProbeResult> {
@@ -283,74 +264,55 @@ impl<'r> CmakeProbe<'r> {
         let mut link_paths = Vec::with_capacity(2);
         let mut link_libs = Vec::with_capacity(64);
         let mut cmd = self.make_cmd();
-        cmd.args(&[
-            "--find-package",
-            "-DCOMPILER_ID=GNU",
-            "-DLANGUAGE=CXX",
-            "-DMODE=COMPILE",
-        ])
-        .arg(format!("-DNAME={}", self.package_name));
+        cmd.args(&["--find-package", "-DCOMPILER_ID=GNU", "-DLANGUAGE=CXX", "-DMODE=COMPILE"])
+            .arg(format!("-DNAME={}", self.package_name));
         eprintln!("=== cmake find-package compile probe command: {:?}", cmd);
-        cmd.output()
-            .map_err(Box::<dyn std::error::Error>::from)
-            .and_then(|output| {
-                if output.status.success() {
-                    let stdout = String::from_utf8(output.stdout)?;
-                    eprintln!("=== cmake include arguments: {:#?}", stdout);
-                    Self::extract_from_cmdline(
-                        &stdout,
-                        &mut include_paths,
-                        &mut link_paths,
-                        &mut link_libs,
-                    );
-                    Ok(())
-                } else {
-                    Err(format!(
-                        "cmake returned an error\n    stdout: {:?}\n    stderr: {:?}",
-                        String::from_utf8_lossy(&output.stdout),
-                        String::from_utf8_lossy(&output.stderr)
-                    )
-                    .into())
-                }
-            })?;
+        cmd.output().map_err(Box::<dyn std::error::Error>::from).and_then(|output| {
+            if output.status.success() {
+                let stdout = String::from_utf8(output.stdout)?;
+                eprintln!("=== cmake include arguments: {:#?}", stdout);
+                Self::extract_from_cmdline(
+                    &stdout,
+                    &mut include_paths,
+                    &mut link_paths,
+                    &mut link_libs,
+                );
+                Ok(())
+            } else {
+                Err(format!(
+                    "cmake returned an error\n    stdout: {:?}\n    stderr: {:?}",
+                    String::from_utf8_lossy(&output.stdout),
+                    String::from_utf8_lossy(&output.stderr)
+                )
+                .into())
+            }
+        })?;
 
         cmd = self.make_cmd();
-        cmd.args(&[
-            "--find-package",
-            "-DCOMPILER_ID=GNU",
-            "-DLANGUAGE=CXX",
-            "-DMODE=LINK",
-        ])
-        .arg(format!("-DNAME={}", self.package_name));
+        cmd.args(&["--find-package", "-DCOMPILER_ID=GNU", "-DLANGUAGE=CXX", "-DMODE=LINK"])
+            .arg(format!("-DNAME={}", self.package_name));
         eprintln!("=== cmake find-package link probe command: {:?}", cmd);
-        cmd.output()
-            .map_err(Box::<dyn std::error::Error>::from)
-            .and_then(|output| {
-                if output.status.success() {
-                    let stdout = String::from_utf8(output.stdout)?;
-                    eprintln!("=== cmake link arguments: {:#?}", stdout);
-                    Self::extract_from_cmdline(
-                        &stdout,
-                        &mut include_paths,
-                        &mut link_paths,
-                        &mut link_libs,
-                    );
-                    Ok(())
-                } else {
-                    Err(format!(
-                        "cmake returned an error\n    stdout: {:?}\n    stderr: {:?}",
-                        String::from_utf8_lossy(&output.stdout),
-                        String::from_utf8_lossy(&output.stderr)
-                    )
-                    .into())
-                }
-            })?;
+        cmd.output().map_err(Box::<dyn std::error::Error>::from).and_then(|output| {
+            if output.status.success() {
+                let stdout = String::from_utf8(output.stdout)?;
+                eprintln!("=== cmake link arguments: {:#?}", stdout);
+                Self::extract_from_cmdline(
+                    &stdout,
+                    &mut include_paths,
+                    &mut link_paths,
+                    &mut link_libs,
+                );
+                Ok(())
+            } else {
+                Err(format!(
+                    "cmake returned an error\n    stdout: {:?}\n    stderr: {:?}",
+                    String::from_utf8_lossy(&output.stdout),
+                    String::from_utf8_lossy(&output.stderr)
+                )
+                .into())
+            }
+        })?;
 
-        Ok(ProbeResult {
-            version: None,
-            include_paths,
-            link_paths,
-            link_libs,
-        })
+        Ok(ProbeResult { version: None, include_paths, link_paths, link_libs })
     }
 }
