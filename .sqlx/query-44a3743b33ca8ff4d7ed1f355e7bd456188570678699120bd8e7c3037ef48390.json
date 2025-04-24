@@ -1,0 +1,12 @@
+{
+  "db_name": "SQLite",
+  "query": "DELETE FROM vector",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Right": 0
+    },
+    "nullable": []
+  },
+  "hash": "44a3743b33ca8ff4d7ed1f355e7bd456188570678699120bd8e7c3037ef48390"
+}
