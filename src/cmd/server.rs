@@ -1,24 +1,25 @@
 use crate::cmd::SubCommandExtend;
 use crate::index::FaissSearchParams;
 use crate::utils;
-use crate::{index::FaissIndex, Opts, Slam3ORB, IMDB};
+use crate::{IMDB, Opts, Slam3ORB, index::FaissIndex};
 use anyhow::Context;
 use axum::{
+    Json, Router,
     body::Body,
     extract::{Multipart, State},
     http::StatusCode,
     response::{IntoResponse, Response},
     routing::{get, post},
-    Json, Router,
 };
 use clap::Parser;
 use log::info;
 use opencv::imgcodecs;
 use opencv::prelude::*;
-use serde_json::{json, Value};
-use std::sync::{Arc, RwLock};
+use serde_json::{Value, json};
+use std::sync::Arc;
 use std::time::Instant;
 use tokio::net::TcpListener;
+use tokio::sync::RwLock;
 use tokio::task::block_in_place;
 use tower_http::limit::RequestBodyLimitLayer;
 
@@ -39,16 +40,12 @@ struct AppState {
 impl SubCommandExtend for StartServer {
     #[tokio::main]
     async fn run(&self, opts: &Opts) -> anyhow::Result<()> {
-        let db = IMDB::new(opts.conf_dir.clone(), true)?;
+        let db = IMDB::new(opts.conf_dir.clone()).await?;
 
         let index = db.get_index(opts.mmap, opts.strategy);
 
         // 创建共享状态
-        let state = Arc::new(AppState {
-            index: RwLock::new(index),
-            db,
-            opts: opts.clone(),
-        });
+        let state = Arc::new(AppState { index: RwLock::new(index), db, opts: opts.clone() });
 
         // 创建路由
         let app = Router::new()
@@ -87,6 +84,7 @@ async fn index_handler() -> Response<Body> {
 }
 
 // 处理搜索请求
+#[axum::debug_handler]
 async fn search_handler(
     State(state): State<Arc<AppState>>,
     mut multipart: Multipart,
@@ -123,15 +121,13 @@ async fn search_handler(
     let file_data = file_data.context("没有找到上传文件")?;
     let img = Mat::from_slice(&file_data)
         .and_then(|mat| {
-            Ok(block_in_place(|| {
-                imgcodecs::imdecode(&mat, imgcodecs::IMREAD_GRAYSCALE)
-            })?)
+            Ok(block_in_place(|| imgcodecs::imdecode(&mat, imgcodecs::IMREAD_GRAYSCALE))?)
         })
         .context("无法加载图片")?;
 
     info!("正在搜索上传图片...");
 
-    // 处理搜索
+    // 处理搜索参数
     let mut opts = state.opts.clone();
     if let Some(factor) = orb_scale_factor {
         opts.orb_scale_factor = factor;
@@ -146,20 +142,14 @@ async fn search_handler(
         params.max_codes = m;
     }
 
+    // 开始搜索
     let start = Instant::now();
-    let result = block_in_place(|| {
-        utils::detect_and_compute(&mut orb, &img).and_then(|(_, descriptors)| {
-            let index = state.index.read().expect("failed to acquire rw lock");
-            state
-                .db
-                .search_des(&*index, descriptors, opts.knn_k, opts.distance, params)
-        })
-    })
-    .context("搜索失败")?;
-    let elapsed = start.elapsed().as_secs_f32();
+    let (_, des) = block_in_place(|| utils::detect_and_compute(&mut orb, &img))?;
+    let index = state.index.read().await;
+    let result = state.db.search(&*index, des, opts.knn_k, opts.distance, params).await?;
 
     Ok(Json(json!({
-        "time": elapsed,
+        "time": start.elapsed().as_secs_f32(),
         "result": result,
     })))
 }
@@ -168,10 +158,7 @@ struct AppError(anyhow::Error);
 
 impl IntoResponse for AppError {
     fn into_response(self) -> Response {
-        (
-            StatusCode::INTERNAL_SERVER_ERROR,
-            format!("Something went wrong: {}", self.0),
-        )
+        (StatusCode::INTERNAL_SERVER_ERROR, format!("Something went wrong: {}", self.0))
             .into_response()
     }
 }

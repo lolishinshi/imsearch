@@ -1,7 +1,7 @@
 use opencv::prelude::*;
 
 /// An abstraction of 2d u8 array
-pub trait Matrix {
+pub trait Matrix: Send + Sync {
     /// Return matrix width
     fn width(&self) -> usize;
     /// Return matrix height
@@ -15,10 +15,7 @@ pub trait Matrix {
     where
         Self: Sized,
     {
-        MatrixLineIterator {
-            matrix: self,
-            current_line: 0,
-        }
+        MatrixLineIterator { matrix: self, current_line: 0 }
     }
 }
 
@@ -74,11 +71,7 @@ pub struct Matrix2D {
 
 impl Matrix2D {
     pub fn new(width: usize) -> Self {
-        Self {
-            width,
-            height: 0,
-            data: vec![],
-        }
+        Self { width, height: 0, data: vec![] }
     }
 
     pub fn push(&mut self, v: &[u8]) {

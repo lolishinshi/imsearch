@@ -1,13 +1,13 @@
-use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
+use std::sync::atomic::{AtomicU64, Ordering};
 
 use crate::config::ConfDir;
-use crate::db::utils::{bytes_to_i32, bytes_to_u64, default_options};
 use crate::matrix::Matrix;
+use crate::rocks::utils::{bytes_to_i32, bytes_to_u64, default_options};
 use anyhow::Result;
 use log::{debug, info};
 use rocksdb::{
-    BoundColumnFamily, ColumnFamilyDescriptor, IteratorMode, ReadOptions, WriteBatch, DB,
+    BoundColumnFamily, ColumnFamilyDescriptor, DB, IteratorMode, ReadOptions, WriteBatch,
 };
 
 #[derive(Debug, Hash, Eq, PartialEq)]
@@ -82,8 +82,6 @@ pub struct ImageDB {
 impl ImageDB {
     /// Open the database, will create if not exists
     pub fn open(path: &ConfDir, read_only: bool) -> Result<Self> {
-        super::update::check_db_update(path)?;
-
         let options = default_options();
         let cfs = ImageColumnFamily::all();
         let cf_descriptors = ImageColumnFamily::descriptors();
@@ -179,7 +177,10 @@ impl ImageDB {
     }
 
     /// Return an iterator of features
-    pub fn features(&self, indexed: bool) -> impl Iterator<Item = Result<(u64, Box<[u8]>), rocksdb::Error>> + '_ {
+    pub fn features(
+        &self,
+        indexed: bool,
+    ) -> impl Iterator<Item = Result<(u64, Box<[u8]>), rocksdb::Error>> + '_ {
         let family = match indexed {
             true => ImageColumnFamily::IdToFeature,
             false => ImageColumnFamily::NewFeature,

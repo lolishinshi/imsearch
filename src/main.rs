@@ -1,40 +1,34 @@
+use imsearch::OPTS;
 use imsearch::cmd::SubCommandExtend;
 use imsearch::config::*;
-use imsearch::OPTS;
 
 fn main() -> anyhow::Result<()> {
     env_logger::init();
 
-    fdlimit::raise_fd_limit()?;
-    // debug!("raise fdlimit to {:?}", fdlimit);
-
     match &OPTS.subcmd {
         SubCommand::ShowKeypoints(config) => {
-            config.run(&*OPTS).unwrap();
+            config.run(&*OPTS)?;
         }
         SubCommand::ShowMatches(config) => {
-            config.run(&*OPTS).unwrap();
+            config.run(&*OPTS)?;
         }
         SubCommand::AddImages(config) => {
-            config.run(&*OPTS).unwrap();
+            config.run(&*OPTS)?;
         }
         SubCommand::SearchImage(config) => {
-            config.run(&*OPTS).unwrap();
+            config.run(&*OPTS)?;
         }
         SubCommand::BuildIndex(config) => {
-            config.run(&*OPTS).unwrap();
+            config.run(&*OPTS)?;
         }
         SubCommand::StartServer(config) => {
-            config.run(&*OPTS).unwrap();
+            config.run(&*OPTS)?;
         }
         SubCommand::ClearCache(config) => {
-            config.run(&*OPTS).unwrap();
-        }
-        SubCommand::MarkAsIndexed(config) => {
-            config.run(&*OPTS).unwrap();
+            config.run(&*OPTS)?;
         }
         SubCommand::ExportData(config) => {
-            config.run(&*OPTS).unwrap();
+            config.run(&*OPTS)?;
         }
         SubCommand::MergeIndex(config) => {
             config.run(&*OPTS).unwrap();

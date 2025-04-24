@@ -3,20 +3,21 @@ use std::str::FromStr;
 use std::time::Instant;
 
 use crate::config::ConfDir;
-use crate::db::ImageDB;
+use crate::db::*;
 use crate::index::{FaissIndex, FaissSearchParams};
 use crate::matrix::{Matrix, Matrix2D};
-use crate::slam3_orb::Slam3ORB;
 use crate::utils;
-use crate::utils::{hash_file, wilson_score};
 use anyhow::Result;
-use itertools::Itertools;
+use futures::{StreamExt, TryStreamExt};
 use log::{debug, info};
 use ndarray::prelude::*;
+use opencv::core::{Mat, MatTraitConstManual};
+use tokio::task::block_in_place;
 
+#[derive(Debug, Clone)]
 pub struct IMDB {
     conf_dir: ConfDir,
-    db: ImageDB,
+    db: Database,
 }
 
 impl IMDB {
@@ -25,115 +26,73 @@ impl IMDB {
     /// # Arguments
     ///
     /// * `conf_dir` - 配置目录
-    /// * `read_only` - 是否只读模式
-    pub fn new(conf_dir: ConfDir, read_only: bool) -> Result<Self> {
-        let db = ImageDB::open(&conf_dir, read_only)?;
+    pub async fn new(conf_dir: ConfDir) -> Result<Self> {
+        if !conf_dir.path().exists() {
+            std::fs::create_dir_all(conf_dir.path())?;
+        }
+        let db = init_db(conf_dir.database()).await?;
         Ok(Self { db, conf_dir })
     }
 
     /// 添加图片到数据库
-    ///
-    /// # Arguments
-    ///
-    /// * `image_path` - 图片路径
-    /// * `orb` - ORB 特征点检测器
-    pub fn add_image<S: AsRef<str>>(&self, image_path: S, orb: &mut Slam3ORB) -> Result<bool> {
-        let hash = hash_file(image_path.as_ref())?;
-        if let Some(id) = self.db.find_image_id_by_hash(hash.as_bytes())? {
-            self.db.update_image_path(id, image_path.as_ref())?;
-            return Ok(false);
-        }
+    pub async fn add_image(
+        &self,
+        filename: impl AsRef<str>,
+        hash: &[u8],
+        descriptors: Mat,
+    ) -> Result<bool> {
+        let mut tx = self.db.begin_with("BEGIN IMMEDIATE").await?;
+        let id = crud::add_image(&mut *tx, hash, filename.as_ref()).await?;
+        crud::add_vector(&mut *tx, id, descriptors.data_typed::<u8>()?).await?;
+        crud::add_vector_stats(&mut *tx, id, descriptors.height() as i64).await?;
+        tx.commit().await?;
+        Ok(true)
+    }
 
-        let image = utils::imread(image_path.as_ref())?;
-        let (_, descriptors) = utils::detect_and_compute(orb, &image)?;
-
-        self.db
-            .add_image(image_path.as_ref(), hash.as_bytes(), descriptors)
+    /// 检查图片是否存在
+    pub async fn check_hash(&self, hash: &[u8]) -> Result<bool> {
+        Ok(crud::check_image_hash(&self.db, hash).await?)
     }
 
     /// 构建索引
     ///
     /// # Arguments
     ///
-    /// * `chunk_size` - 每次添加到索引的特征数量
-    /// * `start` - 开始的特征 ID
-    /// * `end` - 结束的特征 ID
-    pub fn build_index(
-        &self,
-        chunk_size: usize,
-        start: Option<u64>,
-        end: Option<u64>,
-    ) -> Result<()> {
+    /// * `chunk_size` - 每次添加到索引的**图片**数量
+    pub async fn build_index(&self, chunk_size: usize) -> Result<()> {
         let mut index = self.get_index(false, SearchStrategy::Heap);
-        let mut features = FeatureWithId::new();
 
         if !index.is_trained() {
             panic!("该索引未训练！");
         }
 
-        let mut tmp_file = self.conf_dir.index();
-        tmp_file.set_extension(".tmp");
+        let stream = crud::get_vectors(&self.db).await?;
+        let mut stream = stream.chunks(chunk_size);
 
-        let add_index = |index: &mut FaissIndex, features: &FeatureWithId| -> Result<()> {
-            index.add_with_ids(features.features(), features.ids());
-            debug!("正在写入文件");
-            index.write_file(&*tmp_file.to_str().unwrap());
-            debug!("标记已索引特征点");
-            self.db.mark_as_indexed(&features.ids_u64())?;
-            std::fs::rename(&tmp_file, self.conf_dir.index())?;
-            Ok(())
-        };
+        while let Some(chunk) = stream.next().await {
+            let mut features = FeatureWithId::new();
+            let mut images = vec![];
 
-        // TODO: 丢弃迭代器以允许 RocksDB 从硬盘上删除不需要的数据
-        for item in self.db.features(false) {
-            let (id, feature) = item?;
-            if start.is_some() && id < start.unwrap() {
-                continue;
+            for record in chunk {
+                let record = record?;
+                for (i, feature) in record.vector.chunks(32).enumerate() {
+                    if feature.len() != 32 {
+                        panic!("特征长度不正确");
+                    }
+                    features.add(record.total_vector_count - i as i64, feature);
+                }
+                images.push(record.id);
             }
-            if end.is_some() && id >= end.unwrap() {
-                continue;
-            }
-            features.add(id as i64, &*feature);
-            if features.len() == chunk_size {
-                info!("构建索引: {} + {}", index.ntotal(), chunk_size);
-                add_index(&mut index, &features)?;
-                features.clear();
-            }
-        }
 
-        if !features.len() != 0 {
-            info!("构建索引：结束");
-            add_index(&mut index, &features)?;
-        }
+            info!("构建索引: {} + {}", index.ntotal(), features.len());
 
-        Ok(())
-    }
+            tokio::task::block_in_place(|| {
+                index.add_with_ids(features.features(), features.ids());
+                index.write_file(&self.conf_dir.index_tmp());
+            });
 
-    /// 将索引标记为已索引
-    ///
-    /// # Arguments
-    ///
-    /// * `max_feature_id` - 最大特征 ID
-    /// * `chunk_size` - 每次标记的特征数量
-    pub fn mark_as_indexed(&self, max_feature_id: u64, chunk_size: usize) -> Result<()> {
-        let mut idx = vec![];
-
-        for item in self.db.features(false) {
-            let (id, _) = item?;
-            if id >= max_feature_id {
-                continue;
-            }
-            idx.push(id);
-            if idx.len() == chunk_size {
-                info!("mark as indexed: {}", chunk_size);
-                self.db.mark_as_indexed(&idx)?;
-                idx.clear();
-            }
-        }
-
-        if !idx.is_empty() {
-            info!("mark as indexed: {}", idx.len());
-            self.db.mark_as_indexed(&idx)?;
+            crud::set_indexed_batch(&self.db, &images).await?;
+            std::fs::rename(&self.conf_dir.index_tmp(), self.conf_dir.index())?;
         }
 
         Ok(())
@@ -144,47 +103,31 @@ impl IMDB {
     /// # Arguments
     ///
     /// * `unindexed` - 是否清除未索引的缓存
-    pub fn clear_cache(&self, unindexed: bool) -> Result<()> {
-        self.db.clear_cache(true)?;
+    pub async fn clear_cache(&self, unindexed: bool) -> Result<()> {
+        crud::delete_vectors(&self.db, true).await?;
         if unindexed {
-            self.db.clear_cache(false)?;
+            crud::delete_vectors(&self.db, false).await?;
         }
         Ok(())
     }
 
     /// 导出所有特征到一个二维数组
-    pub fn export(&self) -> Result<Array2<u8>> {
+    pub async fn export(&self) -> Result<Array2<u8>> {
         let mut arr = Array2::zeros((0, 32));
-        for item in self.db.features(false) {
-            let (_, feature) = item?;
-            let tmp = ArrayView::from(&feature);
-            arr.push(Axis(0), tmp)?;
+        let mut stream = crud::get_vectors(&self.db).await?;
+        while let Some(record) = stream.try_next().await? {
+            for vector in record.vector.chunks(32) {
+                if vector.len() != 32 {
+                    panic!("特征长度不正确");
+                }
+                let tmp = ArrayView::from(vector);
+                arr.push(Axis(0), tmp)?;
+            }
         }
         Ok(arr)
     }
 
-    /// 创建索引
-    fn create_index(&self) -> FaissIndex {
-        let total_features = self.db.total_features();
-        let desc = match total_features {
-            // 0 ~ 1M
-            0..=1000000 => {
-                let k = 4 * (total_features as f32).sqrt() as u32;
-                format!("BIVF{}", k)
-            }
-            // 1M ~ 10M
-            1000001..=10000000 => String::from("BIVF65536"),
-            // 10M ~ 100M
-            10000001..=100000000 => String::from("BIVF262144"),
-            // 100M ~ 10G
-            100000001..=10000000000 => String::from("BIVF1048576"),
-            _ => unimplemented!(),
-        };
-        debug!("creating index with {}", desc);
-        FaissIndex::new(256, &desc)
-    }
-
-    /// 获取索引，如果索引文件存在，则从文件中加载索引，否则创建一个新的索引
+    /// 获取索引
     ///
     /// # Arguments
     ///
@@ -203,7 +146,7 @@ impl IMDB {
             index.print_stats();
             index
         } else {
-            self.create_index()
+            panic!("索引文件不存在，请先构建索引");
         };
 
         index.set_use_heap(false);
@@ -227,7 +170,7 @@ impl IMDB {
     /// * `knn` - KNN 搜索的数量
     /// * `max_distance` - 最大距离
     /// * `params` - 搜索参数
-    pub fn search_des<M: Matrix>(
+    pub async fn search<M: Matrix>(
         &self,
         index: &FaissIndex,
         descriptors: M,
@@ -235,58 +178,39 @@ impl IMDB {
         max_distance: u32,
         params: FaissSearchParams,
     ) -> Result<Vec<(f32, String)>> {
-        debug!("searching {} nearest neighbors", knn);
-        let instant = Instant::now();
+        debug!("对 {} 条向量搜索 {} 个最近邻, {:?}", descriptors.height(), knn, params);
+        let mut instant = Instant::now();
         let mut counter = HashMap::new();
 
-        for neighbors in index.search(&descriptors, knn, params) {
+        // TODO: 这里应该用 spawn_blocking 还是 block_in_place 呢？
+        let all_neighbors = block_in_place(|| index.search(&descriptors, knn, params));
+        debug!("搜索耗时      ：{}ms", instant.elapsed().as_millis());
+        instant = Instant::now();
+
+        for neighbors in all_neighbors {
             for neighbor in neighbors {
-                if neighbor.distance > max_distance {
+                if neighbor.distance > max_distance as i32 {
                     continue;
                 }
-                let image_index = self.db.find_image_path(neighbor.index as u64)?;
+                let path = crud::get_image_path_by_vector_id(&self.db, neighbor.index).await?;
                 counter
-                    .entry(image_index)
+                    .entry(path)
                     .or_insert_with(Vec::new)
                     .push(1. - neighbor.distance as f32 / 256.);
             }
         }
+        debug!("检索数据库耗时：{:.2}ms", instant.elapsed().as_millis());
+        instant = Instant::now();
 
         let mut results = counter
             .into_iter()
-            // TODO: score type
-            .map(|(image, scores)| (100. * wilson_score(&*scores), image))
+            .map(|(path, scores)| (100. * utils::wilson_score(&*scores), path))
             .collect::<Vec<_>>();
         results.sort_unstable_by(|a, b| b.0.partial_cmp(&a.0).unwrap());
 
-        debug!("search time: {:.2}s", instant.elapsed().as_secs_f32());
+        debug!("计算并排序耗时: {:.2}ms", instant.elapsed().as_millis());
 
         Ok(results)
-    }
-
-    /// 在索引中搜索图片
-    ///
-    /// # Arguments
-    ///
-    /// * `index` - 索引
-    /// * `image_path` - 图片路径
-    /// * `orb` - ORB 特征点检测器
-    /// * `knn` - KNN 搜索的数量
-    /// * `max_distance` - 最大距离
-    /// * `params` - 搜索参数
-    pub fn search<S: AsRef<str>>(
-        &self,
-        index: &FaissIndex,
-        image_path: S,
-        orb: &mut Slam3ORB,
-        knn: usize,
-        max_distance: u32,
-        params: FaissSearchParams,
-    ) -> Result<Vec<(f32, String)>> {
-        let image = utils::imread(image_path.as_ref())?;
-        let (_, descriptors) = utils::detect_and_compute(orb, &image)?;
-
-        self.search_des(index, descriptors, knn, max_distance, params)
     }
 }
 
@@ -307,21 +231,12 @@ impl FeatureWithId {
         self.0.len()
     }
 
-    pub fn clear(&mut self) {
-        self.0.clear();
-        self.1.clear();
-    }
-
     pub fn features(&self) -> &Matrix2D {
         &self.1
     }
 
     pub fn ids(&self) -> &[i64] {
         &self.0
-    }
-
-    pub fn ids_u64(&self) -> Vec<u64> {
-        self.0.iter().map(|&n| n as u64).collect_vec()
     }
 }
 

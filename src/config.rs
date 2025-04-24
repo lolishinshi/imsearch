@@ -52,8 +52,8 @@ pub struct Opts {
     #[arg(long)]
     pub mmap: bool,
 
-    /// 构建索引时的批次大小
-    #[arg(long, value_name = "SIZE", default_value = "5000000")]
+    /// 构建索引时，多少张图片为一个批次
+    #[arg(long, value_name = "SIZE", default_value = "10000")]
     pub batch_size: usize,
     /// 两个相似向量的允许的最大距离，范围从 0 到 255
     #[arg(long, value_name = "N", default_value = "64")]
@@ -92,8 +92,6 @@ pub enum SubCommand {
     BuildIndex(BuildIndex),
     /// Clear indexed (and unindexed) features
     ClearCache(ClearCache),
-    /// Mark a range of features as trained
-    MarkAsIndexed(MarkAsIndexed),
     /// Export data for trainning
     ExportData(ExportData),
     MergeIndex(MergeIndex),
@@ -154,11 +152,15 @@ impl ConfDir {
     }
 
     pub fn database(&self) -> PathBuf {
-        self.0.join("database")
+        self.0.join("imsearch.db")
     }
 
     pub fn index(&self) -> PathBuf {
         self.0.join("index")
+    }
+
+    pub fn index_tmp(&self) -> PathBuf {
+        self.0.join("index.tmp")
     }
 
     pub fn version(&self) -> PathBuf {

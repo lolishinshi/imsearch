@@ -1,0 +1,12 @@
+{
+  "db_name": "SQLite",
+  "query": "\n        DELETE FROM vector WHERE id IN (\n            SELECT vector.id FROM vector JOIN vector_stats ON vector.id = vector_stats.id WHERE vector_stats.indexed = ?\n        )\n        ",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Right": 1
+    },
+    "nullable": []
+  },
+  "hash": "a39b035a6a6fa6aed5f39c1c2de407b4b450408a53a359e90dd2ea889b2425a4"
+}

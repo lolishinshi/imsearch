@@ -50,7 +50,7 @@ python utils/train.py DESCRIPTION train.npy
 
 使用 `imsearch build-index` 构建索引，这个过程同样非常慢，在 3970x 上，需要约 20 ～ 40 分钟构建 10k 张图片的索引
 
-注：可以设置 `RUST_LOG=debug` 来打印详细日志以观察进度
+注：可以设置 `RUST_LOG=imsearch=debug` 来打印详细日志以观察进度
 
 ### 搜索图片
 

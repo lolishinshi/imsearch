@@ -1,18 +1,18 @@
 use crate::matrix::Matrix;
 use faiss_sys::*;
 use itertools::Itertools;
-use log::{debug, info};
+use log::debug;
 use std::ffi::CString;
 use std::mem::MaybeUninit;
+use std::path::Path;
 use std::ptr;
-use std::time::Instant;
 
 /// Faiss 搜索结果
 pub struct Neighbor {
     /// 向量在索引中的 ID
-    pub index: usize,
+    pub index: i64,
     /// 向量与查询向量的距离
-    pub distance: u32,
+    pub distance: i32,
 }
 
 /// Faiss 索引
@@ -69,7 +69,9 @@ impl FaissIndex {
     }
 
     /// 将索引写入到文件
-    pub fn write_file(&self, path: &str) {
+    pub fn write_file(&self, path: impl AsRef<Path>) {
+        let path = path.as_ref();
+        let path = path.to_str().unwrap();
         let path = CString::new(path).unwrap();
         unsafe {
             faiss_write_index_binary_fname(self.index, path.as_ptr());
@@ -108,8 +110,6 @@ impl FaissIndex {
         let mut dists = vec![0i32; points.height() * knn];
         let mut indices = vec![0i64; points.height() * knn];
 
-        let start = Instant::now();
-
         // 初始化参数
         let mut raw_params = MaybeUninit::<*mut FaissSearchParametersIVF>::uninit();
         unsafe {
@@ -140,7 +140,6 @@ impl FaissIndex {
         // NOTE: 这里的统计不是针对单次搜索的，由于统计变量是全局的，多线程搜索会累加
         let mut stats = unsafe { *faiss_get_indexIVF_stats() };
 
-        debug!("knn search time  : {}ms", start.elapsed().as_millis());
         debug!("ndis             : {}", stats.nq);
         debug!("nprobe           : {}", stats.nlist);
         debug!("nheap_updates    : {}", stats.nheap_updates);
@@ -155,10 +154,7 @@ impl FaissIndex {
         indices
             .into_iter()
             .zip(dists.into_iter())
-            .map(|(index, distance)| Neighbor {
-                index: index as usize,
-                distance: distance as u32,
-            })
+            .map(|(index, distance)| Neighbor { index, distance })
             .chunks(knn)
             .into_iter()
             .map(|chunk| chunk.collect())
@@ -229,6 +225,7 @@ unsafe impl Sync for FaissIndex {}
 unsafe impl Send for FaissIndex {}
 
 /// Faiss 搜索参数
+#[derive(Debug, Clone)]
 pub struct FaissSearchParams {
     /// 需要搜索的倒排列表数量，默认为 1
     pub nprobe: usize,
@@ -238,9 +235,6 @@ pub struct FaissSearchParams {
 
 impl Default for FaissSearchParams {
     fn default() -> Self {
-        Self {
-            nprobe: 1,
-            max_codes: 0,
-        }
+        Self { nprobe: 1, max_codes: 0 }
     }
 }

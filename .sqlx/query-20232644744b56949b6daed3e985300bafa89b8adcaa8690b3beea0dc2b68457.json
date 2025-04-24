@@ -1,0 +1,12 @@
+{
+  "db_name": "SQLite",
+  "query": "\n        INSERT INTO vector_stats (id, vector_count, total_vector_count)\n        SELECT\n            ? as id,\n            ? as vector_count,\n            COALESCE(\n                (SELECT total_vector_count FROM vector_stats WHERE id = ?),\n                0\n            ) + ? as total_vector_count\n        ",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Right": 4
+    },
+    "nullable": []
+  },
+  "hash": "20232644744b56949b6daed3e985300bafa89b8adcaa8690b3beea0dc2b68457"
+}

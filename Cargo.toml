@@ -1,7 +1,7 @@
 [package]
 name = "imsearch"
-version = "1.1.0"
-edition = "2018"
+version = "2.0.0"
+edition = "2024"
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
@@ -15,6 +15,7 @@ dashmap = "6.1.0"
 directories = "6.0.0"
 env_logger = "0.11.8"
 fdlimit = "0.3.0"
+futures = "0.3.31"
 indicatif = { version = "0.17.11", features = ["rayon"] }
 itertools = "0.14.0"
 log = "0.4.27"
@@ -26,6 +27,7 @@ rayon = "1.10.0"
 regex = "1.11.1"
 serde = { version = "1.0.196", features = ["derive"] }
 serde_json = "1.0.140"
+sqlx = { version = "0.8.5", features = ["sqlite", "runtime-tokio"] }
 tempfile = "3.19.1"
 tokio = { version = "1.44.2", features = [
     "macros",
@@ -55,9 +57,14 @@ features = [
 ]
 
 [dependencies.rocksdb]
+optional = true
 version = "0.21.0"
 default-features = false
 features = ["lz4", "zstd", "multi-threaded-cf"]
+
+[features]
+default = ["rocksdb"]
+rocksdb = ["dep:rocksdb"]
 
 [build-dependencies]
 cc = "1.2.19"

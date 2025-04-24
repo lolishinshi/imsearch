@@ -153,7 +153,7 @@ pub fn wilson_score(scores: &[f32]) -> f32 {
         / (1. + z.powi(2) / count)
 }
 
-pub fn hash_file<P: AsRef<Path>>(path: P) -> Result<Hash> {
+pub fn hash_file(path: impl AsRef<Path>) -> Result<Hash> {
     let mut file = File::open(path)?;
     let mut data = vec![];
     file.read_to_end(&mut data)?;

@@ -162,7 +162,7 @@ impl Drop for Slam3ORB {
 unsafe impl Sync for Slam3ORB {}
 unsafe impl Send for Slam3ORB {}
 
-extern "C" {
+unsafe extern "C" {
     fn slam3_ORB_create(
         nfeatures: i32,
         scale_factor: f32,
