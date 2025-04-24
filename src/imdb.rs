@@ -30,7 +30,12 @@ impl IMDB {
         if !conf_dir.path().exists() {
             std::fs::create_dir_all(conf_dir.path())?;
         }
-        let db = init_db(conf_dir.database()).await?;
+        let db = init_db(conf_dir.database(), true).await?;
+        Ok(Self { db, conf_dir })
+    }
+
+    pub async fn new_without_wal(conf_dir: ConfDir) -> Result<Self> {
+        let db = init_db(conf_dir.database(), false).await?;
         Ok(Self { db, conf_dir })
     }
 
@@ -99,14 +104,11 @@ impl IMDB {
     }
 
     /// 清除索引缓存
-    ///
-    /// # Arguments
-    ///
-    /// * `unindexed` - 是否清除未索引的缓存
-    pub async fn clear_cache(&self, unindexed: bool) -> Result<()> {
-        crud::delete_vectors(&self.db, true).await?;
-        if unindexed {
-            crud::delete_vectors(&self.db, false).await?;
+    pub async fn clear_cache(&self, all: bool) -> Result<()> {
+        if all {
+            crud::delete_vectors_all(&self.db).await?;
+        } else {
+            crud::delete_vectors(&self.db).await?;
         }
         Ok(())
     }

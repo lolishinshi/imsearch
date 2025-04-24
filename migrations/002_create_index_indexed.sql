@@ -1,0 +1,1 @@
+CREATE INDEX "idx_vector_stats_indexed" ON "vector_stats" ("indexed");

@@ -142,19 +142,23 @@ pub async fn get_vectors(
 }
 
 /// 删除向量列表
-pub async fn delete_vectors(executor: &SqlitePool, indexed: bool) -> Result<()> {
+pub async fn delete_vectors(executor: &SqlitePool) -> Result<()> {
     sqlx::query!(
         r#"
         DELETE FROM vector WHERE id IN (
-            SELECT vector.id FROM vector JOIN vector_stats ON vector.id = vector_stats.id WHERE vector_stats.indexed = ?
+            SELECT vector.id FROM vector JOIN vector_stats ON vector.id = vector_stats.id WHERE vector_stats.indexed = 1
         )
-        "#,
-        indexed
+        "#
     )
     .execute(executor)
     .await?;
-
     sqlx::query!("VACUUM").execute(executor).await?;
+    Ok(())
+}
 
+/// 删除所有向量列表
+pub async fn delete_vectors_all(executor: &SqlitePool) -> Result<()> {
+    sqlx::query!(r#"DELETE FROM vector"#,).execute(executor).await?;
+    sqlx::query!("VACUUM").execute(executor).await?;
     Ok(())
 }

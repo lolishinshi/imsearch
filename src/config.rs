@@ -78,23 +78,26 @@ pub struct Opts {
 
 #[derive(Subcommand, Debug, Clone)]
 pub enum SubCommand {
-    /// Show all features point for an image
+    /// 展示一张图片上的所有特征点
     ShowKeypoints(ShowKeypoints),
-    /// Show matches between two image
+    /// 展示两张图片之间的特征点匹配关系
     ShowMatches(ShowMatches),
-    /// Add images to database
+    /// 添加图片特征点到数据库
     AddImages(AddImages),
-    /// Search image from database
+    /// 从数据库中搜索图片
     SearchImage(SearchImage),
-    /// Start Web server
+    /// 启动 HTTP 搜索服务
     StartServer(StartServer),
-    /// Build index
+    /// 使用已添加的特征点构建索引
     BuildIndex(BuildIndex),
-    /// Clear indexed (and unindexed) features
+    /// 清理数据库中的特征点，主要作用为减小数据库体积
     ClearCache(ClearCache),
-    /// Export data for trainning
+    /// 导出 npy 格式的特征点，供训练使用
     ExportData(ExportData),
     MergeIndex(MergeIndex),
+    #[cfg(feature = "rocksdb")]
+    /// 从 rocksdb 格式的旧数据库中更新为新的数据库格式
+    UpdateDB(crate::cmd::rocks::UpdateDB),
 }
 
 #[derive(ValueEnum, Debug, Clone)]

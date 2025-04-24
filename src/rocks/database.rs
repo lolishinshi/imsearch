@@ -2,13 +2,10 @@ use std::sync::Arc;
 use std::sync::atomic::{AtomicU64, Ordering};
 
 use crate::config::ConfDir;
-use crate::matrix::Matrix;
 use crate::rocks::utils::{bytes_to_i32, bytes_to_u64, default_options};
 use anyhow::Result;
 use log::{debug, info};
-use rocksdb::{
-    BoundColumnFamily, ColumnFamilyDescriptor, DB, IteratorMode, ReadOptions, WriteBatch,
-};
+use rocksdb::{BoundColumnFamily, ColumnFamilyDescriptor, DB, IteratorMode, ReadOptions};
 
 #[derive(Debug, Hash, Eq, PartialEq)]
 pub(super) enum ImageColumnFamily {
@@ -86,11 +83,12 @@ impl ImageDB {
         let cfs = ImageColumnFamily::all();
         let cf_descriptors = ImageColumnFamily::descriptors();
 
-        info!("open database at {}", path.database().display());
+        let database_path = path.path().join("database");
+        info!("open database at {}", database_path.display());
 
         let db = match read_only {
-            true => DB::open_cf_for_read_only(&options, path.database(), &cfs, false)?,
-            false => DB::open_cf_descriptors(&options, path.database(), cf_descriptors)?,
+            true => DB::open_cf_for_read_only(&options, database_path, &cfs, false)?,
+            false => DB::open_cf_descriptors(&options, database_path, cf_descriptors)?,
         };
 
         let meta_data = db.cf_handle(ImageColumnFamily::MetaData.as_ref()).unwrap();
@@ -110,137 +108,49 @@ impl ImageDB {
         })
     }
 
-    /// Check whether an image exists
-    pub fn find_image_id_by_hash(&self, hash: &[u8]) -> Result<Option<i32>> {
-        let image_list = self.cf(ImageColumnFamily::ImageList);
-        Ok(self.db.get_cf(&image_list, hash)?.map(bytes_to_i32))
-    }
-
-    /// update image path
-    pub fn update_image_path(&self, image_id: i32, path: &str) -> Result<()> {
-        let id_to_image = self.cf(ImageColumnFamily::IdToImage);
-        Ok(self.db.put_cf(&id_to_image, image_id.to_le_bytes(), path)?)
-    }
-
-    /// Add an image and its features to database
-    ///
-    /// return false if the image is already inserted
-    pub fn add_image<S, T>(&self, path: S, hash: &[u8], features: T) -> Result<bool>
-    where
-        S: AsRef<str>,
-        T: Matrix,
-    {
-        let new_feature = self.cf(ImageColumnFamily::NewFeature);
-        let id_to_image_id = self.cf(ImageColumnFamily::IdToImageId);
-        let id_to_image = self.cf(ImageColumnFamily::IdToImage);
-        let image_list = self.cf(ImageColumnFamily::ImageList);
-
-        if self.db.get_cf(&image_list, hash)?.is_some() {
-            return Ok(false);
-        }
-
-        let mut batch = WriteBatch::default();
-
-        // insert image_id => image_path
-        let image_id = self.total_images.fetch_add(1, Ordering::SeqCst) as i32;
-        batch.put_cf(&id_to_image, image_id.to_le_bytes(), path.as_ref());
-
-        // insert feature_id => feature to NewFeature
-        // insert feature_id => image_id
-        for feature in features.iter_lines() {
-            let id = self.total_features.fetch_add(1, Ordering::SeqCst);
-            batch.put_cf(&new_feature, id.to_le_bytes(), feature);
-            batch.put_cf(&id_to_image_id, id.to_le_bytes(), image_id.to_le_bytes());
-        }
-        // insert image_hash => image_id
-        batch.put_cf(&image_list, hash, image_id.to_le_bytes());
-
-        let total_images = self.total_images.load(Ordering::SeqCst);
-        let total_features = self.total_features.load(Ordering::SeqCst);
-
-        // update total_images and total_features
-        let meta_data = self.cf(ImageColumnFamily::MetaData);
-        batch.put_cf(
-            &meta_data,
-            MetaData::TotalImages,
-            total_images.to_le_bytes(),
-        );
-        batch.put_cf(
-            &meta_data,
-            MetaData::TotalFeatures,
-            total_features.to_le_bytes(),
-        );
-
-        self.db.write(batch)?;
-
-        Ok(true)
-    }
-
-    /// Return an iterator of features
-    pub fn features(
-        &self,
-        indexed: bool,
-    ) -> impl Iterator<Item = Result<(u64, Box<[u8]>), rocksdb::Error>> + '_ {
-        let family = match indexed {
-            true => ImageColumnFamily::IdToFeature,
-            false => ImageColumnFamily::NewFeature,
-        };
+    /// 迭代图片 ID、哈希、路径
+    pub fn images(&self) -> impl Iterator<Item = Result<(i32, Box<[u8]>, String)>> + '_ {
         self.db
-            .iterator_cf_opt(&self.cf(family), Self::read_opts(), IteratorMode::Start)
-            .map(|item| item.map(|item| (bytes_to_u64(item.0), item.1)))
+            .iterator_cf_opt(
+                &self.cf(ImageColumnFamily::ImageList),
+                Self::read_opts(),
+                IteratorMode::Start,
+            )
+            .map(|item| {
+                let item = item?;
+                let image_id = bytes_to_i32(item.1);
+                let image_path = self
+                    .db
+                    .get_cf(&self.cf(ImageColumnFamily::IdToImage), image_id.to_le_bytes())?
+                    .unwrap();
+                Ok((image_id, item.0, String::from_utf8(image_path).unwrap()))
+            })
     }
 
-    fn find_image_id_by_id(&self, feature_id: u64) -> Result<Option<i32>> {
-        let id_to_image_id = self.cf(ImageColumnFamily::IdToImageId);
-        Ok(self
-            .db
-            .get_cf(&id_to_image_id, feature_id.to_le_bytes())?
-            .map(bytes_to_i32))
-    }
-
-    /// Find image according to feature id
-    pub fn find_image_path(&self, feature_id: u64) -> Result<String> {
-        let id_to_image = self.cf(ImageColumnFamily::IdToImage);
-        let image_id = self.find_image_id_by_id(feature_id)?.unwrap();
-        Ok(self
-            .db
-            .get_cf(&id_to_image, image_id.to_le_bytes())
-            .map(|data| String::from_utf8(data.unwrap()).unwrap())?)
-    }
-
-    /// Mark a list of features as trained
-    pub fn mark_as_indexed(&self, ids: &[u64]) -> Result<()> {
-        let new_feature = self.cf(ImageColumnFamily::NewFeature);
-        let id_to_feature = self.cf(ImageColumnFamily::IdToFeature);
-
-        let mut batch = WriteBatch::default();
-        // TODO: use multi_get_cf
-        for id in ids {
-            let id = id.to_le_bytes();
-            let feature = self.db.get_pinned_cf(&new_feature, id)?.unwrap();
-            batch.delete_cf(&new_feature, id);
-            batch.put_cf(&id_to_feature, id, feature);
-        }
-        self.db.write(batch)?;
-
-        Ok(())
-    }
-
-    /// Delete features
-    pub fn clear_cache(&self, indexed: bool) -> Result<()> {
-        let cf = match indexed {
-            true => ImageColumnFamily::IdToFeature,
-            _ => ImageColumnFamily::NewFeature,
-        };
-
-        self.db.drop_cf(cf.as_ref())?;
-        self.db.create_cf(cf.as_ref(), &default_options())?;
-
-        Ok(())
+    /// 迭代图片 ID、特征 ID
+    pub fn features(&self) -> impl Iterator<Item = (i32, u64)> + '_ {
+        self.db
+            .iterator_cf_opt(
+                &self.cf(ImageColumnFamily::IdToFeature),
+                Self::read_opts(),
+                IteratorMode::Start,
+            )
+            .filter_map(|item| {
+                item.and_then(|item| {
+                    let image_id =
+                        self.db.get_cf(&self.cf(ImageColumnFamily::IdToImageId), &item.0)?.unwrap();
+                    Ok((bytes_to_i32(image_id), bytes_to_u64(item.0)))
+                })
+                .ok()
+            })
     }
 
     pub fn total_features(&self) -> u64 {
         self.total_features.load(Ordering::SeqCst)
+    }
+
+    pub fn total_images(&self) -> u64 {
+        self.total_images.load(Ordering::SeqCst)
     }
 
     fn read_opts() -> ReadOptions {

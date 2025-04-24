@@ -33,6 +33,10 @@ fn main() -> anyhow::Result<()> {
         SubCommand::MergeIndex(config) => {
             config.run(&*OPTS).unwrap();
         }
+        #[cfg(feature = "rocksdb")]
+        SubCommand::UpdateDB(config) => {
+            config.run(&*OPTS)?;
+        }
     }
 
     Ok(())

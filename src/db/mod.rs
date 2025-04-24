@@ -10,12 +10,12 @@ pub use model::*;
 
 pub type Database = SqlitePool;
 
-pub async fn init_db(filename: impl AsRef<Path>) -> Result<Database, sqlx::Error> {
+pub async fn init_db(filename: impl AsRef<Path>, wal: bool) -> Result<Database, sqlx::Error> {
     let filename = filename.as_ref();
     info!("初始化数据库连接: {}", filename.display());
 
     let options = SqliteConnectOptions::new()
-        .journal_mode(SqliteJournalMode::Wal)
+        .journal_mode(if wal { SqliteJournalMode::Wal } else { SqliteJournalMode::Delete })
         .synchronous(SqliteSynchronous::Normal)
         .filename(filename)
         .create_if_missing(true);

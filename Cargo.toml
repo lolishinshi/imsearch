@@ -63,7 +63,7 @@ default-features = false
 features = ["lz4", "zstd", "multi-threaded-cf"]
 
 [features]
-default = ["rocksdb"]
+default = []
 rocksdb = ["dep:rocksdb"]
 
 [build-dependencies]

@@ -1,5 +1,7 @@
 mod image;
 mod index;
+#[cfg(feature = "rocksdb")]
+pub mod rocks;
 mod server;
 mod show;
 
