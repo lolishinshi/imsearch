@@ -203,6 +203,18 @@ impl FaissIndex {
     pub fn nlist(&self) -> usize {
         unsafe { faiss_IndexBinaryIVF_nlist(self.index) }
     }
+
+    /// 合并索引
+    ///
+    /// # Arguments
+    ///
+    /// * `other` - 需要合并的索引
+    /// * `add_id` - 合并是在原 ID 基础上增加的 ID
+    pub fn merge_from(&mut self, other: &Self, add_id: i64) {
+        unsafe {
+            faiss_IndexBinaryIVF_merge_from(self.index, other.index, add_id);
+        }
+    }
 }
 
 impl Drop for FaissIndex {

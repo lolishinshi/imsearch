@@ -605,7 +605,7 @@ dependencies = [
 [[package]]
 name = "faiss-sys"
 version = "0.6.3-alpha.0"
-source = "git+https://github.com/Aloxaf/faiss-rs?branch=feat%2Fc_api_binary_ivf#f180ddb76303888867ac195a145d44b76b34b6dc"
+source = "git+https://github.com/Aloxaf/faiss-rs?branch=imsearch#35578bd30770c1c3cc634f50f6aa9ad2955adb17"
 dependencies = [
  "cmake",
 ]

@@ -96,6 +96,7 @@ pub enum SubCommand {
     MarkAsIndexed(MarkAsIndexed),
     /// Export data for trainning
     ExportData(ExportData),
+    MergeIndex(MergeIndex),
 }
 
 #[derive(ValueEnum, Debug, Clone)]

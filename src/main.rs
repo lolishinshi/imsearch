@@ -36,6 +36,9 @@ fn main() -> anyhow::Result<()> {
         SubCommand::ExportData(config) => {
             config.run(&*OPTS).unwrap();
         }
+        SubCommand::MergeIndex(config) => {
+            config.run(&*OPTS).unwrap();
+        }
     }
 
     Ok(())
