@@ -2,16 +2,13 @@ use crate::cmd::SubCommandExtend;
 use crate::index::FaissSearchParams;
 use crate::utils;
 use crate::{IMDB, Opts, Slam3ORB, index::FaissIndex};
-use anyhow::Context;
-use axum::extract::DefaultBodyLimit;
-use axum::{
-    Json, Router,
-    body::Body,
-    extract::{Multipart, State},
-    http::StatusCode,
-    response::{IntoResponse, Response},
-    routing::{get, post},
-};
+use axum::body::Bytes;
+use axum::extract::{DefaultBodyLimit, State};
+use axum::http::StatusCode;
+use axum::response::{IntoResponse, Response};
+use axum::routing::post;
+use axum::{Json, Router};
+use axum_typed_multipart::{TryFromMultipart, TypedMultipart};
 use clap::Parser;
 use log::info;
 use opencv::imgcodecs;
@@ -23,6 +20,8 @@ use tokio::net::TcpListener;
 use tokio::sync::RwLock;
 use tokio::task::block_in_place;
 use tower_http::limit::RequestBodyLimitLayer;
+use utoipa::{OpenApi, ToSchema};
+use utoipa_swagger_ui::SwaggerUi;
 
 #[derive(Parser, Debug, Clone)]
 pub struct StartServer {
@@ -30,6 +29,10 @@ pub struct StartServer {
     #[arg(long, default_value = "127.0.0.1:8000")]
     pub addr: String,
 }
+
+#[derive(OpenApi)]
+#[openapi(paths(search_handler,), components(schemas(SearchForm,),))]
+pub struct ApiDoc;
 
 // 定义共享状态
 struct AppState {
@@ -49,8 +52,8 @@ impl SubCommandExtend for StartServer {
 
         // 创建路由
         let app = Router::new()
-            .route("/", get(index_handler))
             .route("/search", post(search_handler))
+            .merge(SwaggerUi::new("/docs").url("/api-docs/openapi.json", ApiDoc::openapi()))
             .layer(DefaultBodyLimit::disable())
             // 上传限制：10M
             .layer(RequestBodyLimitLayer::new(1024 * 1024 * 10))
@@ -65,63 +68,42 @@ impl SubCommandExtend for StartServer {
     }
 }
 
-// 首页处理程序，显示API使用说明
-async fn index_handler() -> Response<Body> {
-    Response::builder()
-        .status(StatusCode::OK)
-        .header("Content-Type", "text/html")
-        .body(Body::from(
-            r#"
-        <h1>Image Search API</h1>
-        <p>
-        示例用法：
-        <br>
-        <code>http --form http://127.0.0.1:8000/search file@test.jpg orb_scale_factor=1.2 nprobe=3 max_codes=0</code>
-        <br>
-        </p>
-        "#,
-        ))
-        .unwrap()
+#[derive(TryFromMultipart)]
+struct SearchRequest {
+    file: Bytes,
+    orb_scale_factor: Option<f32>,
+    nprobe: Option<usize>,
+    max_codes: Option<usize>,
 }
 
-// 处理搜索请求
-#[axum::debug_handler]
+#[derive(Debug, ToSchema)]
+#[allow(unused)]
+struct SearchForm {
+    #[schema(format = Binary, content_media_type = "application/octet-stream")]
+    file: String,
+    orb_scale_factor: Option<f32>,
+    nprobe: Option<usize>,
+    max_codes: Option<usize>,
+}
+
+/// 搜索一张图片
+#[utoipa::path(
+    post,
+    path = "/search",
+    request_body(content = SearchForm, content_type = "multipart/form-data")
+)]
 async fn search_handler(
     State(state): State<Arc<AppState>>,
-    mut multipart: Multipart,
+    data: TypedMultipart<SearchRequest>,
 ) -> Result<Json<Value>, AppError> {
     // 处理上传的文件和参数
-    let mut upload_file = None;
     let mut opts = state.opts.clone();
     let mut params = FaissSearchParams::default();
-
-    while let Ok(Some(field)) = multipart.next_field().await {
-        let name = field.name().unwrap_or("").to_string();
-
-        if name == "file" {
-            if let Ok(data) = field.bytes().await {
-                upload_file = Some(data);
-            }
-        } else if name == "orb_scale_factor" {
-            if let Ok(value) = field.text().await {
-                if let Ok(value) = value.parse::<f32>() {
-                    opts.orb_scale_factor = value;
-                }
-            }
-        } else if name == "nprobe" {
-            if let Ok(value) = field.text().await {
-                if let Ok(value) = value.parse::<usize>() {
-                    params.nprobe = value;
-                }
-            }
-        } else if name == "max_codes" {
-            if let Ok(value) = field.text().await {
-                if let Ok(value) = value.parse::<usize>() {
-                    params.max_codes = value;
-                }
-            }
-        }
+    if let Some(orb_scale_factor) = data.orb_scale_factor {
+        opts.orb_scale_factor = orb_scale_factor;
     }
+    params.nprobe = data.nprobe.unwrap_or(1);
+    params.max_codes = data.max_codes.unwrap_or_default();
 
     let start = Instant::now();
 
@@ -129,8 +111,7 @@ async fn search_handler(
 
     let mut orb = Slam3ORB::from(&opts);
 
-    let upload_file = upload_file.context("没有找到上传文件")?;
-    let mat = Mat::from_slice(&upload_file)?;
+    let mat = Mat::from_slice(&data.file)?;
     let (_, des) = block_in_place(|| {
         let img = imgcodecs::imdecode(&mat, imgcodecs::IMREAD_GRAYSCALE)?;
         utils::detect_and_compute(&mut orb, &img)
