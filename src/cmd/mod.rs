@@ -13,5 +13,5 @@ pub use server::*;
 pub use show::*;
 
 pub trait SubCommandExtend {
-    fn run(&self, opts: &Opts) -> Result<()>;
+    fn run(&self, opts: &Opts) -> impl std::future::Future<Output = Result<()>> + Send;
 }

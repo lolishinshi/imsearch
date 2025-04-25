@@ -38,7 +38,6 @@ pub struct SearchImage {
 }
 
 impl SubCommandExtend for AddImages {
-    #[tokio::main]
     async fn run(&self, opts: &Opts) -> anyhow::Result<()> {
         let re = Regex::new(&self.suffix.replace(',', "|")).expect("failed to build regex");
         let db = IMDB::new(opts.conf_dir.clone()).await?;
@@ -140,7 +139,6 @@ impl SubCommandExtend for AddImages {
 }
 
 impl SubCommandExtend for SearchImage {
-    #[tokio::main]
     async fn run(&self, opts: &Opts) -> anyhow::Result<()> {
         let db = IMDB::new(opts.conf_dir.clone()).await?;
         let mut orb = Slam3ORB::from(opts);

@@ -11,7 +11,6 @@ use super::SubCommandExtend;
 pub struct UpdateDB {}
 
 impl SubCommandExtend for UpdateDB {
-    #[tokio::main]
     async fn run(&self, opts: &Opts) -> Result<()> {
         let rocks = crate::rocks::ImageDB::open(&opts.conf_dir, true)?;
         if !opts.conf_dir.path().exists() {

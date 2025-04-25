@@ -16,7 +16,7 @@ pub struct ShowKeypoints {
 }
 
 impl SubCommandExtend for ShowKeypoints {
-    fn run(&self, opts: &Opts) -> Result<()> {
+    async fn run(&self, opts: &Opts) -> Result<()> {
         let image = utils::imread(&self.image)?;
 
         let mut orb = Slam3ORB::from(opts);
@@ -44,7 +44,7 @@ pub struct ShowMatches {
 }
 
 impl SubCommandExtend for ShowMatches {
-    fn run(&self, opts: &Opts) -> Result<()> {
+    async fn run(&self, opts: &Opts) -> Result<()> {
         let img1 = utils::imread(&self.image1)?;
         let img2 = utils::imread(&self.image2)?;
 

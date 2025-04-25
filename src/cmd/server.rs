@@ -39,7 +39,6 @@ struct AppState {
 }
 
 impl SubCommandExtend for StartServer {
-    #[tokio::main]
     async fn run(&self, opts: &Opts) -> anyhow::Result<()> {
         let db = IMDB::new(opts.conf_dir.clone()).await?;
 

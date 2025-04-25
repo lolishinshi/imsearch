@@ -42,6 +42,8 @@ python utils/train.py DESCRIPTION train.npy
 
 注：大数据集上的训练非常耗时，在 K = 1048576，训练图片为 100k 张时，两张 3080 花了 16 个小时才训练完成。
 
+将生成的索引保存为 ~/.config/imsearch/index.template
+
 ### 添加图片
 
 使用 `imsearch add-images DIR` 添加指定目录下的所有图片
@@ -63,7 +65,7 @@ imsearch search-image test.jpg
 
 # --mmap：不需要加载整个 index 到内存
 # --nprobe=128：搜索附近的 128 的 bucket，提高了精度但耗费更多时间
-imsearch --mmap --nprobe=128 search-image test.jpg
+imsearch --mmap search-image --nprobe=128 test.jpg
 
 # 启动服务器，监听 127.0.0.1:8000 端口
 imsearch --mmap start-server
