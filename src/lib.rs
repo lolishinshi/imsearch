@@ -3,7 +3,6 @@ pub mod config;
 pub mod db;
 pub mod imdb;
 pub mod index;
-pub mod matrix;
 #[cfg(feature = "rocksdb")]
 pub mod rocks;
 pub mod slam3_orb;

@@ -3,6 +3,7 @@ use crate::index::FaissSearchParams;
 use crate::utils;
 use crate::{IMDB, Opts, Slam3ORB, index::FaissIndex};
 use anyhow::Context;
+use axum::extract::DefaultBodyLimit;
 use axum::{
     Json, Router,
     body::Body,
@@ -51,8 +52,9 @@ impl SubCommandExtend for StartServer {
         let app = Router::new()
             .route("/", get(index_handler))
             .route("/search", post(search_handler))
-            // 限制上传文件大小为50MB
-            .layer(RequestBodyLimitLayer::new(1024 * 1024 * 50))
+            .layer(DefaultBodyLimit::disable())
+            // 上传限制：10M
+            .layer(RequestBodyLimitLayer::new(1024 * 1024 * 10))
             .with_state(state);
 
         // 启动服务器
@@ -75,7 +77,7 @@ async fn index_handler() -> Response<Body> {
         <p>
         示例用法：
         <br>
-        <code>http --form http://127.0.0.1:8000/search file@test.jpg orb_scale_factor=1.2</code>
+        <code>http --form http://127.0.0.1:8000/search file1@test.jpg orb_scale_factor=1.2 nprobe=3 max_codes=0</code>
         <br>
         </p>
         "#,
@@ -90,64 +92,57 @@ async fn search_handler(
     mut multipart: Multipart,
 ) -> Result<Json<Value>, AppError> {
     // 处理上传的文件和参数
-    let mut file_data = None;
-    let mut orb_scale_factor = None;
-    let mut nprobe = None;
-    let mut max_codes = None;
+    let mut upload_file = None;
+    let mut opts = state.opts.clone();
+    let mut params = FaissSearchParams::default();
 
     while let Ok(Some(field)) = multipart.next_field().await {
         let name = field.name().unwrap_or("").to_string();
 
         if name == "file" {
             if let Ok(data) = field.bytes().await {
-                file_data = Some(data);
+                upload_file = Some(data);
             }
         } else if name == "orb_scale_factor" {
             if let Ok(value) = field.text().await {
-                orb_scale_factor = value.parse::<f32>().ok();
+                if let Ok(value) = value.parse::<f32>() {
+                    opts.orb_scale_factor = value;
+                }
             }
         } else if name == "nprobe" {
             if let Ok(value) = field.text().await {
-                nprobe = value.parse::<usize>().ok();
+                if let Ok(value) = value.parse::<usize>() {
+                    params.nprobe = value;
+                }
             }
         } else if name == "max_codes" {
             if let Ok(value) = field.text().await {
-                max_codes = value.parse::<usize>().ok();
+                if let Ok(value) = value.parse::<usize>() {
+                    params.max_codes = value;
+                }
             }
         }
     }
 
-    // 加载图片
-    let file_data = file_data.context("没有找到上传文件")?;
-    let img = Mat::from_slice(&file_data)
-        .and_then(|mat| block_in_place(|| imgcodecs::imdecode(&mat, imgcodecs::IMREAD_GRAYSCALE)))
-        .context("无法加载图片")?;
+    let start = Instant::now();
 
-    info!("正在搜索上传图片...");
+    info!("正在搜索上传图片");
 
-    // 处理搜索参数
-    let mut opts = state.opts.clone();
-    if let Some(factor) = orb_scale_factor {
-        opts.orb_scale_factor = factor;
-    }
     let mut orb = Slam3ORB::from(&opts);
 
-    let mut params = FaissSearchParams::default();
-    if let Some(n) = nprobe {
-        params.nprobe = n;
-    }
-    if let Some(m) = max_codes {
-        params.max_codes = m;
-    }
+    let upload_file = upload_file.context("没有找到上传文件")?;
+    let mat = Mat::from_slice(&upload_file)?;
+    let (_, des) = block_in_place(|| {
+        let img = imgcodecs::imdecode(&mat, imgcodecs::IMREAD_GRAYSCALE)?;
+        utils::detect_and_compute(&mut orb, &img)
+    })?;
 
-    // 开始搜索
-    let start = Instant::now();
-    let (_, des) = block_in_place(|| utils::detect_and_compute(&mut orb, &img))?;
     let index = state.index.read().await;
-    let result = state.db.search(&index, des, opts.knn_k, opts.distance, params).await?;
+    let mut result = state.db.search(&index, des, opts.knn_k, opts.distance, params).await?;
+    result.truncate(opts.output_count);
 
     Ok(Json(json!({
-        "time": start.elapsed().as_secs_f32(),
+        "time": start.elapsed().as_millis(),
         "result": result,
     })))
 }

@@ -1,6 +1,6 @@
-use crate::matrix::Matrix;
 use faiss_sys::*;
 use log::debug;
+use opencv::prelude::*;
 use std::ffi::{CStr, CString};
 use std::mem::MaybeUninit;
 use std::path::Path;
@@ -83,14 +83,11 @@ impl FaissIndex {
     ///
     /// * `v` - 向量，大小为 (n, d)
     /// * `ids` - 向量 id 列表，长度为 n
-    pub fn add_with_ids<M>(&mut self, v: &M, ids: &[i64])
-    where
-        M: Matrix,
-    {
-        assert_eq!(v.width() * 8, self.d as usize);
-        assert_eq!(v.height(), ids.len());
+    pub fn add_with_ids(&mut self, v: &Mat, ids: &[i64]) {
+        assert_eq!(v.cols() * 8, self.d);
+        assert_eq!(v.rows() as usize, ids.len());
         unsafe {
-            faiss_IndexBinary_add_with_ids(self.index, v.height() as i64, v.as_ptr(), ids.as_ptr());
+            faiss_IndexBinary_add_with_ids(self.index, v.rows() as i64, v.data(), ids.as_ptr());
         }
     }
 
@@ -101,13 +98,15 @@ impl FaissIndex {
     /// * `points` - 需要搜索的向量数组，大小为 (n, d)，其中 n 为向量数量，d 为向量维度
     /// * `knn` - 每个向量需要返回的最近邻数量
     /// * `params` - 搜索参数
-    pub fn search<M>(&self, points: &M, knn: usize, params: FaissSearchParams) -> Vec<Vec<Neighbor>>
-    where
-        M: Matrix,
-    {
-        assert_eq!(points.width() * 8, self.d as usize);
-        let mut distances = vec![0i32; points.height() * knn];
-        let mut labels = vec![0i64; points.height() * knn];
+    pub fn search(
+        &self,
+        points: &Mat,
+        knn: usize,
+        params: FaissSearchParams,
+    ) -> Vec<Vec<Neighbor>> {
+        assert_eq!(points.cols() * 8, self.d);
+        let mut distances = vec![0i32; points.rows() as usize * knn];
+        let mut labels = vec![0i64; points.rows() as usize * knn];
 
         // 初始化参数
         let mut raw_params = MaybeUninit::<*mut FaissSearchParametersIVF>::uninit();
@@ -125,8 +124,8 @@ impl FaissIndex {
             let params = raw_params.assume_init();
             faiss_IndexBinary_search_with_params(
                 self.index,
-                points.height() as i64,
-                points.as_ptr(),
+                points.rows() as i64,
+                points.data(),
                 knn as i64,
                 params,
                 distances.as_mut_ptr(),

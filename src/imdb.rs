@@ -3,14 +3,16 @@ use std::time::Instant;
 
 use crate::config::ConfDir;
 use crate::db::*;
-use crate::index::{FaissIndex, FaissSearchParams};
-use crate::matrix::{Matrix, Matrix2D};
+use crate::index::{FaissIndex, FaissSearchParams, Neighbor};
 use crate::utils;
 use anyhow::Result;
+use futures::prelude::*;
 use futures::{StreamExt, TryStreamExt};
 use log::{debug, info};
 use ndarray::prelude::*;
 use opencv::core::{Mat, MatTraitConstManual};
+use opencv::prelude::*;
+use tokio::sync::Mutex;
 use tokio::task::block_in_place;
 
 #[derive(Debug, Clone)]
@@ -52,7 +54,7 @@ impl IMDB {
         let mut tx = self.db.begin_with("BEGIN IMMEDIATE").await?;
         let id = crud::add_image(&mut *tx, hash, filename.as_ref()).await?;
         crud::add_vector(&mut *tx, id, descriptors.data_typed::<u8>()?).await?;
-        crud::add_vector_stats(&mut *tx, id, descriptors.height() as i64).await?;
+        crud::add_vector_stats(&mut *tx, id, descriptors.rows() as i64).await?;
         tx.commit().await?;
         Ok(true)
     }
@@ -198,68 +200,80 @@ impl IMDB {
     /// * `knn` - KNN 搜索的数量
     /// * `max_distance` - 最大距离
     /// * `params` - 搜索参数
-    pub async fn search<M: Matrix>(
+    pub async fn search(
         &self,
         index: &FaissIndex,
-        descriptors: M,
+        descriptors: Mat,
         knn: usize,
         max_distance: u32,
         params: FaissSearchParams,
     ) -> Result<Vec<(f32, String)>> {
-        info!("对 {} 条向量搜索 {} 个最近邻, {:?}", descriptors.height(), knn, params);
+        info!("对 {} 条向量搜索 {} 个最近邻, {:?}", descriptors.rows(), knn, params);
         let mut instant = Instant::now();
-        let mut counter = HashMap::new();
 
         // TODO: 这里应该用 spawn_blocking 还是 block_in_place 呢？
-        let all_neighbors = block_in_place(|| index.search(&descriptors, knn, params));
-        debug!("搜索耗时      ：{}ms", instant.elapsed().as_millis());
+        let neighbors = block_in_place(|| index.search(&descriptors, knn, params));
+        debug!("搜索耗时    ：{}ms", instant.elapsed().as_millis());
         instant = Instant::now();
 
-        for neighbors in all_neighbors {
-            for neighbor in neighbors {
-                if neighbor.distance > max_distance as i32 {
-                    continue;
+        let result = self.process_neighbor_group(&neighbors, max_distance as i32).await?;
+
+        debug!("处理结果耗时：{:.2}ms", instant.elapsed().as_millis());
+
+        Ok(result)
+    }
+
+    /// 处理一个搜索结果分组
+    async fn process_neighbor_group(
+        &self,
+        neighbors: &[Vec<Neighbor>],
+        max_distance: i32,
+    ) -> Result<Vec<(f32, String)>> {
+        let counter = Mutex::new(HashMap::new());
+
+        stream::iter(neighbors.iter().flatten())
+            .filter(|neighbor| future::ready(neighbor.distance <= max_distance))
+            .for_each_concurrent(4, |neighbor| async {
+                if let Ok(path) = crud::get_image_path_by_vector_id(&self.db, neighbor.index).await
+                {
+                    let mut counter = counter.lock().await;
+                    counter
+                        .entry(path)
+                        .or_insert_with(Vec::new)
+                        .push(1. - neighbor.distance as f32 / 256.);
                 }
-                let path = crud::get_image_path_by_vector_id(&self.db, neighbor.index).await?;
-                counter
-                    .entry(path)
-                    .or_insert_with(Vec::new)
-                    .push(1. - neighbor.distance as f32 / 256.);
-            }
-        }
-        debug!("检索数据库耗时：{:.2}ms", instant.elapsed().as_millis());
-        instant = Instant::now();
+            })
+            .await;
 
-        let mut results = counter
+        let counter = counter.into_inner();
+        let mut result = counter
             .into_iter()
             .map(|(path, scores)| (100. * utils::wilson_score(&scores), path))
             .collect::<Vec<_>>();
-        results.sort_unstable_by(|a, b| b.0.partial_cmp(&a.0).unwrap());
-
-        debug!("计算并排序耗时: {:.2}ms", instant.elapsed().as_millis());
-
-        Ok(results)
+        result.sort_unstable_by(|a, b| b.0.partial_cmp(&a.0).unwrap());
+        Ok(result)
     }
 }
 
 #[derive(Debug)]
-struct FeatureWithId(Vec<i64>, Matrix2D);
+struct FeatureWithId(Vec<i64>, Mat);
 
 impl FeatureWithId {
     pub fn new() -> Self {
-        Self(vec![], Matrix2D::new(32))
+        Self(vec![], Mat::default())
     }
 
     pub fn add(&mut self, id: i64, feature: &[u8]) {
         self.0.push(id);
-        self.1.push(feature);
+        let mat = Mat::from_slice(feature).unwrap();
+        self.1.push_back(&mat).unwrap();
     }
 
     pub fn len(&self) -> usize {
         self.0.len()
     }
 
-    pub fn features(&self) -> &Matrix2D {
+    pub fn features(&self) -> &Mat {
         &self.1
     }
 
