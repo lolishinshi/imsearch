@@ -77,7 +77,7 @@ async fn index_handler() -> Response<Body> {
         <p>
         示例用法：
         <br>
-        <code>http --form http://127.0.0.1:8000/search file1@test.jpg orb_scale_factor=1.2 nprobe=3 max_codes=0</code>
+        <code>http --form http://127.0.0.1:8000/search file@test.jpg orb_scale_factor=1.2 nprobe=3 max_codes=0</code>
         <br>
         </p>
         "#,

@@ -22,14 +22,6 @@ pub struct BuildIndex {
 #[derive(Parser, Debug, Clone)]
 pub struct ExportData {}
 
-#[derive(Parser, Debug, Clone)]
-pub struct MergeIndex {
-    #[arg(long)]
-    pub index1: String,
-    #[arg(long)]
-    pub index2: String,
-}
-
 impl SubCommandExtend for ClearCache {
     #[tokio::main]
     async fn run(&self, opts: &Opts) -> Result<()> {
