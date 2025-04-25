@@ -30,6 +30,10 @@ impl IMDB {
             std::fs::create_dir_all(conf_dir.path())?;
         }
         let db = init_db(conf_dir.database(), true).await?;
+        if let Ok((image_count, vector_count)) = crud::get_count(&db).await {
+            info!("图片数量  : {}", image_count);
+            info!("特征点数量：{}", vector_count);
+        }
         Ok(Self { db, conf_dir })
     }
 
@@ -169,12 +173,13 @@ impl IMDB {
         let index_file = self.conf_dir.index();
         let index = if index_file.exists() {
             if !mmap {
-                debug!("正在加载索引 {}", index_file.display());
+                info!("正在加载索引 {}", index_file.display());
             }
             let index = FaissIndex::from_file(index_file.to_str().unwrap(), mmap);
-            debug!("已添加特征点 : {}", index.ntotal());
-            debug!("倒排列表数量 : {}", index.nlist());
-            debug!("不平衡度     : {}", index.imbalance_factor());
+            info!("faiss 版本   : {}", index.faiss_version());
+            info!("已添加特征点 : {}", index.ntotal());
+            info!("倒排列表数量 : {}", index.nlist());
+            info!("不平衡度     : {}", index.imbalance_factor());
             index.print_stats();
             index
         } else {
@@ -201,7 +206,7 @@ impl IMDB {
         max_distance: u32,
         params: FaissSearchParams,
     ) -> Result<Vec<(f32, String)>> {
-        debug!("对 {} 条向量搜索 {} 个最近邻, {:?}", descriptors.height(), knn, params);
+        info!("对 {} 条向量搜索 {} 个最近邻, {:?}", descriptors.height(), knn, params);
         let mut instant = Instant::now();
         let mut counter = HashMap::new();
 

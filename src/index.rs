@@ -1,7 +1,7 @@
 use crate::matrix::Matrix;
 use faiss_sys::*;
 use log::debug;
-use std::ffi::CString;
+use std::ffi::{CStr, CString};
 use std::mem::MaybeUninit;
 use std::path::Path;
 use std::ptr::null_mut;
@@ -137,7 +137,10 @@ impl FaissIndex {
 
         // 打印搜索统计信息，并重置
         // NOTE: 这里的统计不是针对单次搜索的，由于统计变量是全局的，多线程搜索会累加
-        let mut stats = unsafe { *faiss_get_indexIVF_stats() };
+        let (stats, raw_stats) = unsafe {
+            let stats = faiss_get_indexIVF_stats();
+            (*stats, stats)
+        };
 
         debug!("ndis             : {}", stats.nq);
         debug!("nprobe           : {}", stats.nlist);
@@ -146,7 +149,7 @@ impl FaissIndex {
         debug!("search_time      : {:.2}ms", stats.search_time);
 
         unsafe {
-            faiss_IndexIVFStats_reset(&mut stats);
+            faiss_IndexIVFStats_reset(raw_stats);
         }
 
         // 整理结果
@@ -211,6 +214,13 @@ impl FaissIndex {
         unsafe {
             faiss_IndexBinaryIVF_merge_from(self.index, other.index, add_id);
         }
+    }
+
+    /// 获取 faiss 版本
+    pub fn faiss_version(&self) -> String {
+        let version = unsafe { faiss_get_version() };
+        let version = unsafe { CStr::from_ptr(version) };
+        version.to_string_lossy().to_string()
     }
 }
 

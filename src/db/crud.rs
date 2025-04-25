@@ -162,3 +162,16 @@ pub async fn delete_vectors_all(executor: &SqlitePool) -> Result<()> {
     sqlx::query!("VACUUM").execute(executor).await?;
     Ok(())
 }
+
+/// 查询数据库中的图片和向量数量
+pub async fn get_count(executor: &SqlitePool) -> Result<(i64, i64)> {
+    let result = sqlx::query!(
+        r#"
+        SELECT id, total_vector_count FROM vector_stats ORDER BY id DESC LIMIT 1;
+        "#,
+    )
+    .fetch_one(executor)
+    .await?;
+
+    Ok((result.id, result.total_vector_count))
+}
