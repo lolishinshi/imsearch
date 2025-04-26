@@ -3,11 +3,11 @@ use std::path::{Path, PathBuf};
 use std::str::FromStr;
 use std::sync::LazyLock;
 
-use crate::cmd::*;
-use crate::slam3_orb::{InterpolationFlags, Slam3ORB};
-use clap::{Parser, Subcommand, ValueEnum};
+use clap::{Parser, Subcommand};
 use directories::ProjectDirs;
-use opencv::{core, features2d, flann};
+
+use crate::cli::*;
+use crate::slam3_orb::{InterpolationFlags, Slam3ORB};
 
 static CONF_DIR: LazyLock<ConfDir> = LazyLock::new(|| {
     let proj_dirs = ProjectDirs::from("", "aloxaf", "imsearch").expect("failed to get project dir");
@@ -19,102 +19,87 @@ fn default_config_dir() -> &'static str {
 }
 
 #[derive(Parser, Debug, Clone)]
-#[command(name = "imsearch")]
-pub struct Opts {
-    /// imsearch 配置文件目录
-    #[arg(short, long, default_value = default_config_dir())]
-    pub conf_dir: ConfDir,
-
+pub struct OrbOptions {
     /// ORB 特征点最大保留数量
-    #[arg(short = 'n', value_name = "N", long, default_value = "500")]
+    #[arg(short = 'n', value_name = "N", long, default_value_t = 500)]
     pub orb_nfeatures: u32,
     /// ORB 特征金字塔缩放因子
-    #[arg(long, value_name = "SCALE", default_value = "1.2")]
+    #[arg(long, value_name = "SCALE", default_value_t = 1.2)]
     pub orb_scale_factor: f32,
     /// ORB 特征金字塔层数
-    #[arg(long, value_name = "N", default_value = "8")]
+    #[arg(long, value_name = "N", default_value_t = 8)]
     pub orb_nlevels: u32,
     /// ORB 特征点金字塔缩放插值方式
     #[arg(long, value_name = "FLAG", default_value = "Area")]
     pub orb_interpolation: InterpolationFlags,
     /// ORB FAST 角点检测器初始阈值
-    #[arg(long, value_name = "THRESHOLD", default_value = "20")]
+    #[arg(long, value_name = "THRESHOLD", default_value_t = 20)]
     pub orb_ini_th_fast: u32,
     /// ORB FAST 角点检测器最小阈值
-    #[arg(long, value_name = "THRESHOLD", default_value = "7")]
+    #[arg(long, value_name = "THRESHOLD", default_value_t = 7)]
     pub orb_min_th_fast: u32,
     /// ORB 特征点是否不需要方向信息
     #[arg(long)]
     pub orb_not_oriented: bool,
+}
 
-    /// 使用 mmap 模式加载索引，而不是一次性全部加载到内存
+#[derive(Parser, Debug, Clone)]
+pub struct SearchOptions {
+    /// 不使用 mmap 模式加载索引，而是一次性全部加载到内存
     #[arg(long)]
-    pub mmap: bool,
-
-    /// 构建索引时，多少张图片为一个批次
-    #[arg(long, value_name = "SIZE", default_value = "10000")]
-    pub batch_size: usize,
+    pub no_mmap: bool,
     /// 两个相似向量的允许的最大距离，范围从 0 到 255
-    #[arg(long, value_name = "N", default_value = "64")]
+    #[arg(long, value_name = "N", default_value_t = 64, value_parser = clap::value_parser!(u16).range(0..=255))]
     pub distance: u32,
-
     /// 显示的结果数量
-    #[arg(long, value_name = "COUNT", default_value = "10")]
-    pub output_count: usize,
-    /// 输出格式
-    #[arg(long, value_name = "FORMAT", default_value = "table")]
-    pub output_format: OutputFormat,
+    #[arg(long, value_name = "COUNT", default_value_t = 10)]
+    pub count: usize,
     /// 每个查询描述符找到的最佳匹配数量
-    #[arg(long, value_name = "K", default_value = "3")]
-    pub knn_k: usize,
+    #[arg(long, value_name = "K", default_value_t = 3)]
+    pub k: usize,
+    /// 搜索的倒排列表数量
+    #[arg(long, default_value = "3")]
+    pub nprobe: usize,
+    /// 搜索的最大向量数量，0 表示不限制
+    #[arg(long, default_value = "0")]
+    pub max_codes: usize,
+}
 
+#[derive(Parser, Debug, Clone)]
+#[command(name = "imsearch", version)]
+pub struct Opts {
     #[command(subcommand)]
     pub subcmd: SubCommand,
+    /// imsearch 配置文件目录
+    #[arg(short, long, default_value = default_config_dir())]
+    pub conf_dir: ConfDir,
 }
 
 #[derive(Subcommand, Debug, Clone)]
 pub enum SubCommand {
     /// 展示一张图片上的所有特征点
-    ShowKeypoints(ShowKeypoints),
+    Show(ShowCommand),
     /// 展示两张图片之间的特征点匹配关系
-    ShowMatches(ShowMatches),
+    Match(MatchCommand),
     /// 添加图片特征点到数据库
-    AddImages(AddImages),
+    Add(AddCommand),
     /// 从数据库中搜索图片
-    SearchImage(SearchImage),
+    Search(SearchCommand),
     /// 启动 HTTP 搜索服务
-    StartServer(StartServer),
+    Server(ServerCommand),
     /// 使用已添加的特征点构建索引
-    BuildIndex(BuildIndex),
+    Build(BuildCOmmand),
     /// 清理数据库中的特征点，主要作用为减小数据库体积
-    ClearCache(ClearCache),
+    Clean(CleanCommand),
     /// 导出 npy 格式的特征点，供训练使用
-    ExportData(ExportData),
+    Export(ExportCommand),
     #[cfg(feature = "rocksdb")]
     /// 从 rocksdb 格式的旧数据库中更新为新的数据库格式
-    UpdateDB(crate::cmd::rocks::UpdateDB),
+    UpdateDB(UpdateDBCommand),
 }
 
-#[derive(ValueEnum, Debug, Clone)]
-pub enum OutputFormat {
-    Json,
-    Table,
-}
-
-impl FromStr for OutputFormat {
-    type Err = Infallible;
-
-    fn from_str(s: &str) -> Result<Self, Self::Err> {
-        match s {
-            "json" => Ok(Self::Json),
-            "table" => Ok(Self::Table),
-            _ => unreachable!(),
-        }
-    }
-}
-
-impl From<&Opts> for Slam3ORB {
-    fn from(opts: &Opts) -> Self {
+impl From<&OrbOptions> for Slam3ORB {
+    fn from(opts: &OrbOptions) -> Self {
         Self::create(
             opts.orb_nfeatures as i32,
             opts.orb_scale_factor,
@@ -125,19 +110,6 @@ impl From<&Opts> for Slam3ORB {
             !opts.orb_not_oriented,
         )
         .expect("failed to build Slam3Orb")
-    }
-}
-
-impl From<&Opts> for features2d::FlannBasedMatcher {
-    fn from(_opts: &Opts) -> Self {
-        let index_params = core::Ptr::new(flann::IndexParams::from(
-            flann::LshIndexParams::new(6, 12, 1).expect("failed to build LshIndexParams"),
-        ));
-        let search_params = core::Ptr::new(
-            flann::SearchParams::new_1(32, 0.0, true).expect("failed to build SearchParams"),
-        );
-        features2d::FlannBasedMatcher::new(&index_params, &search_params)
-            .expect("failed to build FlannBasedMatcher")
     }
 }
 

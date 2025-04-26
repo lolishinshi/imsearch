@@ -2,14 +2,12 @@ use std::fs::File;
 use std::io::Read;
 use std::path::Path;
 
-use crate::slam3_orb::Slam3ORB;
 use anyhow::Result;
 use blake3::Hash;
-use opencv::features2d;
-use opencv::highgui;
-use opencv::imgcodecs;
-use opencv::prelude::*;
-use opencv::{core::*, imgproc};
+use opencv::core::*;
+use opencv::{features2d, highgui, imgcodecs, imgproc};
+
+use crate::slam3_orb::Slam3ORB;
 
 pub fn detect_and_compute(
     orb: &mut Slam3ORB,

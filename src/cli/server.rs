@@ -1,7 +1,6 @@
-use crate::cmd::SubCommandExtend;
-use crate::index::FaissSearchParams;
-use crate::utils;
-use crate::{IMDB, Opts, Slam3ORB, index::FaissIndex};
+use std::sync::Arc;
+use std::time::Instant;
+
 use axum::body::Bytes;
 use axum::extract::{DefaultBodyLimit, State};
 use axum::http::StatusCode;
@@ -14,8 +13,6 @@ use log::info;
 use opencv::imgcodecs;
 use opencv::prelude::*;
 use serde_json::{Value, json};
-use std::sync::Arc;
-use std::time::Instant;
 use tokio::net::TcpListener;
 use tokio::sync::RwLock;
 use tokio::task::block_in_place;
@@ -23,9 +20,18 @@ use tower_http::limit::RequestBodyLimitLayer;
 use utoipa::{OpenApi, ToSchema};
 use utoipa_swagger_ui::SwaggerUi;
 
+use crate::cli::SubCommandExtend;
+use crate::config::{OrbOptions, SearchOptions};
+use crate::index::{FaissIndex, FaissSearchParams};
+use crate::{IMDB, IMDBBuilder, Opts, Slam3ORB, utils};
+
 #[derive(Parser, Debug, Clone)]
-pub struct StartServer {
-    /// Listen address
+pub struct ServerCommand {
+    #[command(flatten)]
+    pub orb: OrbOptions,
+    #[command(flatten)]
+    pub search: SearchOptions,
+    /// 监听地址
     #[arg(long, default_value = "127.0.0.1:8000")]
     pub addr: String,
 }
@@ -38,17 +44,21 @@ pub struct ApiDoc;
 struct AppState {
     index: RwLock<FaissIndex>,
     db: IMDB,
-    opts: Opts,
+    opts: ServerCommand,
 }
 
-impl SubCommandExtend for StartServer {
+impl SubCommandExtend for ServerCommand {
     async fn run(&self, opts: &Opts) -> anyhow::Result<()> {
-        let db = IMDB::new(opts.conf_dir.clone()).await?;
+        let db = IMDBBuilder::new(opts.conf_dir.clone())
+            .mmap(!self.search.no_mmap)
+            .cache(true)
+            .open()
+            .await?;
 
-        let index = db.get_index(opts.mmap);
+        let index = db.get_index();
 
         // 创建共享状态
-        let state = Arc::new(AppState { index: RwLock::new(index), db, opts: opts.clone() });
+        let state = Arc::new(AppState { index: RwLock::new(index), db, opts: self.clone() });
 
         // 创建路由
         let app = Router::new()
@@ -98,9 +108,10 @@ async fn search_handler(
 ) -> Result<Json<Value>, AppError> {
     // 处理上传的文件和参数
     let mut opts = state.opts.clone();
-    let mut params = FaissSearchParams::default();
+    let mut params =
+        FaissSearchParams { nprobe: opts.search.nprobe, max_codes: opts.search.max_codes };
     if let Some(orb_scale_factor) = data.orb_scale_factor {
-        opts.orb_scale_factor = orb_scale_factor;
+        opts.orb.orb_scale_factor = orb_scale_factor;
     }
     params.nprobe = data.nprobe.unwrap_or(1);
     params.max_codes = data.max_codes.unwrap_or_default();
@@ -109,7 +120,7 @@ async fn search_handler(
 
     info!("正在搜索上传图片");
 
-    let mut orb = Slam3ORB::from(&opts);
+    let mut orb = Slam3ORB::from(&opts.orb);
 
     let mat = Mat::from_slice(&data.file)?;
     let (_, des) = block_in_place(|| {
@@ -118,9 +129,11 @@ async fn search_handler(
     })?;
 
     let index = state.index.read().await;
-    let mut result =
-        state.db.search(&index, des, opts.knn_k, opts.distance, opts.output_count, params).await?;
-    result.truncate(opts.output_count);
+    let mut result = state
+        .db
+        .search(&index, des, opts.search.k, opts.search.distance, opts.search.count, params)
+        .await?;
+    result.truncate(opts.search.count);
 
     Ok(Json(json!({
         "time": start.elapsed().as_millis(),

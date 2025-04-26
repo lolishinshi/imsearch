@@ -3,14 +3,14 @@ use clap::Parser;
 use indicatif::{ProgressBar, ProgressIterator, ProgressStyle};
 use log::info;
 
-use crate::{config::Opts, db::init_db};
-
 use super::SubCommandExtend;
+use crate::config::Opts;
+use crate::db::init_db;
 
 #[derive(Parser, Debug, Clone)]
-pub struct UpdateDB {}
+pub struct UpdateDBCommand {}
 
-impl SubCommandExtend for UpdateDB {
+impl SubCommandExtend for UpdateDBCommand {
     async fn run(&self, opts: &Opts) -> Result<()> {
         let rocks = crate::rocks::ImageDB::open(&opts.conf_dir, true)?;
         if !opts.conf_dir.path().exists() {

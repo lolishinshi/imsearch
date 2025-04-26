@@ -1,7 +1,8 @@
 use std::path::Path;
 
 use log::info;
-use sqlx::{SqlitePool, sqlite::*};
+use sqlx::SqlitePool;
+use sqlx::sqlite::*;
 
 pub mod crud;
 pub mod model;

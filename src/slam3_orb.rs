@@ -1,8 +1,8 @@
 use std::ffi::{c_int, c_void};
+use std::str::FromStr;
 
 use anyhow::{Result, anyhow, bail};
 use opencv::core::*;
-use std::str::FromStr;
 
 // C++与Rust交互的结果结构体
 #[repr(C)]
@@ -189,10 +189,10 @@ unsafe extern "C" {
 
 #[cfg(test)]
 mod test {
-    use super::Slam3ORB;
     use opencv::core::*;
-    use opencv::features2d;
-    use opencv::imgcodecs;
+    use opencv::{features2d, imgcodecs};
+
+    use super::Slam3ORB;
 
     #[test]
     fn detect_and_compute() {

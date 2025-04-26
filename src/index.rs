@@ -1,10 +1,11 @@
-use faiss_sys::*;
-use log::debug;
-use opencv::prelude::*;
 use std::ffi::{CStr, CString};
 use std::mem::MaybeUninit;
 use std::path::Path;
 use std::ptr::null_mut;
+
+use faiss_sys::*;
+use log::debug;
+use opencv::prelude::*;
 
 /// Faiss 搜索结果
 pub struct Neighbor {
@@ -241,10 +242,4 @@ pub struct FaissSearchParams {
     pub nprobe: usize,
     /// 搜索时最多检查多少个向量，默认为 0，表示不限制
     pub max_codes: usize,
-}
-
-impl Default for FaissSearchParams {
-    fn default() -> Self {
-        Self { nprobe: 1, max_codes: 0 }
-    }
 }

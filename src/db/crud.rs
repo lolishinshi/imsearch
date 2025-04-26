@@ -1,6 +1,7 @@
-use super::VectorIdxRecord;
 use futures::{Stream, TryStreamExt, future};
 use sqlx::{Executor, Result, Sqlite, SqlitePool};
+
+use super::VectorIdxRecord;
 
 /// 添加图片记录
 pub async fn add_image<'c, E>(executor: E, hash: &[u8], path: &str) -> Result<i64>
@@ -67,10 +68,10 @@ pub async fn set_indexed_batch(executor: &SqlitePool, ids: &[i64]) -> Result<()>
 }
 
 /// 根据向量 ID 获取图片路径
-pub async fn get_image_path_by_vector_id(executor: &SqlitePool, id: i64) -> Result<String> {
+pub async fn get_image_id_by_vector_id(executor: &SqlitePool, id: i64) -> Result<i64> {
     let result = sqlx::query!(
         r#"
-        SELECT path FROM vector_stats
+        SELECT vector_stats.id as id FROM vector_stats
         JOIN image ON vector_stats.id = image.id
         WHERE total_vector_count >= ? ORDER BY total_vector_count ASC LIMIT 1
         "#,
@@ -79,7 +80,7 @@ pub async fn get_image_path_by_vector_id(executor: &SqlitePool, id: i64) -> Resu
     .fetch_one(executor)
     .await?;
 
-    Ok(result.path)
+    Ok(result.id.unwrap())
 }
 
 /// 添加向量

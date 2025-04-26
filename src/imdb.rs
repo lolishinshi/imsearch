@@ -1,10 +1,6 @@
 use std::collections::HashMap;
 use std::time::Instant;
 
-use crate::config::ConfDir;
-use crate::db::*;
-use crate::index::{FaissIndex, FaissSearchParams, Neighbor};
-use crate::utils;
 use anyhow::Result;
 use futures::prelude::*;
 use futures::{StreamExt, TryStreamExt};
@@ -15,36 +11,72 @@ use opencv::prelude::*;
 use tokio::sync::{Mutex, OnceCell};
 use tokio::task::block_in_place;
 
+use crate::config::ConfDir;
+use crate::db::*;
+use crate::index::{FaissIndex, FaissSearchParams, Neighbor};
+use crate::utils;
+
+#[derive(Debug, Clone)]
+pub struct IMDBBuilder {
+    conf_dir: ConfDir,
+    wal: bool,
+    mmap: bool,
+    cache: bool,
+}
+
+impl IMDBBuilder {
+    pub fn new(conf_dir: ConfDir) -> Self {
+        Self { conf_dir, wal: true, mmap: true, cache: false }
+    }
+
+    /// 数据库是否开启 WAL，开启会影响删除
+    pub fn wal(mut self, wal: bool) -> Self {
+        self.wal = wal;
+        self
+    }
+
+    /// 是否使用 mmap 模式加载索引
+    pub fn mmap(mut self, mmap: bool) -> Self {
+        self.mmap = mmap;
+        self
+    }
+
+    /// 是否使用缓存来加速 id 查询，会导致第一次查询速度变慢
+    pub fn cache(mut self, cache: bool) -> Self {
+        self.cache = cache;
+        self
+    }
+
+    pub async fn open(self) -> Result<IMDB> {
+        if !self.conf_dir.path().exists() {
+            std::fs::create_dir_all(self.conf_dir.path())?;
+        }
+        let db = init_db(self.conf_dir.database(), self.wal).await?;
+        if let Ok((image_count, vector_count)) = crud::get_count(&db).await {
+            info!("图片数量  : {}", image_count);
+            info!("特征点数量：{}", vector_count);
+        }
+        Ok(IMDB {
+            db,
+            conf_dir: self.conf_dir,
+            total_vector_count: OnceCell::new(),
+
+            mmap: self.mmap,
+            cache: self.cache,
+        })
+    }
+}
+
 #[derive(Debug, Clone)]
 pub struct IMDB {
     conf_dir: ConfDir,
     db: Database,
     total_vector_count: OnceCell<Vec<i64>>,
+    mmap: bool,
+    cache: bool,
 }
 
 impl IMDB {
-    /// 创建或打开一个新的 IMDB 实例
-    ///
-    /// # Arguments
-    ///
-    /// * `conf_dir` - 配置目录
-    pub async fn new(conf_dir: ConfDir) -> Result<Self> {
-        if !conf_dir.path().exists() {
-            std::fs::create_dir_all(conf_dir.path())?;
-        }
-        let db = init_db(conf_dir.database(), true).await?;
-        if let Ok((image_count, vector_count)) = crud::get_count(&db).await {
-            info!("图片数量  : {}", image_count);
-            info!("特征点数量：{}", vector_count);
-        }
-        Ok(Self { db, conf_dir, total_vector_count: OnceCell::new() })
-    }
-
-    pub async fn new_without_wal(conf_dir: ConfDir) -> Result<Self> {
-        let db = init_db(conf_dir.database(), false).await?;
-        Ok(Self { db, conf_dir, total_vector_count: OnceCell::new() })
-    }
-
     /// 添加图片到数据库
     pub async fn add_image(
         &self,
@@ -70,8 +102,7 @@ impl IMDB {
     /// # Arguments
     ///
     /// * `chunk_size` - 每次添加到索引的**图片**数量
-    /// * `mmap` - 合并阶段是否使用 mmap
-    pub async fn build_index(&self, chunk_size: usize, mmap: bool) -> Result<()> {
+    pub async fn build_index(&self, chunk_size: usize) -> Result<()> {
         let stream = crud::get_vectors(&self.db).await?;
         let mut stream = stream.chunks(chunk_size);
 
@@ -107,7 +138,7 @@ impl IMDB {
         }
 
         info!("合并索引中……");
-        let mut index = self.get_index(mmap);
+        let mut index = self.get_index();
         let mut files = vec![];
         for i in 1.. {
             let index_file = self.conf_dir.index_sub_with(i);
@@ -172,13 +203,13 @@ impl IMDB {
     ///
     /// * `mmap` - 是否使用 mmap 模式加载索引
     /// * `strategy` - 搜索策略
-    pub fn get_index(&self, mmap: bool) -> FaissIndex {
+    pub fn get_index(&self) -> FaissIndex {
         let index_file = self.conf_dir.index();
         let index = if index_file.exists() {
-            if !mmap {
+            if !self.mmap {
                 info!("正在加载索引 {}", index_file.display());
             }
-            let index = FaissIndex::from_file(index_file.to_str().unwrap(), mmap);
+            let index = FaissIndex::from_file(index_file.to_str().unwrap(), self.mmap);
             info!("faiss 版本   : {}", index.faiss_version());
             info!("已添加特征点 : {}", index.ntotal());
             info!("倒排列表数量 : {}", index.nlist());
@@ -272,18 +303,22 @@ impl IMDB {
 
     /// 根据向量 ID 查找图片 ID
     async fn find_image_id(&self, id: i64) -> Result<i64> {
-        // 此处为了减少数据库查询次数，缓存了整个 total_vector_count 数组
-        let total_vector_count = self
-            .total_vector_count
-            .get_or_try_init(|| async {
-                info!("初次查询，正在初始化图片 ID 缓存……");
-                crud::get_all_total_vector_count(&self.db).await
-            })
-            .await?;
+        if !self.cache {
+            Ok(crud::get_image_id_by_vector_id(&self.db, id).await?)
+        } else {
+            // 此处为了减少数据库查询次数，缓存了整个 total_vector_count 数组
+            let total_vector_count = self
+                .total_vector_count
+                .get_or_try_init(|| async {
+                    info!("初次查询，正在初始化图片 ID 缓存……");
+                    crud::get_all_total_vector_count(&self.db).await
+                })
+                .await?;
 
-        let index = total_vector_count.partition_point(|&x| x < id);
+            let index = total_vector_count.partition_point(|&x| x < id);
 
-        Ok(index as i64)
+            Ok(index as i64)
+        }
     }
 }
 

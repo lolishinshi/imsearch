@@ -10,9 +10,8 @@ use std::io::{BufRead, BufReader};
 use std::path::{Path, PathBuf};
 use std::sync::LazyLock;
 
-use semver::Version;
-
 use library::Library;
+use semver::Version;
 
 type Result<T, E = Box<dyn std::error::Error>> = std::result::Result<T, E>;
 

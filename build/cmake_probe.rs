@@ -1,10 +1,7 @@
-use std::process::Output;
-use std::{
-    fs::{self, File},
-    io::{BufRead, BufReader},
-    path::{Path, PathBuf},
-    process::Command,
-};
+use std::fs::{self, File};
+use std::io::{BufRead, BufReader};
+use std::path::{Path, PathBuf};
+use std::process::{Command, Output};
 
 use semver::Version;
 use shlex::Shlex;

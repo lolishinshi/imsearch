@@ -1,20 +1,15 @@
-use std::{
-    borrow::Cow,
-    collections::HashSet,
-    env,
-    ffi::OsStr,
-    fmt, iter,
-    path::{Path, PathBuf},
-};
+use std::borrow::Cow;
+use std::collections::HashSet;
+use std::ffi::OsStr;
+use std::path::{Path, PathBuf};
+use std::{env, fmt, iter};
 
 use dunce::canonicalize;
 use glob::glob;
 use semver::Version;
 
-use super::{
-    MANIFEST_DIR, OUT_DIR, Result, cleanup_lib_filename, cmake_probe::CmakeProbe,
-    get_version_from_headers,
-};
+use super::cmake_probe::CmakeProbe;
+use super::{MANIFEST_DIR, OUT_DIR, Result, cleanup_lib_filename, get_version_from_headers};
 
 struct PackageName;
 

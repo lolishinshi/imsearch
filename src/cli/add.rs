@@ -1,9 +1,8 @@
-use crate::cmd::SubCommandExtend;
-use crate::config::{Opts, OutputFormat};
-use crate::index::FaissSearchParams;
-use crate::slam3_orb::Slam3ORB;
-use crate::{IMDB, ORB, utils};
-use anyhow::Result;
+use std::cell::RefCell;
+use std::collections::HashMap;
+use std::path::PathBuf;
+use std::sync::OnceLock;
+
 use blake3::Hash;
 use clap::Parser;
 use indicatif::{ParallelProgressIterator, ProgressBar, ProgressIterator, ProgressStyle};
@@ -11,13 +10,24 @@ use log::info;
 use opencv::core::MatTraitConst;
 use rayon::prelude::*;
 use regex::Regex;
-use std::collections::HashMap;
-use std::path::PathBuf;
 use tokio::task::{block_in_place, spawn_blocking};
 use walkdir::WalkDir;
 
+use crate::cli::SubCommandExtend;
+use crate::config::{Opts, OrbOptions};
+use crate::slam3_orb::Slam3ORB;
+use crate::{IMDBBuilder, utils};
+
+static ORB_OPTIONS: OnceLock<OrbOptions> = OnceLock::new();
+
+thread_local! {
+    pub static ORB: RefCell<Slam3ORB> = RefCell::new(Slam3ORB::from(ORB_OPTIONS.get().unwrap()));
+}
+
 #[derive(Parser, Debug, Clone)]
-pub struct AddImages {
+pub struct AddCommand {
+    #[command(flatten)]
+    pub orb: OrbOptions,
     /// 图片或目录的路径
     pub path: String,
     /// 扫描的文件后缀名，多个后缀用逗号分隔
@@ -25,22 +35,12 @@ pub struct AddImages {
     pub suffix: String,
 }
 
-#[derive(Parser, Debug, Clone)]
-pub struct SearchImage {
-    /// 被搜索的图片路径
-    pub image: String,
-    /// 搜索的倒排列表数量
-    #[arg(short, long, default_value = "1")]
-    pub nprobe: usize,
-    /// 搜索的最大向量数量
-    #[arg(short, long, default_value = "0")]
-    pub max_codes: usize,
-}
-
-impl SubCommandExtend for AddImages {
+impl SubCommandExtend for AddCommand {
     async fn run(&self, opts: &Opts) -> anyhow::Result<()> {
+        ORB_OPTIONS.get_or_init(|| self.orb.clone());
+
         let re = Regex::new(&self.suffix.replace(',', "|")).expect("failed to build regex");
-        let db = IMDB::new(opts.conf_dir.clone()).await?;
+        let db = IMDBBuilder::new(opts.conf_dir.clone()).open().await?;
         let pb_style = ProgressStyle::default_bar()
             .template("{spinner:.green} [{elapsed_precise}] [{bar:40.cyan/blue}] {pos}/{len} ({eta}) {msg}")
             .unwrap()
@@ -136,38 +136,4 @@ impl SubCommandExtend for AddImages {
         pb.finish_with_message("图片处理完成！");
         Ok(())
     }
-}
-
-impl SubCommandExtend for SearchImage {
-    async fn run(&self, opts: &Opts) -> anyhow::Result<()> {
-        let db = IMDB::new(opts.conf_dir.clone()).await?;
-        let mut orb = Slam3ORB::from(opts);
-
-        let index = db.get_index(opts.mmap);
-        let params = FaissSearchParams { nprobe: self.nprobe, max_codes: self.max_codes };
-
-        let (_, des) = block_in_place(|| {
-            utils::imread(&self.image).and_then(|image| utils::detect_and_compute(&mut orb, &image))
-        })?;
-
-        let mut result =
-            db.search(&index, des, opts.knn_k, opts.distance, opts.output_count, params).await?;
-
-        result.truncate(opts.output_count);
-        print_result(&result, opts)
-    }
-}
-
-fn print_result(result: &[(f32, String)], opts: &Opts) -> Result<()> {
-    match opts.output_format {
-        OutputFormat::Json => {
-            println!("{}", serde_json::to_string_pretty(result)?)
-        }
-        OutputFormat::Table => {
-            for (k, v) in result {
-                println!("{:.2}\t{}", k, v);
-            }
-        }
-    }
-    Ok(())
 }
