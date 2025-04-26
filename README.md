@@ -1,77 +1,88 @@
 # imsearch
 
-基于特征点匹配的的局部图像搜索工具
-
-主要基于以下项目：
-
-- [ORB_SLAM3](https://github.com/UZ-SLAMLab/ORB_SLAM3) - 解决了传统 ORB 算法中存在的特征点过于集中的问题
-- [faiss](https://github.com/facebookresearch/faiss) - 对大规模向量进行搜索
+这是一个基于特征点匹配的大规模相似图片搜索工具，开发目的在于实现用「一小块截图」实现搜索完整图片的功能。
 
 ## 安装方式
 
-1. 安装 OpenCV
+`cargo install --git https://github.com/lolishinshi/imsearch`
 
-2. `cargo install --git https://github.com/lolishinshi/imsearch`
+imsearch 依赖 opencv，请确保安装了 opencv 和 cmake 等基本构建工具。
 
-## 用法
+## 基本用法
 
-### 训练
+### 1. 选择索引
 
-首次运行时，需要根据大概需要添加的图片数量训练索引：
+参考 [Guidelines-to-choose-an-index](https://github.com/facebookresearch/faiss/wiki/Guidelines-to-choose-an-index)，给出推荐如下。
 
-- 2k ～ 2w： K 取 65536，需要至少 5.2k 张图片训练
-- 2w ～ 20w：K 取 262144，至少需要 21k 张图片训练
-- 20w ~ 200w：K 取 1048576，至少需要 82k 张图片训练
+| 图片数量   | 索引描述           |
+| ---------- | ------------------ |
+| 2K ~ 20K   | BIVF65536          |
+| 20K ~ 200K | BIVF262144_HNSW32  |
+| 200K ~ 2M  | BIVF1048576_HNSW32 |
 
-然后将训练图片放到 train 文件夹内，并使用以下命令提取图片特征点：
+> 注意：以上选择基于每张图片提取 500 个特征点这一默认参数，下同
+
+### 2. 训练索引
+
+BIVF 索引需要一定量的数据训练聚类器，推荐数据量为 50 倍桶数量。
+即对于 K = 65536，需要 65536 \* 50 / 500 =~ 6.5k 张图片。
+
+训练集需要有代表性，如果和实际数据集相差过大会导致索引不平衡，影响搜索速度。
+
+将训练集放到 train 文件夹中，使用下列命令提取训练集中的特征点，并导出 train.npy 文件：
 
 ```bash
-imsearch add-images ./train
-imsearch export-data
-# 最终在当前目录下生成一个 train.npy
+imsearch -c ./train.db add ./train
+imsearch -c ./train.db export
 ```
 
-DESCRIPTION 可以为 BIVF{K} 或 BIVF{k}\_HNSW32。
+由于训练需要 GPU 参与，此处采用 faiss 的 python 绑定来进行训练（纯 CPU 训练非常慢）。
+可以参见[官方教程](https://github.com/facebookresearch/faiss/blob/main/INSTALL.md#installing-faiss-via-conda)使用 conda 安装或直接用 pip 安装第三方编译的 faiss-gpu-cu12，然后使用以下命令进行训练：
 
-前者精度更高、但速度稍慢，后者精度略低、但速度更快。以下均采用前者作为例子。
-
-```bash
+```python
 python utils/train.py DESCRIPTION train.npy
-# 训练结果会保存为 {DESCRIPTION}.train
 ```
 
-注：大数据集上的训练非常耗时，在 K = 1048576，训练图片为 100k 张时，两张 3080 花了 16 个小时才训练完成。
+训练结束后，会得到一个 `{DESCRIPTION}.train` 文件。
 
-将生成的索引保存为 ~/.config/imsearch/index.template
+### 3. 添加图片
 
-### 添加图片
+使用 `imsearch add DIR` 添加指定目录下的所有图片。
 
-使用 `imsearch add-images DIR` 添加指定目录下的所有图片
+默认只扫描 jpg 和 png，可以使用 `-s jpg,png,webp` 增加其他格式。
 
-### 构建索引
+### 4. 构建索引
 
-使用 `imsearch build-index` 构建索引，这个过程同样非常慢，在 3970x 上，需要约 20 ～ 40 分钟构建 10k 张图片的索引
+将先前训练得到的 `{DESCRIPTION}.train` 重命名为 `index.template` 并保存到配置目录中（可以使用 `imsearch --help` 查看默认目录）。
 
-注：可以设置 `RUST_LOG=imsearch=debug` 来打印详细日志以观察进度
+然后使用 `imsearch build` 构建索引，注意这个过程需要大量内存，并且非常慢。
 
-### 搜索图片
+### 5. 搜索图片
 
 ```shell
 # 让 imsearch 打印详细日志
-export RUST_LOG=debug
+export RUST_LOG=imsearch=debug
 
 # 以默认参数直接搜索单张图片
-imsearch search-image test.jpg
+imsearch search test.jpg
 
-# --mmap：不需要加载整个 index 到内存
-# --nprobe=128：搜索附近的 128 的 bucket，提高了精度但耗费更多时间
-imsearch --mmap search-image --nprobe=128 test.jpg
-
-# 启动服务器，监听 127.0.0.1:8000 端口
-imsearch --mmap start-server
-
-# 使用 httpie 通过 web api 搜索图片
-http --form http://127.0.0.1:8000/search file@test.jpg
+# --nprobe=128：搜索倒排列表中最接近的 128 个 bucket，提高了精度但耗费更多时间
+imsearch search --nprobe=128 test.jpg
 ```
 
-搜索耗时：250w 张图片的索引，在 3970x 上搜索一次耗时约 0.5s
+其他高级参数请使用 `--help` 查看。
+
+### 6. HTTP API
+
+```bash
+# 由于 HTTP 服务需要长期运行，这里采用一次性加载索引到内存的方式来提升速度
+# 但需要注意内存容量是否满足
+imsearch --no-mmap server
+```
+
+启动 http 服务后，访问 `http://127.0.0.1:8000/docs` 可以看到 API 列表。
+
+## 致谢
+
+- [ORB_SLAM3](https://github.com/UZ-SLAMLab/ORB_SLAM3)
+- [faiss](https://github.com/facebookresearch/faiss)
