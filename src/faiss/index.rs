@@ -7,13 +7,8 @@ use faiss_sys::*;
 use log::debug;
 use opencv::prelude::*;
 
-/// Faiss 搜索结果
-pub struct Neighbor {
-    /// 向量在索引中的 ID
-    pub index: i64,
-    /// 向量与查询向量的距离
-    pub distance: i32,
-}
+use super::types::*;
+use super::{FaissInvLists, FaissOnDiskInvLists};
 
 /// Faiss 索引
 pub struct FaissIndex {
@@ -61,6 +56,11 @@ impl FaissIndex {
     /// 该索引中的向量数量
     pub fn ntotal(&self) -> i64 {
         unsafe { faiss_IndexBinary_ntotal(self.index) }
+    }
+
+    /// 设置索引中的向量数量
+    pub fn set_ntotal(&mut self, ntotal: i64) {
+        unsafe { faiss_IndexBinary_set_ntotal(self.index, ntotal) }
     }
 
     /// 该索引是否已经训练
@@ -204,6 +204,14 @@ impl FaissIndex {
         unsafe { faiss_IndexBinaryIVF_nlist(self.index) }
     }
 
+    pub fn code_size(&self) -> i32 {
+        unsafe { faiss_IndexBinary_code_size(self.index) }
+    }
+
+    pub fn set_own_invlists(&mut self, own: bool) {
+        unsafe { faiss_IndexBinaryIVF_set_own_invlists(self.index, own as i32) }
+    }
+
     /// 合并索引
     ///
     /// # Arguments
@@ -213,6 +221,16 @@ impl FaissIndex {
     pub fn merge_from(&mut self, other: &Self, add_id: i64) {
         unsafe {
             faiss_IndexBinaryIVF_merge_from(self.index, other.index, add_id);
+        }
+    }
+
+    pub fn invlists(&self) -> FaissInvLists {
+        unsafe { FaissInvLists(faiss_IndexBinaryIVF_invlists(self.index)) }
+    }
+
+    pub fn replace_invlists(&mut self, invlists: FaissOnDiskInvLists, own: bool) {
+        unsafe {
+            faiss_IndexBinaryIVF_replace_invlists(self.index, invlists.0, own as i32);
         }
     }
 
@@ -234,12 +252,3 @@ impl Drop for FaissIndex {
 
 unsafe impl Sync for FaissIndex {}
 unsafe impl Send for FaissIndex {}
-
-/// Faiss 搜索参数
-#[derive(Debug, Clone)]
-pub struct FaissSearchParams {
-    /// 需要搜索的倒排列表数量，默认为 1
-    pub nprobe: usize,
-    /// 搜索时最多检查多少个向量，默认为 0，表示不限制
-    pub max_codes: usize,
-}

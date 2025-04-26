@@ -5,7 +5,7 @@ use tokio::sync::RwLock;
 use crate::IMDB;
 use crate::cli::server::ServerCommand;
 use crate::config::{OrbOptions, SearchOptions};
-use crate::index::FaissIndex;
+use crate::faiss::FaissIndex;
 
 /// 应用状态
 pub struct AppState {

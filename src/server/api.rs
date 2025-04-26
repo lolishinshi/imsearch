@@ -14,7 +14,7 @@ use utoipa;
 use super::error::Result;
 use super::state::AppState;
 use super::types::*;
-use crate::index::FaissSearchParams;
+use crate::faiss::FaissSearchParams;
 use crate::{Slam3ORB, utils};
 
 /// 搜索一张图片

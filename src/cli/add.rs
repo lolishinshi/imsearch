@@ -15,7 +15,7 @@ use walkdir::WalkDir;
 
 use crate::cli::SubCommandExtend;
 use crate::config::{Opts, OrbOptions};
-use crate::slam3_orb::Slam3ORB;
+use crate::orb::Slam3ORB;
 use crate::{IMDBBuilder, utils};
 
 static ORB_OPTIONS: OnceLock<OrbOptions> = OnceLock::new();

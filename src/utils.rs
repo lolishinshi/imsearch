@@ -7,7 +7,7 @@ use blake3::Hash;
 use opencv::core::*;
 use opencv::{features2d, highgui, imgcodecs, imgproc};
 
-use crate::slam3_orb::Slam3ORB;
+use crate::orb::Slam3ORB;
 
 pub fn detect_and_compute(
     orb: &mut Slam3ORB,

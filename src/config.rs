@@ -8,7 +8,7 @@ use directories::ProjectDirs;
 use opencv::imgproc::InterpolationFlags;
 
 use crate::cli::*;
-use crate::slam3_orb::Slam3ORB;
+use crate::orb::Slam3ORB;
 
 static CONF_DIR: LazyLock<ConfDir> = LazyLock::new(|| {
     let proj_dirs = ProjectDirs::from("", "aloxaf", "imsearch").expect("failed to get project dir");
@@ -89,7 +89,7 @@ pub enum SubCommand {
     /// 启动 HTTP 搜索服务
     Server(ServerCommand),
     /// 使用已添加的特征点构建索引
-    Build(BuildCOmmand),
+    Build(BuildCommand),
     /// 清理数据库中的特征点，主要作用为减小数据库体积
     Clean(CleanCommand),
     /// 导出 npy 格式的特征点，供训练使用
@@ -132,6 +132,11 @@ impl ConfDir {
         self.0.join("index")
     }
 
+    /// 返回 ondisk ivf 文件的路径
+    pub fn ondisk_ivf(&self) -> PathBuf {
+        self.0.join("index.ivfdata")
+    }
+
     /// 返回子索引文件的路径
     pub fn index_sub(&self) -> PathBuf {
         for i in 1.. {
@@ -143,6 +148,7 @@ impl ConfDir {
         unreachable!()
     }
 
+    /// 返回指定子索引文件的路径
     pub fn index_sub_with(&self, i: usize) -> PathBuf {
         self.0.join(format!("index.{}", i))
     }

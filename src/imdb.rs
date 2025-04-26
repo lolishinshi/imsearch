@@ -13,7 +13,7 @@ use tokio::task::block_in_place;
 
 use crate::config::ConfDir;
 use crate::db::*;
-use crate::index::{FaissIndex, FaissSearchParams, Neighbor};
+use crate::faiss::{FaissIndex, FaissOnDiskInvLists, FaissSearchParams, Neighbor};
 use crate::utils;
 
 #[derive(Debug, Clone)]
@@ -22,11 +22,12 @@ pub struct IMDBBuilder {
     wal: bool,
     mmap: bool,
     cache: bool,
+    ondisk: bool,
 }
 
 impl IMDBBuilder {
     pub fn new(conf_dir: ConfDir) -> Self {
-        Self { conf_dir, wal: true, mmap: true, cache: false }
+        Self { conf_dir, wal: true, mmap: true, cache: false, ondisk: false }
     }
 
     /// 数据库是否开启 WAL，开启会影响删除
@@ -47,6 +48,11 @@ impl IMDBBuilder {
         self
     }
 
+    pub fn ondisk(mut self, ondisk: bool) -> Self {
+        self.ondisk = ondisk;
+        self
+    }
+
     pub async fn open(self) -> Result<IMDB> {
         if !self.conf_dir.path().exists() {
             std::fs::create_dir_all(self.conf_dir.path())?;
@@ -63,6 +69,7 @@ impl IMDBBuilder {
 
             mmap: self.mmap,
             cache: self.cache,
+            ondisk: self.ondisk,
         })
     }
 }
@@ -74,6 +81,7 @@ pub struct IMDB {
     total_vector_count: OnceCell<Vec<i64>>,
     mmap: bool,
     cache: bool,
+    ondisk: bool,
 }
 
 impl IMDB {
@@ -137,7 +145,18 @@ impl IMDB {
             std::fs::rename(self.conf_dir.index_tmp(), self.conf_dir.index_sub())?;
         }
 
-        info!("合并索引中……");
+        if self.ondisk {
+            self.merge_index_on_disk()?;
+        } else {
+            self.merge_index_on_memory()?;
+        }
+
+        Ok(())
+    }
+
+    /// 合并索引
+    fn merge_index_on_memory(&self) -> Result<()> {
+        info!("在内存中合并所有索引……");
         let mut index = self.get_index();
         let mut files = vec![];
         for i in 1.. {
@@ -150,6 +169,44 @@ impl IMDB {
             block_in_place(|| index.merge_from(&sub_index, 0));
             files.push(index_file);
         }
+
+        block_in_place(|| index.write_file(self.conf_dir.index()));
+
+        for file in files {
+            std::fs::remove_file(file)?;
+        }
+
+        Ok(())
+    }
+
+    /// 合并索引
+    fn merge_index_on_disk(&self) -> Result<()> {
+        info!("在磁盘上合并所有索引……");
+        let mut invfs = vec![];
+        let mut files = vec![];
+        for i in 1.. {
+            let index_file = self.conf_dir.index_sub_with(i);
+            if !index_file.exists() {
+                break;
+            }
+            info!("加载索引 {}", index_file.display());
+            let mut sub_index = FaissIndex::from_file(index_file.to_str().unwrap(), true);
+            invfs.push(sub_index.invlists());
+            sub_index.set_own_invlists(false);
+            files.push(index_file);
+        }
+
+        let mut index = self.get_index();
+
+        let mut invlists = FaissOnDiskInvLists::new(
+            index.nlist(),
+            index.code_size() as usize,
+            self.conf_dir.ondisk_ivf().to_str().unwrap(),
+        );
+
+        invlists.merge_from_multiple(&invfs, false, true);
+
+        index.replace_invlists(invlists, true);
 
         block_in_place(|| index.write_file(self.conf_dir.index()));
 

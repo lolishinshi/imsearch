@@ -1,3 +1,5 @@
+use std::env::set_current_dir;
+
 use clap::Parser;
 use log::info;
 use tokio::net::TcpListener;
@@ -24,6 +26,13 @@ impl SubCommandExtend for ServerCommand {
             .cache(true)
             .open()
             .await?;
+
+        if opts.conf_dir.ondisk_ivf().exists() {
+            if !self.search.no_mmap {
+                return Err(anyhow::anyhow!("磁盘索引必须使用 --no-mmap 选项"));
+            }
+            set_current_dir(opts.conf_dir.path())?;
+        }
 
         let index = db.get_index();
 

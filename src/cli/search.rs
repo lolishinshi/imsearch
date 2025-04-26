@@ -1,4 +1,5 @@
 use std::convert::Infallible;
+use std::env::set_current_dir;
 use std::str::FromStr;
 
 use anyhow::Result;
@@ -7,8 +8,8 @@ use tokio::task::block_in_place;
 
 use crate::cli::SubCommandExtend;
 use crate::config::{Opts, OrbOptions, SearchOptions};
-use crate::index::FaissSearchParams;
-use crate::slam3_orb::Slam3ORB;
+use crate::faiss::FaissSearchParams;
+use crate::orb::Slam3ORB;
 use crate::{IMDBBuilder, utils};
 
 #[derive(Parser, Debug, Clone)]
@@ -26,16 +27,22 @@ pub struct SearchCommand {
 
 impl SubCommandExtend for SearchCommand {
     async fn run(&self, opts: &Opts) -> anyhow::Result<()> {
-        let db = IMDBBuilder::new(opts.conf_dir.clone()).mmap(!self.search.no_mmap).open().await?;
         let mut orb = Slam3ORB::from(&self.orb);
-
-        let index = db.get_index();
-        let params =
-            FaissSearchParams { nprobe: self.search.nprobe, max_codes: self.search.max_codes };
-
         let (_, des) = block_in_place(|| {
             utils::imread(&self.image).and_then(|image| utils::detect_and_compute(&mut orb, &image))
         })?;
+
+        if opts.conf_dir.ondisk_ivf().exists() {
+            if !self.search.no_mmap {
+                return Err(anyhow::anyhow!("磁盘索引必须使用 --no-mmap 选项"));
+            }
+            set_current_dir(opts.conf_dir.path())?;
+        }
+
+        let db = IMDBBuilder::new(opts.conf_dir.clone()).mmap(!self.search.no_mmap).open().await?;
+        let index = db.get_index();
+        let params =
+            FaissSearchParams { nprobe: self.search.nprobe, max_codes: self.search.max_codes };
 
         let mut result = db
             .search(&index, des, self.search.k, self.search.distance, self.search.count, params)

@@ -6,7 +6,7 @@ use opencv::{features2d, flann};
 
 use crate::cli::SubCommandExtend;
 use crate::config::{Opts, OrbOptions};
-use crate::slam3_orb::Slam3ORB;
+use crate::orb::Slam3ORB;
 use crate::utils;
 
 #[derive(Parser, Debug, Clone)]
