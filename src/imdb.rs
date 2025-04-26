@@ -198,11 +198,6 @@ impl IMDB {
     }
 
     /// 获取索引
-    ///
-    /// # Arguments
-    ///
-    /// * `mmap` - 是否使用 mmap 模式加载索引
-    /// * `strategy` - 搜索策略
     pub fn get_index(&self) -> FaissIndex {
         let index_file = self.conf_dir.index();
         let index = if index_file.exists() {

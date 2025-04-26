@@ -48,7 +48,7 @@ impl FaissIndex {
         let index = null_mut();
         let path = CString::new(path).unwrap();
         let io_flags = match mmap {
-            true => 0x2 | 0x8 | 0x646f0000,
+            true => 0x8 | 0x646f0000,
             _ => 0,
         };
         unsafe {

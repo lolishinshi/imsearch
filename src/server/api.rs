@@ -11,9 +11,9 @@ use serde_json::{Value, json};
 use tokio::task::block_in_place;
 use utoipa;
 
-use super::error::AppError;
+use super::error::Result;
 use super::state::AppState;
-use super::types::SearchRequest;
+use super::types::*;
 use crate::index::FaissSearchParams;
 use crate::{Slam3ORB, utils};
 
@@ -21,12 +21,15 @@ use crate::{Slam3ORB, utils};
 #[utoipa::path(
     post,
     path = "/search",
-    request_body(content = super::types::SearchForm, content_type = "multipart/form-data")
+    request_body(content = SearchForm, content_type = "multipart/form-data"),
+    responses(
+        (status = 200, body = SearchResponse),
+    )
 )]
 pub async fn search_handler(
     State(state): State<Arc<AppState>>,
     data: TypedMultipart<SearchRequest>,
-) -> Result<Json<Value>, AppError> {
+) -> Result<Json<Value>> {
     // 处理上传的文件和参数
     let mut orb = state.orb.clone();
     let mut params =
@@ -60,4 +63,17 @@ pub async fn search_handler(
         "time": start.elapsed().as_millis(),
         "result": result,
     })))
+}
+
+/// 使用指定参数重新加载索引
+#[utoipa::path(
+    post,
+    path = "/reload",
+    request_body = ReloadRequest
+)]
+pub async fn reload_handler(
+    State(_state): State<Arc<AppState>>,
+    _data: Json<ReloadRequest>,
+) -> Result<Json<Value>> {
+    unimplemented!()
 }
