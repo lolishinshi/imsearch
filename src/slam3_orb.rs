@@ -1,88 +1,37 @@
-use std::ffi::{c_int, c_void};
-use std::str::FromStr;
+use std::ffi::c_void;
 
-use anyhow::{Result, anyhow, bail};
+use opencv::Result;
 use opencv::core::*;
+use opencv::imgproc::InterpolationFlags;
+use orb_slam3_sys::*;
 
-// C++与Rust交互的结果结构体
-#[repr(C)]
-pub struct RawResult<T> {
-    pub error_code: i32,
-    pub error_msg: *mut c_void,
-    pub result: T,
+// OpenCV 的辅助宏
+macro_rules! return_send {
+    (via $name: ident) => {
+        let mut $name = ::std::mem::MaybeUninit::uninit();
+    };
 }
 
-impl<T> RawResult<T> {
-    /// 将 RawResult<T> 转换为 Rust 的 Result<T, anyhow::Error>
-    pub fn into_result(self) -> Result<T> {
-        if self.error_code != 0 {
-            let error_string = if !self.error_msg.is_null() {
-                unsafe {
-                    let msg = self.error_msg as *const String;
-                    format!("错误码: {}, 错误信息: {}", self.error_code, *msg)
-                }
-            } else {
-                format!("错误码: {}", self.error_code)
-            };
-
-            return Err(anyhow!(error_string));
-        }
-
-        Ok(self.result)
-    }
+macro_rules! return_receive {
+    ($name_via: ident => $name: ident) => {
+        let $name = unsafe { $name_via.assume_init() };
+    };
 }
 
-#[repr(C)]
-pub struct RawResultVoid {
-    pub error_code: i32,
-    pub error_msg: *mut c_void,
+macro_rules! input_array_arg {
+    ($name: ident) => {
+        let $name = $name.input_array()?;
+    };
 }
 
-impl RawResultVoid {
-    /// 将 RawResultVoid 转换为 Rust 的 Result<(), anyhow::Error>
-    pub fn into_result(self) -> Result<()> {
-        if self.error_code != 0 {
-            let error_string = if !self.error_msg.is_null() {
-                unsafe {
-                    let msg = self.error_msg as *const String;
-                    format!("错误码: {}, 错误信息: {}", self.error_code, *msg)
-                }
-            } else {
-                format!("错误码: {}", self.error_code)
-            };
-
-            return Err(anyhow!(error_string));
-        }
-
-        Ok(())
-    }
-}
-
-// TODO: 使用 OpenCV 自带的
-#[derive(Debug, Copy, Clone)]
-pub enum InterpolationFlags {
-    Liner = 1,
-    Cubic = 2,
-    Area = 3,
-    Lanczos4 = 4,
-}
-
-impl FromStr for InterpolationFlags {
-    type Err = anyhow::Error;
-
-    fn from_str(s: &str) -> std::prelude::rust_2015::Result<Self, Self::Err> {
-        Ok(match s.to_lowercase().as_str() {
-            "liner" => Self::Liner,
-            "cubic" => Self::Cubic,
-            "area" => Self::Area,
-            "lanczos4" => Self::Lanczos4,
-            _ => bail!("Possible values: Liner, Lanczos4, Area, Lanczos4"),
-        })
-    }
+macro_rules! output_array_arg {
+    ($name: ident) => {
+        let $name = $name.output_array()?;
+    };
 }
 
 pub struct Slam3ORB {
-    raw: *const c_void,
+    raw: *mut c_void,
 }
 
 impl Slam3ORB {
@@ -95,7 +44,7 @@ impl Slam3ORB {
         interpolation: InterpolationFlags,
         angle: bool,
     ) -> Result<Self> {
-        let mut return_value = std::mem::MaybeUninit::uninit();
+        return_send!(via ocvrs_return);
         unsafe {
             slam3_ORB_create(
                 nfeatures,
@@ -105,14 +54,12 @@ impl Slam3ORB {
                 min_th_fast,
                 interpolation as i32,
                 angle,
-                return_value.as_mut_ptr(),
+                ocvrs_return.as_mut_ptr(),
             )
         }
-
-        let raw_result = unsafe { return_value.assume_init() };
-        let raw = raw_result.into_result()?;
-
-        Ok(Self { raw })
+        return_receive!(ocvrs_return => ret);
+        let ret = ret.into_result()?;
+        Ok(Self { raw: ret })
     }
 
     pub fn detect_and_compute(
@@ -123,11 +70,10 @@ impl Slam3ORB {
         descriptors: &mut dyn ToOutputArray,
         v_lapping_area: &Vector<i32>,
     ) -> Result<()> {
-        let image = image.input_array()?;
-        let mask = mask.input_array()?;
-        let descriptors = descriptors.output_array()?;
-
-        let mut return_value = std::mem::MaybeUninit::uninit();
+        input_array_arg!(image);
+        input_array_arg!(mask);
+        output_array_arg!(descriptors);
+        return_send!(via ocvrs_return);
         unsafe {
             slam3_ORB_detect_and_compute(
                 self.raw,
@@ -136,14 +82,12 @@ impl Slam3ORB {
                 keypoints.as_raw_mut_VectorOfKeyPoint(),
                 descriptors.as_raw__OutputArray(),
                 v_lapping_area.as_raw_VectorOfi32(),
-                return_value.as_mut_ptr(),
+                ocvrs_return.as_mut_ptr(),
             )
         }
-
-        let raw_result = unsafe { return_value.assume_init() };
-        raw_result.into_result()?;
-
-        Ok(())
+        return_receive!(ocvrs_return => ret);
+        let ret = ret.into_result()?;
+        Ok(ret)
     }
 }
 
@@ -155,68 +99,5 @@ impl Drop for Slam3ORB {
     }
 }
 
-impl Default for Slam3ORB {
-    fn default() -> Self {
-        Self::create(500, 1.2, 8, 20, 7, InterpolationFlags::Area, true).unwrap()
-    }
-}
-
 unsafe impl Sync for Slam3ORB {}
 unsafe impl Send for Slam3ORB {}
-
-unsafe extern "C" {
-    fn slam3_ORB_create(
-        nfeatures: i32,
-        scale_factor: f32,
-        nlevels: i32,
-        ini_th_fast: i32,
-        min_th_fast: i32,
-        interpolation: i32,
-        angle: bool,
-        ocvrs_return: *mut RawResult<*const c_void>,
-    );
-    fn slam3_ORB_delete(orb: *const c_void);
-    fn slam3_ORB_detect_and_compute(
-        orb: *const c_void,
-        image: *const c_void,
-        mask: *const c_void,
-        keypoints: *const c_void,
-        descriptors: *const c_void,
-        v_lapping_area: *const c_void,
-        ocvrs_return: *mut RawResult<c_int>,
-    );
-}
-
-#[cfg(test)]
-mod test {
-    use opencv::core::*;
-    use opencv::{features2d, imgcodecs};
-
-    use super::Slam3ORB;
-
-    #[test]
-    fn detect_and_compute() {
-        let img =
-            imgcodecs::imread("./cache/box_in_scene.png", imgcodecs::IMREAD_GRAYSCALE).unwrap();
-        let mask = Mat::default();
-        let lap = Vector::<i32>::from(vec![0, 0]);
-        let mut kps = Vector::<KeyPoint>::new();
-        let mut des = Mat::default();
-        let mut orb = Slam3ORB::default().unwrap();
-        orb.detect_and_compute(&img, &mask, &mut kps, &mut des, &lap).unwrap();
-
-        let mut output = Mat::default();
-        features2d::draw_keypoints(
-            &img,
-            &kps,
-            &mut output,
-            Scalar::all(-1.0),
-            features2d::DrawMatchesFlags::DEFAULT,
-        )
-        .unwrap();
-
-        let flags =
-            Vector::<i32>::from(vec![imgcodecs::ImwriteFlags::IMWRITE_PNG_COMPRESSION as i32, 9]);
-        imgcodecs::imwrite("slam3_orb.png", &output, &flags).unwrap();
-    }
-}

@@ -103,7 +103,7 @@ fn get_version_from_headers(header_dir: &Path) -> Option<Version> {
 }
 
 fn main() {
-    println!("cargo:rerun-if-changed=src/ORB_SLAM3");
+    println!("cargo:rerun-if-changed=orb-slam3");
     println!("cargo:rustc-link-lib=gomp");
     println!("cargo:rustc-link-lib=stdc++");
     println!("cargo:rustc-link-lib=blas");
@@ -111,8 +111,8 @@ fn main() {
 
     let library = Library::probe().unwrap();
     cc::Build::new()
-        .file("src/ORB_SLAM3/ORBextractor.cc")
-        .file("src/ORB_SLAM3/ORBwrapper.cc")
+        .file("orb-slam3/ORBextractor.cc")
+        .file("orb-slam3/ORBwrapper.cc")
         .includes(&library.include_paths)
         .flag("-Wno-unused")
         .define(

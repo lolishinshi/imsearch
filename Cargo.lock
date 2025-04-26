@@ -1143,34 +1143,28 @@ dependencies = [
  "axum",
  "axum_typed_multipart",
  "blake3",
- "cc",
  "clap",
  "directories",
- "dunce",
  "env_logger",
  "faiss-sys",
  "futures",
- "glob",
  "indicatif",
  "log",
  "ndarray",
  "ndarray-npy",
  "num_cpus",
  "opencv",
- "pkg-config",
+ "orb-slam3-sys",
  "rayon",
  "regex",
  "rocksdb",
- "semver",
  "serde",
  "serde_json",
- "shlex",
  "sqlx",
  "tokio",
  "tower-http",
  "utoipa",
  "utoipa-swagger-ui",
- "vcpkg",
  "walkdir",
 ]
 
@@ -1659,6 +1653,20 @@ name = "option-ext"
 version = "0.2.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "04744f49eae99ab78e0d5c0b603ab218f515ea8cfe5a456d7629ad883a3b6e7d"
+
+[[package]]
+name = "orb-slam3-sys"
+version = "0.1.0"
+dependencies = [
+ "cc",
+ "dunce",
+ "glob",
+ "opencv",
+ "pkg-config",
+ "semver",
+ "shlex",
+ "vcpkg",
+]
 
 [[package]]
 name = "parking"

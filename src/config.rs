@@ -5,9 +5,10 @@ use std::sync::LazyLock;
 
 use clap::{Parser, Subcommand};
 use directories::ProjectDirs;
+use opencv::imgproc::InterpolationFlags;
 
 use crate::cli::*;
-use crate::slam3_orb::{InterpolationFlags, Slam3ORB};
+use crate::slam3_orb::Slam3ORB;
 
 static CONF_DIR: LazyLock<ConfDir> = LazyLock::new(|| {
     let proj_dirs = ProjectDirs::from("", "aloxaf", "imsearch").expect("failed to get project dir");
@@ -30,7 +31,7 @@ pub struct OrbOptions {
     #[arg(long, value_name = "N", default_value_t = 8)]
     pub orb_nlevels: u32,
     /// ORB 特征点金字塔缩放插值方式
-    #[arg(long, value_name = "FLAG", default_value = "Area")]
+    #[arg(long, value_name = "FLAG", default_value = "area", value_parser = parse_interpolation)]
     pub orb_interpolation: InterpolationFlags,
     /// ORB FAST 角点检测器初始阈值
     #[arg(long, value_name = "THRESHOLD", default_value_t = 20)]
@@ -162,5 +163,15 @@ impl FromStr for ConfDir {
 
     fn from_str(s: &str) -> Result<Self, Self::Err> {
         Ok(Self(PathBuf::from(s)))
+    }
+}
+
+fn parse_interpolation(s: &str) -> Result<InterpolationFlags, String> {
+    match s {
+        "linear" => Ok(InterpolationFlags::INTER_LINEAR),
+        "cubic" => Ok(InterpolationFlags::INTER_CUBIC),
+        "area" => Ok(InterpolationFlags::INTER_AREA),
+        "lanczos4" => Ok(InterpolationFlags::INTER_LANCZOS4),
+        _ => Err(format!("无效的插值方式: {}", s)),
     }
 }
