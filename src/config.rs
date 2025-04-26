@@ -50,7 +50,7 @@ pub struct SearchOptions {
     #[arg(long)]
     pub no_mmap: bool,
     /// 两个相似向量的允许的最大距离，范围从 0 到 255
-    #[arg(long, value_name = "N", default_value_t = 64, value_parser = clap::value_parser!(u16).range(0..=255))]
+    #[arg(long, value_name = "N", default_value_t = 64, value_parser = clap::value_parser!(u32).range(0..=255))]
     pub distance: u32,
     /// 显示的结果数量
     #[arg(long, value_name = "COUNT", default_value_t = 10)]

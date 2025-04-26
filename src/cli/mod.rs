@@ -4,7 +4,7 @@ mod clean;
 mod export;
 mod r#match;
 mod search;
-mod server;
+pub mod server;
 mod show;
 #[cfg(feature = "rocksdb")]
 mod update_db;
