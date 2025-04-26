@@ -1,0 +1,20 @@
+{
+  "db_name": "SQLite",
+  "query": "\n        SELECT path FROM image WHERE id = ?\n        ",
+  "describe": {
+    "columns": [
+      {
+        "name": "path",
+        "ordinal": 0,
+        "type_info": "Text"
+      }
+    ],
+    "parameters": {
+      "Right": 1
+    },
+    "nullable": [
+      false
+    ]
+  },
+  "hash": "401508cc078e1ddb7bd34e3bc9cfa740d34b52801a844ab71a9f23c8d34a89c1"
+}

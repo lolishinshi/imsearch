@@ -118,7 +118,8 @@ async fn search_handler(
     })?;
 
     let index = state.index.read().await;
-    let mut result = state.db.search(&index, des, opts.knn_k, opts.distance, params).await?;
+    let mut result =
+        state.db.search(&index, des, opts.knn_k, opts.distance, opts.output_count, params).await?;
     result.truncate(opts.output_count);
 
     Ok(Json(json!({

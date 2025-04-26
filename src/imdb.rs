@@ -12,13 +12,14 @@ use log::{debug, info};
 use ndarray::prelude::*;
 use opencv::core::{Mat, MatTraitConstManual};
 use opencv::prelude::*;
-use tokio::sync::Mutex;
+use tokio::sync::{Mutex, OnceCell};
 use tokio::task::block_in_place;
 
 #[derive(Debug, Clone)]
 pub struct IMDB {
     conf_dir: ConfDir,
     db: Database,
+    total_vector_count: OnceCell<Vec<i64>>,
 }
 
 impl IMDB {
@@ -36,12 +37,12 @@ impl IMDB {
             info!("图片数量  : {}", image_count);
             info!("特征点数量：{}", vector_count);
         }
-        Ok(Self { db, conf_dir })
+        Ok(Self { db, conf_dir, total_vector_count: OnceCell::new() })
     }
 
     pub async fn new_without_wal(conf_dir: ConfDir) -> Result<Self> {
         let db = init_db(conf_dir.database(), false).await?;
-        Ok(Self { db, conf_dir })
+        Ok(Self { db, conf_dir, total_vector_count: OnceCell::new() })
     }
 
     /// 添加图片到数据库
@@ -199,6 +200,7 @@ impl IMDB {
     /// * `descriptors` - 描述符
     /// * `knn` - KNN 搜索的数量
     /// * `max_distance` - 最大距离
+    /// * `max_result` - 最大结果数量
     /// * `params` - 搜索参数
     pub async fn search(
         &self,
@@ -206,6 +208,7 @@ impl IMDB {
         descriptors: Mat,
         knn: usize,
         max_distance: u32,
+        max_result: usize,
         params: FaissSearchParams,
     ) -> Result<Vec<(f32, String)>> {
         info!("对 {} 条向量搜索 {} 个最近邻, {:?}", descriptors.rows(), knn, params);
@@ -216,7 +219,8 @@ impl IMDB {
         debug!("搜索耗时    ：{}ms", instant.elapsed().as_millis());
         instant = Instant::now();
 
-        let result = self.process_neighbor_group(&neighbors, max_distance as i32).await?;
+        let result =
+            self.process_neighbor_group(&neighbors, max_distance as i32, max_result).await?;
 
         debug!("处理结果耗时：{:.2}ms", instant.elapsed().as_millis());
 
@@ -228,30 +232,58 @@ impl IMDB {
         &self,
         neighbors: &[Vec<Neighbor>],
         max_distance: i32,
+        max_result: usize,
     ) -> Result<Vec<(f32, String)>> {
         let counter = Mutex::new(HashMap::new());
 
+        // 遍历所有结果，并统计每个图片 ID 的出现次数
         stream::iter(neighbors.iter().flatten())
             .filter(|neighbor| future::ready(neighbor.distance <= max_distance))
-            .for_each_concurrent(4, |neighbor| async {
-                if let Ok(path) = crud::get_image_path_by_vector_id(&self.db, neighbor.index).await
-                {
+            .for_each(|neighbor| async {
+                if let Ok(id) = self.find_image_id(neighbor.index).await {
                     let mut counter = counter.lock().await;
                     counter
-                        .entry(path)
+                        .entry(id)
                         .or_insert_with(Vec::new)
                         .push(1. - neighbor.distance as f32 / 256.);
                 }
             })
             .await;
 
+        // 计算得分，并取前 10 个结果
         let counter = counter.into_inner();
         let mut result = counter
             .into_iter()
-            .map(|(path, scores)| (100. * utils::wilson_score(&scores), path))
+            .map(|(id, scores)| (100. * utils::wilson_score(&scores), id))
             .collect::<Vec<_>>();
         result.sort_unstable_by(|a, b| b.0.partial_cmp(&a.0).unwrap());
+        result.truncate(max_result);
+
+        // 查询实际的图片路径
+        let futures = result
+            .into_iter()
+            .map(|(score, id)| async move {
+                crud::get_image_path(&self.db, id).await.map(|path| (score, path))
+            })
+            .collect::<Vec<_>>();
+        let result = futures::future::try_join_all(futures).await?;
         Ok(result)
+    }
+
+    /// 根据向量 ID 查找图片 ID
+    async fn find_image_id(&self, id: i64) -> Result<i64> {
+        // 此处为了减少数据库查询次数，缓存了整个 total_vector_count 数组
+        let total_vector_count = self
+            .total_vector_count
+            .get_or_try_init(|| async {
+                info!("初次查询，正在初始化图片 ID 缓存……");
+                crud::get_all_total_vector_count(&self.db).await
+            })
+            .await?;
+
+        let index = total_vector_count.partition_point(|&x| x < id);
+
+        Ok(index as i64)
     }
 }
 

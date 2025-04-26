@@ -150,7 +150,8 @@ impl SubCommandExtend for SearchImage {
             utils::imread(&self.image).and_then(|image| utils::detect_and_compute(&mut orb, &image))
         })?;
 
-        let mut result = db.search(&index, des, opts.knn_k, opts.distance, params).await?;
+        let mut result =
+            db.search(&index, des, opts.knn_k, opts.distance, opts.output_count, params).await?;
 
         result.truncate(opts.output_count);
         print_result(&result, opts)

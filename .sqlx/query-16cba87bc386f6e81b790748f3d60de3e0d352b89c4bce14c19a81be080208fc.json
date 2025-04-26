@@ -1,0 +1,20 @@
+{
+  "db_name": "SQLite",
+  "query": "\n        SELECT total_vector_count FROM vector_stats ORDER BY id ASC;\n        ",
+  "describe": {
+    "columns": [
+      {
+        "name": "total_vector_count",
+        "ordinal": 0,
+        "type_info": "Integer"
+      }
+    ],
+    "parameters": {
+      "Right": 0
+    },
+    "nullable": [
+      false
+    ]
+  },
+  "hash": "16cba87bc386f6e81b790748f3d60de3e0d352b89c4bce14c19a81be080208fc"
+}

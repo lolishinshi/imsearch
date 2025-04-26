@@ -36,6 +36,19 @@ pub async fn check_image_hash(executor: &SqlitePool, hash: &[u8]) -> Result<bool
     Ok(result.count > 0)
 }
 
+pub async fn get_image_path(executor: &SqlitePool, id: i64) -> Result<String> {
+    let result = sqlx::query!(
+        r#"
+        SELECT path FROM image WHERE id = ?
+        "#,
+        id
+    )
+    .fetch_one(executor)
+    .await?;
+
+    Ok(result.path)
+}
+
 /// 批量设置图片为已索引
 pub async fn set_indexed_batch(executor: &SqlitePool, ids: &[i64]) -> Result<()> {
     let mut tx = executor.begin().await?;
@@ -174,4 +187,20 @@ pub async fn get_count(executor: &SqlitePool) -> Result<(i64, i64)> {
     .await?;
 
     Ok((result.id, result.total_vector_count))
+}
+
+/// 获取所有 total_vector_count 记录
+///
+/// NOTE: 此处假定了 total_vector_count 一定是连续的，中间没有缺失记录
+/// 正常情况下这个条件是满足的，因为目前没有删除图片的操作
+pub async fn get_all_total_vector_count(executor: &SqlitePool) -> Result<Vec<i64>> {
+    let result = sqlx::query!(
+        r#"
+        SELECT total_vector_count FROM vector_stats ORDER BY id ASC;
+        "#,
+    )
+    .fetch_all(executor)
+    .await?;
+
+    Ok(result.into_iter().map(|row| row.total_vector_count).collect())
 }
