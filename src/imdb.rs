@@ -64,19 +64,16 @@ impl IMDBBuilder {
             info!("图片数量  : {}", image_count);
             info!("特征点数量：{}", vector_count);
         }
-        let mut total_vector_count = vec![];
-        if self.cache {
-            info!("正在初始化图片 ID 缓存……");
-            total_vector_count = crud::get_all_total_vector_count(&db).await?;
-        }
-        Ok(IMDB {
+        let imdb = IMDB {
             db,
             conf_dir: self.conf_dir,
-            total_vector_count,
+            total_vector_count: RwLock::new(vec![]),
             mmap: RwLock::new(self.mmap),
             cache: self.cache,
-            ondisk: self.ondisk,
-        })
+            ondisk: RwLock::new(self.ondisk),
+        };
+        imdb.load_total_vector_count().await?;
+        Ok(imdb)
     }
 }
 
@@ -84,10 +81,10 @@ impl IMDBBuilder {
 pub struct IMDB {
     conf_dir: ConfDir,
     db: Database,
-    total_vector_count: Vec<i64>,
+    total_vector_count: RwLock<Vec<i64>>,
     mmap: RwLock<bool>,
     cache: bool,
-    ondisk: bool,
+    ondisk: RwLock<bool>,
 }
 
 impl IMDB {
@@ -151,7 +148,7 @@ impl IMDB {
             std::fs::rename(self.conf_dir.index_tmp(), self.conf_dir.index_sub())?;
         }
 
-        if self.ondisk {
+        if *self.ondisk.read().unwrap() {
             if self.conf_dir.ondisk_ivf().exists() {
                 warn!("OnDisk 索引已存在，忽略 --on-disk 选项");
                 self.merge_index_on_memory()?;
@@ -347,8 +344,8 @@ impl IMDB {
         let mut result = vec![];
         let mut res = &*neighbors;
         let mut cur;
-        for i in 0..descriptors.len() {
-            (cur, res) = res.split_at(descriptors[i].rows() as usize);
+        for item in descriptors {
+            (cur, res) = res.split_at(item.rows() as usize);
             result.push(self.process_neighbor_group(cur, max_distance as i32, max_result).await?);
         }
 
@@ -405,13 +402,28 @@ impl IMDB {
         if !self.cache {
             Ok(crud::get_image_id_by_vector_id(&self.db, id).await?)
         } else {
-            let index = self.total_vector_count.partition_point(|&x| x < id) + 1;
+            let lock = self.total_vector_count.read().unwrap();
+            let index = lock.partition_point(|&x| x < id) + 1;
             Ok(index as i64)
         }
     }
 
     pub fn set_mmap(&self, mmap: bool) {
         *self.mmap.write().unwrap() = mmap;
+    }
+
+    pub fn set_ondisk(&self, ondisk: bool) {
+        *self.ondisk.write().unwrap() = ondisk;
+    }
+
+    pub async fn load_total_vector_count(&self) -> Result<()> {
+        if self.cache {
+            info!("正在加载图片 ID 缓存……");
+            let vec = crud::get_all_total_vector_count(&self.db).await?;
+            let mut lock = self.total_vector_count.write().unwrap();
+            *lock = vec;
+        }
+        Ok(())
     }
 }
 

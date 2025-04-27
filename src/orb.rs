@@ -2,11 +2,12 @@ use std::cell::RefCell;
 use std::ffi::c_void;
 use std::sync::OnceLock;
 
-use crate::config::OrbOptions;
 use opencv::Result;
 use opencv::core::*;
 use opencv::imgproc::InterpolationFlags;
 use orb_slam3_sys::*;
+
+use crate::config::OrbOptions;
 
 // 注意：ORB_OPTIONS 必须在 ORB 之前初始化
 pub static ORB_OPTIONS: OnceLock<OrbOptions> = OnceLock::new();
@@ -96,8 +97,8 @@ impl Slam3ORB {
             )
         }
         return_receive!(ocvrs_return => ret);
-        let ret = ret.into_result()?;
-        Ok(ret)
+        ret.into_result()?;
+        Ok(())
     }
 }
 

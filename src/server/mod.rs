@@ -17,8 +17,8 @@ pub use self::types::*;
 
 #[derive(OpenApi)]
 #[openapi(
-    paths(search_handler, reload_handler),
-    components(schemas(SearchForm, SearchResponse, ReloadRequest))
+    paths(search_handler, reload_handler, add_image_handler, build_handler),
+    components(schemas(SearchForm, SearchResponse, ReloadRequest, AddImageForm, BuildRequest))
 )]
 pub struct ApiDoc;
 
@@ -27,6 +27,8 @@ pub fn create_app(state: Arc<AppState>) -> Router {
     Router::new()
         .route("/search", axum::routing::post(search_handler))
         .route("/reload", axum::routing::post(reload_handler))
+        .route("/add", axum::routing::post(add_image_handler))
+        .route("/build", axum::routing::post(build_handler))
         .merge(SwaggerUi::new("/docs").url("/api-docs/openapi.json", ApiDoc::openapi()))
         .layer(DefaultBodyLimit::disable())
         // 上传限制：50M

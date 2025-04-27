@@ -1,5 +1,5 @@
 use axum::body::Bytes;
-use axum_typed_multipart::TryFromMultipart;
+use axum_typed_multipart::{FieldData, TryFromMultipart};
 use serde::Deserialize;
 use utoipa::ToSchema;
 
@@ -7,6 +7,7 @@ use utoipa::ToSchema;
 #[derive(TryFromMultipart)]
 pub struct SearchRequest {
     pub file: Vec<Bytes>,
+    pub orb_nfeatures: Option<u32>,
     pub orb_scale_factor: Option<f32>,
     pub nprobe: Option<usize>,
     pub max_codes: Option<usize>,
@@ -19,6 +20,8 @@ pub struct SearchForm {
     /// 上传的图片文件，可以是多张图片
     #[schema(format = Binary, content_media_type = "application/octet-stream")]
     pub file: String,
+    /// ORB特征提取数量
+    pub orb_nfeatures: Option<u32>,
     /// ORB特征提取缩放因子
     pub orb_scale_factor: Option<f32>,
     /// 搜索扫描的倒排列表数量
@@ -43,4 +46,33 @@ pub struct ReloadRequest {
     #[schema(default = false)]
     #[serde(default)]
     pub no_mmap: bool,
+}
+
+#[derive(Debug, TryFromMultipart)]
+pub struct AddImageRequest {
+    pub file: Vec<FieldData<Bytes>>,
+}
+
+#[derive(Debug, ToSchema)]
+#[allow(unused)]
+pub struct AddImageForm {
+    /// 上传的图片文件，可以是多张图片。主要需要包含文件名，否则无法插入数据库。
+    #[schema(format = Binary, content_media_type = "application/octet-stream")]
+    pub file: String,
+}
+
+#[derive(Debug, Deserialize, ToSchema)]
+pub struct BuildRequest {
+    /// 是否使用 OnDiskInvertedLists 格式
+    #[schema(default = false)]
+    #[serde(default)]
+    pub on_disk: bool,
+    /// 构建索引时，多少张图片为一个批次
+    #[schema(default = 100000)]
+    #[serde(default = "default_batch_size")]
+    pub batch_size: usize,
+}
+
+fn default_batch_size() -> usize {
+    100000
 }

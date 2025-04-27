@@ -34,7 +34,7 @@ impl SubCommandExtend for AddCommand {
     async fn run(&self, opts: &Opts) -> anyhow::Result<()> {
         ORB_OPTIONS.get_or_init(|| self.orb.clone());
 
-        let re_name = self.regex.as_ref().map(|re| Regex::new(&re).expect("failed to build regex"));
+        let re_name = self.regex.as_ref().map(|re| Regex::new(re).expect("failed to build regex"));
         let re_suf = format!("(?i)({})", self.suffix.replace(',', "|"));
         let re_suf = Regex::new(&re_suf).expect("failed to build regex");
         let db = IMDBBuilder::new(opts.conf_dir.clone()).open().await?;

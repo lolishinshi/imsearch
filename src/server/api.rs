@@ -14,6 +14,7 @@ use tokio::task::block_in_place;
 use super::error::Result;
 use super::state::AppState;
 use super::types::*;
+use crate::config::OrbOptions;
 use crate::faiss::FaissSearchParams;
 use crate::{Slam3ORB, utils};
 
@@ -31,14 +32,15 @@ pub async fn search_handler(
     data: TypedMultipart<SearchRequest>,
 ) -> Result<Json<Value>> {
     // 处理上传的文件和参数
-    let mut orb = state.orb.clone();
-    let mut params =
-        FaissSearchParams { nprobe: state.search.nprobe, max_codes: state.search.max_codes };
-    if let Some(orb_scale_factor) = data.orb_scale_factor {
-        orb.orb_scale_factor = orb_scale_factor;
-    }
-    params.nprobe = data.nprobe.unwrap_or(state.search.nprobe);
-    params.max_codes = data.max_codes.unwrap_or(state.search.max_codes);
+    let orb = OrbOptions {
+        orb_nfeatures: data.orb_nfeatures.unwrap_or(state.orb.orb_nfeatures),
+        orb_scale_factor: data.orb_scale_factor.unwrap_or(state.orb.orb_scale_factor),
+        ..state.orb
+    };
+    let params = FaissSearchParams {
+        nprobe: data.nprobe.unwrap_or(state.search.nprobe),
+        max_codes: data.max_codes.unwrap_or(state.search.max_codes),
+    };
 
     let start = Instant::now();
 
@@ -49,7 +51,7 @@ pub async fn search_handler(
             .par_iter()
             .map(|file| {
                 let mut orb = Slam3ORB::from(&orb);
-                let mat = Mat::from_slice(&file)?;
+                let mat = Mat::from_slice(file)?;
                 let img = imgcodecs::imdecode(&mat, imgcodecs::IMREAD_GRAYSCALE)?;
                 let (_, des) = utils::detect_and_compute(&mut orb, &img)?;
                 Ok(des)
@@ -85,5 +87,59 @@ pub async fn reload_handler(
     state.db.set_mmap(!data.no_mmap);
     let index = state.db.get_index();
     *lock = index;
+    // 更新缓存 ID
+    state.db.load_total_vector_count().await?;
+    Ok(Json(json!({})))
+}
+
+/// 添加图片到数据库
+#[utoipa::path(
+    post,
+    path = "/add",
+    request_body(content = AddImageForm, content_type = "multipart/form-data")
+)]
+pub async fn add_image_handler(
+    State(state): State<Arc<AppState>>,
+    data: TypedMultipart<AddImageRequest>,
+) -> Result<Json<Value>> {
+    for file in &data.file {
+        let file_name = match &file.metadata.file_name {
+            Some(file_name) => file_name,
+            None => {
+                return Err(anyhow::anyhow!("文件名不能为空").into());
+            }
+        };
+
+        let hash = blake3::hash(&file.contents);
+        if state.db.check_hash(hash.as_bytes()).await? {
+            continue;
+        }
+        let des = block_in_place(|| -> Result<_> {
+            let mut orb = Slam3ORB::from(&state.orb);
+            let mat = Mat::from_slice(&file.contents)?;
+            let img = imgcodecs::imdecode(&mat, imgcodecs::IMREAD_GRAYSCALE)?;
+            let (_, des) = utils::detect_and_compute(&mut orb, &img)?;
+            Ok(des)
+        })?;
+        if des.rows() <= 10 {
+            continue;
+        }
+        state.db.add_image(file_name, hash.as_bytes(), des).await?;
+    }
+    Ok(Json(json!({})))
+}
+
+/// 构建索引
+#[utoipa::path(
+    post,
+    path = "/build",
+    request_body = BuildRequest
+)]
+pub async fn build_handler(
+    State(state): State<Arc<AppState>>,
+    data: Json<BuildRequest>,
+) -> Result<Json<Value>> {
+    state.db.set_ondisk(data.on_disk);
+    state.db.build_index(data.batch_size).await?;
     Ok(Json(json!({})))
 }
