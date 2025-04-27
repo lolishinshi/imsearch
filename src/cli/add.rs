@@ -39,7 +39,7 @@ impl SubCommandExtend for AddCommand {
     async fn run(&self, opts: &Opts) -> anyhow::Result<()> {
         ORB_OPTIONS.get_or_init(|| self.orb.clone());
 
-        let re = format!("(?i)\\.({})", self.suffix.replace(',', "|"));
+        let re = format!("(?i)({})", self.suffix.replace(',', "|"));
         let re = Regex::new(&re).expect("failed to build regex");
         let db = IMDBBuilder::new(opts.conf_dir.clone()).open().await?;
         let pb_style = ProgressStyle::default_bar()

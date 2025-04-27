@@ -1,10 +1,11 @@
 use std::collections::HashMap;
+use std::env::set_current_dir;
 use std::time::Instant;
 
 use anyhow::Result;
 use futures::prelude::*;
 use futures::{StreamExt, TryStreamExt};
-use log::{debug, info};
+use log::{Level, debug, info, log_enabled, warn};
 use ndarray::prelude::*;
 use opencv::core::{Mat, MatTraitConstManual};
 use opencv::prelude::*;
@@ -146,7 +147,12 @@ impl IMDB {
         }
 
         if self.ondisk {
-            self.merge_index_on_disk()?;
+            if self.conf_dir.ondisk_ivf().exists() {
+                warn!("OnDisk 索引已存在，忽略 --on-disk 选项");
+                self.merge_index_on_memory()?;
+            } else {
+                self.merge_index_on_disk()?;
+            }
         } else {
             self.merge_index_on_memory()?;
         }
@@ -179,9 +185,12 @@ impl IMDB {
         Ok(())
     }
 
-    /// 合并索引
+    /// 使用 OnDiskInvertedLists 合并索引
+    ///
+    /// 注意这种模式下，必须合并到一个空索引中
     fn merge_index_on_disk(&self) -> Result<()> {
         info!("在磁盘上合并所有索引……");
+
         let mut invfs = vec![];
         let mut files = vec![];
         for i in 1.. {
@@ -189,14 +198,13 @@ impl IMDB {
             if !index_file.exists() {
                 break;
             }
-            info!("加载索引 {}", index_file.display());
             let mut sub_index = FaissIndex::from_file(index_file.to_str().unwrap(), true);
             invfs.push(sub_index.invlists());
             sub_index.set_own_invlists(false);
             files.push(index_file);
         }
 
-        let mut index = self.get_index();
+        let mut index = self.get_index_template();
 
         let mut invlists = FaissOnDiskInvLists::new(
             index.nlist(),
@@ -204,10 +212,13 @@ impl IMDB {
             self.conf_dir.ondisk_ivf().to_str().unwrap(),
         );
 
-        invlists.merge_from_multiple(&invfs, false, true);
+        info!("合并倒排列表……");
+        let ntotal = invlists.merge_from_multiple(&invfs, false, true);
 
         index.replace_invlists(invlists, true);
+        index.set_ntotal(ntotal as i64);
 
+        info!("保存索引……");
         block_in_place(|| index.write_file(self.conf_dir.index()));
 
         for file in files {
@@ -257,16 +268,27 @@ impl IMDB {
     /// 获取索引
     pub fn get_index(&self) -> FaissIndex {
         let index_file = self.conf_dir.index();
+        let ivf_file = self.conf_dir.ondisk_ivf();
+
         let index = if index_file.exists() {
-            if !self.mmap {
-                info!("正在加载索引 {}", index_file.display());
+            let mut mmap = self.mmap;
+            if ivf_file.exists() {
+                if mmap {
+                    warn!("OnDisk 倒排无法使用 mmap 模式加载");
+                }
+                // NOTE: 此处切换路径的原因是，faiss 会根据「当前路径」而不是 index 所在路径来加载倒排列表
+                set_current_dir(self.conf_dir.path()).unwrap();
+                mmap = false;
             }
-            let index = FaissIndex::from_file(index_file.to_str().unwrap(), self.mmap);
+            info!("正在加载索引 {}, mmap: {}", index_file.display(), mmap);
+            let index = FaissIndex::from_file(index_file.to_str().unwrap(), mmap);
             info!("faiss 版本   : {}", index.faiss_version());
             info!("已添加特征点 : {}", index.ntotal());
             info!("倒排列表数量 : {}", index.nlist());
             info!("不平衡度     : {}", index.imbalance_factor());
-            index.print_stats();
+            if log_enabled!(Level::Debug) {
+                index.print_stats();
+            }
             index
         } else {
             self.get_index_template()

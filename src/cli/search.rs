@@ -1,5 +1,4 @@
 use std::convert::Infallible;
-use std::env::set_current_dir;
 use std::str::FromStr;
 
 use anyhow::Result;
@@ -31,13 +30,6 @@ impl SubCommandExtend for SearchCommand {
         let (_, des) = block_in_place(|| {
             utils::imread(&self.image).and_then(|image| utils::detect_and_compute(&mut orb, &image))
         })?;
-
-        if opts.conf_dir.ondisk_ivf().exists() {
-            if !self.search.no_mmap {
-                return Err(anyhow::anyhow!("磁盘索引必须使用 --no-mmap 选项"));
-            }
-            set_current_dir(opts.conf_dir.path())?;
-        }
 
         let db = IMDBBuilder::new(opts.conf_dir.clone()).mmap(!self.search.no_mmap).open().await?;
         let index = db.get_index();

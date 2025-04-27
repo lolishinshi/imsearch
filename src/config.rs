@@ -132,9 +132,9 @@ impl ConfDir {
         self.0.join("index")
     }
 
-    /// 返回 ondisk ivf 文件的路径
-    pub fn ondisk_ivf(&self) -> PathBuf {
-        self.0.join("index.ivfdata")
+    /// 返回索引临时文件的路径
+    pub fn index_tmp(&self) -> PathBuf {
+        self.0.join("index.tmp")
     }
 
     /// 返回子索引文件的路径
@@ -158,9 +158,14 @@ impl ConfDir {
         self.0.join("index.template")
     }
 
-    /// 返回索引临时文件的路径
-    pub fn index_tmp(&self) -> PathBuf {
-        self.0.join("index.tmp")
+    /// 返回 ondisk ivf 文件的路径
+    pub fn ondisk_ivf(&self) -> PathBuf {
+        self.0.join("index.ivfdata")
+    }
+
+    /// 返回 ondisk ivf 文件的临时路径
+    pub fn ondisk_ivf_tmp(&self) -> PathBuf {
+        self.0.join("index.ivfdata.tmp")
     }
 }
 

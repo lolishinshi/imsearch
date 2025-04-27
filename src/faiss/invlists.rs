@@ -5,6 +5,7 @@ use faiss_sys::*;
 
 pub struct FaissInvLists(pub(super) *mut FaissInvertedLists_H);
 
+// NOTE: 磁盘倒排列表的释放由 faiss 自动完成，因此不需要实现 Drop
 pub struct FaissOnDiskInvLists(pub(super) *mut FaissOnDiskInvertedLists);
 
 impl FaissOnDiskInvLists {
@@ -32,6 +33,13 @@ impl FaissOnDiskInvLists {
                 shift_ids as i32,
                 verbose as i32,
             ) as usize
+        }
+    }
+
+    pub fn set_filename(&mut self, filename: &str) {
+        unsafe {
+            let f = CString::new(filename).unwrap();
+            faiss_OnDiskInvertedLists_set_filename(self.0, f.as_ptr());
         }
     }
 }
