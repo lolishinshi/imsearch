@@ -76,8 +76,14 @@ pub async fn search_handler(
     request_body = ReloadRequest
 )]
 pub async fn reload_handler(
-    State(_state): State<Arc<AppState>>,
-    _data: Json<ReloadRequest>,
+    State(state): State<Arc<AppState>>,
+    data: Json<ReloadRequest>,
 ) -> Result<Json<Value>> {
-    unimplemented!()
+    let mut lock = state.index.write().await;
+    // NOTE: 此处先释放旧索引，再重新加载新索引
+    *lock = state.db.get_index_template();
+    state.db.set_mmap(!data.no_mmap);
+    let index = state.db.get_index();
+    *lock = index;
+    Ok(Json(json!({})))
 }

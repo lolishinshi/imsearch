@@ -40,5 +40,7 @@ pub struct SearchResponse {
 #[derive(Debug, Deserialize, ToSchema)]
 pub struct ReloadRequest {
     /// 是否不使用 mmap 模式
+    #[schema(default = false)]
+    #[serde(default)]
     pub no_mmap: bool,
 }

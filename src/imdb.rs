@@ -1,5 +1,6 @@
 use std::collections::HashMap;
 use std::env::set_current_dir;
+use std::sync::RwLock;
 use std::time::Instant;
 
 use anyhow::Result;
@@ -9,7 +10,7 @@ use log::{Level, debug, info, log_enabled, warn};
 use ndarray::prelude::*;
 use opencv::core::{Mat, MatTraitConstManual};
 use opencv::prelude::*;
-use tokio::sync::{Mutex, OnceCell};
+use tokio::sync::Mutex;
 use tokio::task::block_in_place;
 
 use crate::config::ConfDir;
@@ -63,24 +64,28 @@ impl IMDBBuilder {
             info!("图片数量  : {}", image_count);
             info!("特征点数量：{}", vector_count);
         }
+        let mut total_vector_count = vec![];
+        if self.cache {
+            info!("正在初始化图片 ID 缓存……");
+            total_vector_count = crud::get_all_total_vector_count(&db).await?;
+        }
         Ok(IMDB {
             db,
             conf_dir: self.conf_dir,
-            total_vector_count: OnceCell::new(),
-
-            mmap: self.mmap,
+            total_vector_count,
+            mmap: RwLock::new(self.mmap),
             cache: self.cache,
             ondisk: self.ondisk,
         })
     }
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug)]
 pub struct IMDB {
     conf_dir: ConfDir,
     db: Database,
-    total_vector_count: OnceCell<Vec<i64>>,
-    mmap: bool,
+    total_vector_count: Vec<i64>,
+    mmap: RwLock<bool>,
     cache: bool,
     ondisk: bool,
 }
@@ -255,7 +260,7 @@ impl IMDB {
     }
 
     /// 获取模板索引
-    fn get_index_template(&self) -> FaissIndex {
+    pub fn get_index_template(&self) -> FaissIndex {
         let index_file = self.conf_dir.index_template();
         if index_file.exists() {
             let index = FaissIndex::from_file(index_file.to_str().unwrap(), false);
@@ -271,7 +276,7 @@ impl IMDB {
         let ivf_file = self.conf_dir.ondisk_ivf();
 
         let index = if index_file.exists() {
-            let mut mmap = self.mmap;
+            let mut mmap = *self.mmap.read().unwrap();
             if ivf_file.exists() {
                 if mmap {
                     warn!("OnDisk 倒排无法使用 mmap 模式加载");
@@ -400,19 +405,13 @@ impl IMDB {
         if !self.cache {
             Ok(crud::get_image_id_by_vector_id(&self.db, id).await?)
         } else {
-            // 此处为了减少数据库查询次数，缓存了整个 total_vector_count 数组
-            let total_vector_count = self
-                .total_vector_count
-                .get_or_try_init(|| async {
-                    info!("初次查询，正在初始化图片 ID 缓存……");
-                    crud::get_all_total_vector_count(&self.db).await
-                })
-                .await?;
-
-            let index = total_vector_count.partition_point(|&x| x < id) + 1;
-
+            let index = self.total_vector_count.partition_point(|&x| x < id) + 1;
             Ok(index as i64)
         }
+    }
+
+    pub fn set_mmap(&self, mmap: bool) {
+        *self.mmap.write().unwrap() = mmap;
     }
 }
 
