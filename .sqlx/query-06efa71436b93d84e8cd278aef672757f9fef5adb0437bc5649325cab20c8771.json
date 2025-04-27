@@ -1,0 +1,20 @@
+{
+  "db_name": "SQLite",
+  "query": "\n        SELECT id as id FROM vector_stats\n        WHERE total_vector_count >= ? ORDER BY total_vector_count ASC LIMIT 1\n        ",
+  "describe": {
+    "columns": [
+      {
+        "name": "id",
+        "ordinal": 0,
+        "type_info": "Integer"
+      }
+    ],
+    "parameters": {
+      "Right": 1
+    },
+    "nullable": [
+      true
+    ]
+  },
+  "hash": "06efa71436b93d84e8cd278aef672757f9fef5adb0437bc5649325cab20c8771"
+}

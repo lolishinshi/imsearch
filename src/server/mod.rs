@@ -29,7 +29,7 @@ pub fn create_app(state: Arc<AppState>) -> Router {
         .route("/reload", axum::routing::post(reload_handler))
         .merge(SwaggerUi::new("/docs").url("/api-docs/openapi.json", ApiDoc::openapi()))
         .layer(DefaultBodyLimit::disable())
-        // 上传限制：10M
-        .layer(RequestBodyLimitLayer::new(1024 * 1024 * 10))
+        // 上传限制：50M
+        .layer(RequestBodyLimitLayer::new(1024 * 1024 * 50))
         .with_state(state)
 }

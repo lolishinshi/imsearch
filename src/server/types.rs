@@ -6,7 +6,7 @@ use utoipa::ToSchema;
 /// 搜索请求参数
 #[derive(TryFromMultipart)]
 pub struct SearchRequest {
-    pub file: Bytes,
+    pub file: Vec<Bytes>,
     pub orb_scale_factor: Option<f32>,
     pub nprobe: Option<usize>,
     pub max_codes: Option<usize>,
@@ -16,7 +16,7 @@ pub struct SearchRequest {
 #[derive(Debug, ToSchema)]
 #[allow(unused)]
 pub struct SearchForm {
-    /// 上传的图片文件
+    /// 上传的图片文件，可以是多张图片
     #[schema(format = Binary, content_media_type = "application/octet-stream")]
     pub file: String,
     /// ORB特征提取缩放因子
@@ -32,8 +32,8 @@ pub struct SearchForm {
 pub struct SearchResponse {
     /// 搜索耗时，单位为毫秒
     pub time: u32,
-    /// 搜索结果，格式为 `(相似度, 图片路径)`
-    pub result: Vec<(f32, String)>,
+    /// 每张图片的搜索结果，格式为 `(相似度, 图片路径)`
+    pub result: Vec<Vec<(f32, String)>>,
 }
 
 /// 重新加载索引的参数

@@ -297,12 +297,12 @@ impl IMDB {
         index
     }
 
-    /// 在索引中搜索描述符，返回 Vec<(分数, 图片路径)>
+    /// 在索引中搜索多组描述符，返回 Vec<Vec<(分数, 图片路径)>>
     ///
     /// # Arguments
     ///
     /// * `index` - 索引
-    /// * `descriptors` - 描述符
+    /// * `descriptors` - 多组描述符
     /// * `knn` - KNN 搜索的数量
     /// * `max_distance` - 最大距离
     /// * `max_result` - 最大结果数量
@@ -310,22 +310,38 @@ impl IMDB {
     pub async fn search(
         &self,
         index: &FaissIndex,
-        descriptors: Mat,
+        descriptors: &[Mat],
         knn: usize,
         max_distance: u32,
         max_result: usize,
         params: FaissSearchParams,
-    ) -> Result<Vec<(f32, String)>> {
-        info!("对 {} 条向量搜索 {} 个最近邻, {:?}", descriptors.rows(), knn, params);
+    ) -> Result<Vec<Vec<(f32, String)>>> {
+        let mut mat = Mat::default();
+        for des in descriptors {
+            mat.push_back(des).unwrap();
+        }
+
+        info!(
+            "对 {} 组 {} 条向量搜索 {} 个最近邻, {:?}",
+            descriptors.len(),
+            mat.rows(),
+            knn,
+            params
+        );
         let mut instant = Instant::now();
 
         // TODO: 这里应该用 spawn_blocking 还是 block_in_place 呢？
-        let neighbors = block_in_place(|| index.search(&descriptors, knn, params));
+        let neighbors = block_in_place(|| index.search(&mat, knn, params));
         debug!("搜索耗时    ：{}ms", instant.elapsed().as_millis());
         instant = Instant::now();
 
-        let result =
-            self.process_neighbor_group(&neighbors, max_distance as i32, max_result).await?;
+        let mut result = vec![];
+        let mut res = &*neighbors;
+        let mut cur;
+        for i in 0..descriptors.len() {
+            (cur, res) = res.split_at(descriptors[i].rows() as usize);
+            result.push(self.process_neighbor_group(cur, max_distance as i32, max_result).await?);
+        }
 
         debug!("处理结果耗时：{:.2}ms", instant.elapsed().as_millis());
 
@@ -389,7 +405,7 @@ impl IMDB {
                 })
                 .await?;
 
-            let index = total_vector_count.partition_point(|&x| x < id);
+            let index = total_vector_count.partition_point(|&x| x < id) + 1;
 
             Ok(index as i64)
         }

@@ -1,9 +1,19 @@
+use std::cell::RefCell;
 use std::ffi::c_void;
+use std::sync::OnceLock;
 
+use crate::config::OrbOptions;
 use opencv::Result;
 use opencv::core::*;
 use opencv::imgproc::InterpolationFlags;
 use orb_slam3_sys::*;
+
+// 注意：ORB_OPTIONS 必须在 ORB 之前初始化
+pub static ORB_OPTIONS: OnceLock<OrbOptions> = OnceLock::new();
+
+thread_local! {
+    pub static ORB: RefCell<Slam3ORB> = RefCell::new(Slam3ORB::from(ORB_OPTIONS.get().unwrap()));
+}
 
 // OpenCV 的辅助宏
 macro_rules! return_send {

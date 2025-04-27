@@ -1,7 +1,5 @@
-use std::cell::RefCell;
 use std::collections::HashMap;
 use std::path::PathBuf;
-use std::sync::OnceLock;
 
 use blake3::Hash;
 use clap::Parser;
@@ -15,14 +13,8 @@ use walkdir::WalkDir;
 
 use crate::cli::SubCommandExtend;
 use crate::config::{Opts, OrbOptions};
-use crate::orb::Slam3ORB;
+use crate::orb::*;
 use crate::{IMDBBuilder, utils};
-
-static ORB_OPTIONS: OnceLock<OrbOptions> = OnceLock::new();
-
-thread_local! {
-    pub static ORB: RefCell<Slam3ORB> = RefCell::new(Slam3ORB::from(ORB_OPTIONS.get().unwrap()));
-}
 
 #[derive(Parser, Debug, Clone)]
 pub struct AddCommand {

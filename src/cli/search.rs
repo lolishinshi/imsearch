@@ -36,12 +36,11 @@ impl SubCommandExtend for SearchCommand {
         let params =
             FaissSearchParams { nprobe: self.search.nprobe, max_codes: self.search.max_codes };
 
-        let mut result = db
-            .search(&index, des, self.search.k, self.search.distance, self.search.count, params)
+        let result = db
+            .search(&index, &[des], self.search.k, self.search.distance, self.search.count, params)
             .await?;
 
-        result.truncate(self.search.count);
-        print_result(&result, self)
+        print_result(&result[0], self)
     }
 }
 

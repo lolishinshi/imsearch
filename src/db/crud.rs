@@ -67,12 +67,11 @@ pub async fn set_indexed_batch(executor: &SqlitePool, ids: &[i64]) -> Result<()>
     Ok(())
 }
 
-/// 根据向量 ID 获取图片路径
+/// 根据向量 ID 获取图片 ID
 pub async fn get_image_id_by_vector_id(executor: &SqlitePool, id: i64) -> Result<i64> {
     let result = sqlx::query!(
         r#"
-        SELECT vector_stats.id as id FROM vector_stats
-        JOIN image ON vector_stats.id = image.id
+        SELECT id as id FROM vector_stats
         WHERE total_vector_count >= ? ORDER BY total_vector_count ASC LIMIT 1
         "#,
         id
