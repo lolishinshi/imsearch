@@ -328,6 +328,10 @@ impl IMDB {
             knn,
             params
         );
+        if mat.rows() == 0 {
+            return Ok(vec![vec![]; descriptors.len()]);
+        }
+
         let mut instant = Instant::now();
 
         // TODO: 这里应该用 spawn_blocking 还是 block_in_place 呢？
