@@ -1,5 +1,4 @@
 use std::collections::HashMap;
-use std::path::PathBuf;
 
 use blake3::Hash;
 use clap::Parser;
@@ -25,14 +24,19 @@ pub struct AddCommand {
     /// 扫描的文件后缀名，多个后缀用逗号分隔
     #[arg(short, long, default_value = "jpg,png")]
     pub suffix: String,
+    /// 不添加完整文件路径到数据库，而是使用正则表达式提取出 name 分组作为图片的唯一标识
+    /// 例：`/path/to/image/(?<name>[0-9]+).jpg`
+    #[arg(short, long)]
+    pub regex: Option<String>,
 }
 
 impl SubCommandExtend for AddCommand {
     async fn run(&self, opts: &Opts) -> anyhow::Result<()> {
         ORB_OPTIONS.get_or_init(|| self.orb.clone());
 
-        let re = format!("(?i)({})", self.suffix.replace(',', "|"));
-        let re = Regex::new(&re).expect("failed to build regex");
+        let re_name = self.regex.as_ref().map(|re| Regex::new(&re).expect("failed to build regex"));
+        let re_suf = format!("(?i)({})", self.suffix.replace(',', "|"));
+        let re_suf = Regex::new(&re_suf).expect("failed to build regex");
         let db = IMDBBuilder::new(opts.conf_dir.clone()).open().await?;
         let pb_style = ProgressStyle::default_bar()
             .template("{spinner:.green} [{elapsed_precise}] [{bar:40.cyan/blue}] {pos}/{len} ({eta}) {msg}")
@@ -41,21 +45,21 @@ impl SubCommandExtend for AddCommand {
 
         // 收集所有符合条件的文件路径
         info!("开始扫描目录: {}", self.path);
-        let entries: Vec<PathBuf> = WalkDir::new(&self.path)
+        let entries = WalkDir::new(&self.path)
             .into_iter()
             .filter_map(|entry| {
                 entry.ok().and_then(|entry| {
                     let path = entry.path().to_path_buf();
                     if path.is_file()
-                        && re.is_match(&path.extension().unwrap_or_default().to_string_lossy())
+                        && re_suf.is_match(&path.extension().unwrap_or_default().to_string_lossy())
                     {
-                        Some(path)
+                        path.to_str().map(|x| x.to_string())
                     } else {
                         None
                     }
                 })
             })
-            .collect();
+            .collect::<Vec<_>>();
         info!("扫描完成，共 {} 张图片", entries.len());
 
         // NOTE: 由于异步 + rayon 的组合实在麻烦，这里采用了将计算拆分为多轮，避免在异步上下文中使用 rayon
@@ -74,7 +78,7 @@ impl SubCommandExtend for AddCommand {
         let pb = ProgressBar::new(entries.len() as u64)
             .with_style(pb_style.clone())
             .with_message("检查已添加图片...");
-        let mut images: Vec<(PathBuf, Hash)> = vec![];
+        let mut images: Vec<(String, Hash)> = vec![];
         for (hash, filename) in entries.into_iter().progress_with(pb) {
             if !db.check_hash(hash.as_bytes()).await? {
                 images.push((filename, hash));
@@ -93,13 +97,13 @@ impl SubCommandExtend for AddCommand {
             let pb = pb.clone();
             move || {
                 images.into_par_iter().progress_with(pb.clone()).for_each(|(image, hash)| {
-                    if let Ok((_, des)) = utils::imread(image.to_string_lossy()).and_then(|image| {
+                    if let Ok((_, des)) = utils::imread(&image).and_then(|image| {
                         ORB.with(|orb| utils::detect_and_compute(&mut orb.borrow_mut(), &image))
                     }) {
-                        pb.set_message(image.display().to_string());
+                        pb.set_message(image.clone());
                         tx.blocking_send((image, hash, des)).unwrap();
                     } else {
-                        pb.println(format!("处理失败: {}", image.display()));
+                        pb.println(format!("处理失败: {}", image));
                     }
                 })
             }
@@ -110,13 +114,27 @@ impl SubCommandExtend for AddCommand {
             async move {
                 while let Some((image, hash, des)) = rx.recv().await {
                     if des.rows() <= 10 {
-                        pb.println(format!("特征点少于 10: {}", image.display()));
+                        pb.println(format!("特征点少于 10: {}", image));
                         continue;
                     }
-                    if let Err(e) =
-                        db.add_image(image.to_string_lossy(), hash.as_bytes(), des).await
-                    {
-                        pb.println(format!("添加图片失败: {}: {}", image.display(), e));
+
+                    let path = match &re_name {
+                        Some(re) => {
+                            let captures = re.captures(&image);
+                            if let Some(name) =
+                                captures.and_then(|c| c.name("name").map(|m| m.as_str()))
+                            {
+                                name.to_string()
+                            } else {
+                                pb.println(format!("提取图片名失败: {}", image));
+                                continue;
+                            }
+                        }
+                        None => image,
+                    };
+
+                    if let Err(e) = db.add_image(&path, hash.as_bytes(), des).await {
+                        pb.println(format!("添加图片失败: {}: {}", path, e));
                     }
                 }
             }
