@@ -1,6 +1,6 @@
 {
   "db_name": "SQLite",
-  "query": "\n            SELECT vector.id as id, vector, total_vector_count\n            FROM vector\n            JOIN vector_stats ON vector.id = vector_stats.id\n            WHERE vector_stats.indexed = 0\n            LIMIT ? OFFSET ?\n            ",
+  "query": "\n        SELECT vector.id as id, vector, total_vector_count\n        FROM vector\n        JOIN vector_stats ON vector.id = vector_stats.id\n        WHERE vector_stats.indexed = 0\n        LIMIT ? OFFSET ?\n        ",
   "describe": {
     "columns": [
       {
@@ -28,5 +28,5 @@
       false
     ]
   },
-  "hash": "ec53d9770260cf607ec65c2fe5168a84daef3a3f0226dac98005487554105957"
+  "hash": "d5b68acb50040fc9d352c5f2967918cadcafa357c81664b41339e55fd5c866d2"
 }
