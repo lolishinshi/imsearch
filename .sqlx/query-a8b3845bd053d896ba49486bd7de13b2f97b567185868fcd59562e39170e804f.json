@@ -1,0 +1,12 @@
+{
+  "db_name": "SQLite",
+  "query": "INSERT INTO vector_stats (id, vector_count, total_vector_count, indexed) VALUES (?, ?, ?, 1)",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Right": 3
+    },
+    "nullable": []
+  },
+  "hash": "a8b3845bd053d896ba49486bd7de13b2f97b567185868fcd59562e39170e804f"
+}

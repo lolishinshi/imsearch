@@ -2,6 +2,7 @@
 
 ## [未发布]
 
+- 修复 `cargo install` 无法使用 `--features=rocksdb` 的问题
 - HTTP 接口增加 `/build`，用于构建索引
 - HTTP 接口增加 `/add`，用于添加图片
 - `add` 命令支持 `--regex` 参数，用于提取文件路径中需要保存的部分
