@@ -128,15 +128,15 @@ impl ImageDB {
             })
     }
 
-    /// 迭代图片 ID、特征 ID
-    pub fn features(&self) -> impl Iterator<Item = Result<(i32, u64), rocksdb::Error>> + '_ {
+    /// 迭代 (特征 ID, 图片 ID)
+    pub fn features(&self) -> impl Iterator<Item = Result<(u64, i32), rocksdb::Error>> + '_ {
         self.db
             .iterator_cf_opt(
                 &self.cf(ImageColumnFamily::IdToImageId),
                 Self::read_opts(),
                 IteratorMode::Start,
             )
-            .map(|item| item.map(|item| (bytes_to_i32(item.1), bytes_to_u64(item.0))))
+            .map(|item| item.map(|item| (bytes_to_u64(item.0), bytes_to_i32(item.1))))
     }
 
     pub fn total_features(&self) -> u64 {

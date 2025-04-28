@@ -2,6 +2,7 @@
 
 ## [未发布]
 
+- `update-db` 鲁棒性增加
 - HTTP 增加 `/stats` 和 `/reset_stats` 接口
 - 修复 `cargo install` 无法使用 `--features=rocksdb` 的问题
 - HTTP 接口增加 `/build`，用于构建索引
