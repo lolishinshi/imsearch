@@ -135,23 +135,6 @@ impl FaissIndex {
             faiss_SearchParametersIVF_free(params);
         }
 
-        // 打印搜索统计信息，并重置
-        // NOTE: 这里的统计不是针对单次搜索的，由于统计变量是全局的，多线程搜索会累加
-        let (stats, raw_stats) = unsafe {
-            let stats = faiss_get_indexIVF_stats();
-            (*stats, stats)
-        };
-
-        debug!("ndis             : {}", stats.nq);
-        debug!("nprobe           : {}", stats.nlist);
-        debug!("nheap_updates    : {}", stats.nheap_updates);
-        debug!("quantization_time: {:.2}ms", stats.quantization_time);
-        debug!("search_time      : {:.2}ms", stats.search_time);
-
-        unsafe {
-            faiss_IndexIVFStats_reset(raw_stats);
-        }
-
         // 整理结果
         let mut result = vec![];
         for (labels, distances) in labels.chunks(knn).zip(distances.chunks(knn)) {

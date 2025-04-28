@@ -1,6 +1,6 @@
 use axum::body::Bytes;
 use axum_typed_multipart::{FieldData, TryFromMultipart};
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 use utoipa::ToSchema;
 
 /// 搜索请求参数
@@ -71,6 +71,21 @@ pub struct BuildRequest {
     #[schema(default = 100000)]
     #[serde(default = "default_batch_size")]
     pub batch_size: usize,
+}
+
+/// 索引统计信息
+#[derive(Debug, Serialize, ToSchema)]
+pub struct StatsResponse {
+    /// 扫描的距离总数
+    pub ndis: usize,
+    /// 扫描的倒排列表数量
+    pub nprobe: usize,
+    /// 堆更新次数
+    pub nheap_updates: usize,
+    /// 量化时间，单位为毫秒
+    pub quantization_time: f64,
+    /// 搜索时间，单位为毫秒
+    pub search_time: f64,
 }
 
 fn default_batch_size() -> usize {

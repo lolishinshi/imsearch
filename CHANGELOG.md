@@ -2,6 +2,7 @@
 
 ## [未发布]
 
+- HTTP 增加 `/stats` 和 `/reset_stats` 接口
 - 修复 `cargo install` 无法使用 `--features=rocksdb` 的问题
 - HTTP 接口增加 `/build`，用于构建索引
 - HTTP 接口增加 `/add`，用于添加图片

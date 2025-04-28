@@ -15,7 +15,7 @@ use super::error::Result;
 use super::state::AppState;
 use super::types::*;
 use crate::config::OrbOptions;
-use crate::faiss::FaissSearchParams;
+use crate::faiss::{FaissSearchParams, get_faiss_stats, reset_faiss_stats};
 use crate::{Slam3ORB, utils};
 
 /// 搜索一张图片
@@ -80,7 +80,7 @@ pub async fn search_handler(
 pub async fn reload_handler(
     State(state): State<Arc<AppState>>,
     data: Json<ReloadRequest>,
-) -> Result<Json<Value>> {
+) -> Result<()> {
     let mut lock = state.index.write().await;
     // NOTE: 此处先释放旧索引，再重新加载新索引
     *lock = state.db.get_index_template();
@@ -89,7 +89,7 @@ pub async fn reload_handler(
     *lock = index;
     // 更新缓存 ID
     state.db.load_total_vector_count().await?;
-    Ok(Json(json!({})))
+    Ok(())
 }
 
 /// 添加图片到数据库
@@ -138,8 +138,34 @@ pub async fn add_image_handler(
 pub async fn build_handler(
     State(state): State<Arc<AppState>>,
     data: Json<BuildRequest>,
-) -> Result<Json<Value>> {
+) -> Result<()> {
     state.db.set_ondisk(data.on_disk);
     state.db.build_index(data.batch_size).await?;
-    Ok(Json(json!({})))
+    Ok(())
+}
+
+/// 获取搜索统计信息
+#[utoipa::path(
+    post,
+    path = "/stats",
+    responses(
+        (status = 200, body = StatsResponse),
+    )
+)]
+pub async fn stats_handler() -> Result<Json<StatsResponse>> {
+    let stats = get_faiss_stats();
+    Ok(Json(StatsResponse {
+        ndis: stats.ndis,
+        nprobe: stats.nlist,
+        nheap_updates: stats.nheap_updates,
+        quantization_time: stats.quantization_time,
+        search_time: stats.search_time,
+    }))
+}
+
+/// 重置搜索统计信息
+#[utoipa::path(post, path = "/reset_stats")]
+pub async fn reset_stats_handler() -> Result<()> {
+    reset_faiss_stats();
+    Ok(())
 }

@@ -3,11 +3,12 @@ use std::str::FromStr;
 
 use anyhow::Result;
 use clap::{Parser, ValueEnum};
+use log::debug;
 use tokio::task::block_in_place;
 
 use crate::cli::SubCommandExtend;
 use crate::config::{Opts, OrbOptions, SearchOptions};
-use crate::faiss::FaissSearchParams;
+use crate::faiss::{FaissSearchParams, get_faiss_stats};
 use crate::orb::Slam3ORB;
 use crate::{IMDBBuilder, utils};
 
@@ -39,6 +40,14 @@ impl SubCommandExtend for SearchCommand {
         let result = db
             .search(&index, &[des], self.search.k, self.search.distance, self.search.count, params)
             .await?;
+
+        let stats = get_faiss_stats();
+
+        debug!("ndis             : {}", stats.nq);
+        debug!("nprobe           : {}", stats.nlist);
+        debug!("nheap_updates    : {}", stats.nheap_updates);
+        debug!("quantization_time: {:.2}ms", stats.quantization_time);
+        debug!("search_time      : {:.2}ms", stats.search_time);
 
         print_result(&result[0], self)
     }
