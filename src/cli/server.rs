@@ -15,6 +15,9 @@ pub struct ServerCommand {
     /// 监听地址
     #[arg(long, default_value = "127.0.0.1:8000")]
     pub addr: String,
+    /// 转换为 hnsw 索引加载
+    #[arg(long)]
+    pub hnsw: bool,
 }
 
 impl SubCommandExtend for ServerCommand {
@@ -25,7 +28,10 @@ impl SubCommandExtend for ServerCommand {
             .open()
             .await?;
 
-        let index = db.get_index();
+        let mut index = db.get_index();
+        if self.hnsw {
+            index.to_hnsw();
+        }
 
         // 创建应用状态
         let state = server::AppState::new(index, db, self.clone());

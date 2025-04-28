@@ -403,7 +403,7 @@ impl IMDB {
             Ok(crud::get_image_id_by_vector_id(&self.db, id).await?)
         } else {
             let lock = self.total_vector_count.read().unwrap();
-            let index = lock.partition_point(|&x| x < id) + 1;
+            let index = lock.partition_point(|&x| x < id);
             Ok(index as i64)
         }
     }

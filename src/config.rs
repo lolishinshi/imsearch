@@ -56,7 +56,7 @@ pub struct SearchOptions {
     #[arg(long, value_name = "COUNT", default_value_t = 10)]
     pub count: usize,
     /// 每个查询描述符找到的最佳匹配数量
-    #[arg(long, value_name = "K", default_value_t = 3)]
+    #[arg(short, value_name = "K", default_value_t = 3)]
     pub k: usize,
     /// 搜索的倒排列表数量
     #[arg(long, default_value = "3")]

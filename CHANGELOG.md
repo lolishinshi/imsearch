@@ -2,6 +2,7 @@
 
 ## [未发布]
 
+- `server` 增加 `--hnsw`，用于将量化器转换为 HNSW
 - `update-db` 鲁棒性增加
 - HTTP 增加 `/stats` 和 `/reset_stats` 接口
 - 修复 `cargo install` 无法使用 `--features=rocksdb` 的问题

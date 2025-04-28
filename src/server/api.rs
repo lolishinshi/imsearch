@@ -85,7 +85,10 @@ pub async fn reload_handler(
     // NOTE: 此处先释放旧索引，再重新加载新索引
     *lock = state.db.get_index_template();
     state.db.set_mmap(!data.no_mmap);
-    let index = state.db.get_index();
+    let mut index = state.db.get_index();
+    if data.hnsw {
+        index.to_hnsw();
+    }
     *lock = index;
     // 更新缓存 ID
     state.db.load_total_vector_count().await?;

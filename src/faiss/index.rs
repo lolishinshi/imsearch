@@ -225,6 +225,26 @@ impl FaissIndex {
     }
 }
 
+impl FaissIndex {
+    /// 将 quantizer 转换为 hnsw
+    pub fn to_hnsw(&mut self) {
+        unsafe {
+            let quantizer = faiss_IndexBinaryIVF_quantizer(self.index);
+            let quantizer_flat = faiss_IndexBinaryFlat_cast(quantizer);
+            if quantizer_flat.is_null() {
+                panic!("索引 quantizer 不是 faiss.IndexBinaryFlat");
+            }
+            let ntotal = faiss_IndexBinary_ntotal(quantizer);
+            let mut xb = null_mut();
+            faiss_IndexBinaryFlat_xb(quantizer_flat, &mut xb);
+            let mut hnsw = null_mut();
+            faiss_IndexBinaryHNSW_new(&mut hnsw, self.d, 32);
+            faiss_IndexBinary_add(hnsw as *mut _, ntotal, xb);
+            faiss_IndexBinaryIVF_set_quantizer(self.index, hnsw as *mut _);
+        }
+    }
+}
+
 impl Drop for FaissIndex {
     fn drop(&mut self) {
         debug!("释放 faiss 索引");

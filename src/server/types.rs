@@ -46,6 +46,10 @@ pub struct ReloadRequest {
     #[schema(default = false)]
     #[serde(default)]
     pub no_mmap: bool,
+    /// 是否转换为 hnsw 索引加载
+    #[schema(default = false)]
+    #[serde(default)]
+    pub hnsw: bool,
 }
 
 #[derive(Debug, TryFromMultipart)]
