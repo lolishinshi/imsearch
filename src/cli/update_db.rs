@@ -29,6 +29,8 @@ impl SubCommandExtend for UpdateDBCommand {
         let pb = ProgressBar::new(rocks.total_images()).with_style(pb_style.clone());
         for image in rocks.images().progress_with(pb.clone()) {
             let (id, hash, path) = image?;
+            // NOTE: 因为 rocks 中的 id 是从 0 开始的，而 sql 中的 id 是从 1 开始的，所以需要加 1
+            let id = id + 1;
             // 理论上这个插入应该不会失败，但测试中确实存在 UNIQUE constraint failed 的情况
             if let Err(e) =
                 sqlx::query!("INSERT INTO image (id, hash, path) VALUES (?, ?, ?)", id, hash, path)
@@ -54,10 +56,10 @@ impl SubCommandExtend for UpdateDBCommand {
         for i in (0..map.len()).progress_with(pb) {
             let vector_count = map[i as usize] as i64;
             total_vector_count += vector_count;
-            let i = i as i64;
+            let i = (i + 1) as i64;
             sqlx::query!(
                 "INSERT INTO vector_stats (id, vector_count, total_vector_count, indexed) VALUES (?, ?, ?, 1)",
-                i ,
+                i,
                 vector_count,
                 total_vector_count
             )
