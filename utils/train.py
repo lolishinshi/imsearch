@@ -1,4 +1,7 @@
 #!/usr/bin/env python3
+"""
+GPU 索引训练
+"""
 from sys import argv
 import faiss
 import numpy as np

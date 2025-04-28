@@ -14,22 +14,23 @@ imsearch 依赖 opencv，请确保安装了 opencv 和 cmake 等基本构建工�
 
 参考 [Guidelines-to-choose-an-index](https://github.com/facebookresearch/faiss/wiki/Guidelines-to-choose-an-index)，给出推荐如下。
 
-| 图片数量   | 索引描述           |
-| ---------- | ------------------ |
-| 2K ~ 20K   | BIVF65536          |
-| 20K ~ 200K | BIVF262144_HNSW32  |
-| 200K ~ 2M  | BIVF1048576_HNSW32 |
+| 图片数量   | 索引描述                                                              |
+| ---------- | --------------------------------------------------------------------- |
+| < 2K       | BIVF{K} ($K=4\sqrt{N} \sim 16\sqrt{N}$, $N=\text{图片数量}\times500$) |
+| 2K ~ 20K   | BIVF65536_HNSW32                                                      |
+| 20K ~ 200K | BIVF262144_HNSW32                                                     |
+| 200K ~ 2M  | BIVF1048576_HNSW32                                                    |
 
 > 注意：以上选择基于每张图片提取 500 个特征点这一默认参数，下同
 
 ### 2. 训练索引
 
-BIVF 索引需要一定量的数据训练聚类器，推荐数据量为 50 倍桶数量。
+BIVF 索引需要一定量的数据训练聚类器，推荐数据量为 K 的 30 ~ 256 倍。
 即对于 K = 65536，需要 65536 \* 50 / 500 =~ 6.5k 张图片。
 
 训练集需要有代表性，如果和实际数据集相差过大会导致索引不平衡，影响搜索速度。
 
-将训练集放到 train 文件夹中，使用下列命令提取训练集中的特征点，并导出 train.npy 文件：
+将训练集放到 train 文件夹中，使用下列命令提取训练集中的特征点：
 
 ```bash
 imsearch -c ./train.db add ./train

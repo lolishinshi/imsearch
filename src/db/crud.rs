@@ -1,4 +1,3 @@
-use futures::{Stream, TryStreamExt, future};
 use sqlx::{Executor, Result, Sqlite, SqlitePool};
 
 use super::VectorIdxRecord;
@@ -129,29 +128,30 @@ where
     Ok(())
 }
 
-/// 获取向量列表
-pub async fn get_vectors(
+/// 获取未索引的向量列表
+pub async fn get_vectors_unindexed(
     executor: &SqlitePool,
-) -> Result<impl Stream<Item = Result<VectorIdxRecord>>> {
-    let result = sqlx::query!(
+    limit: usize,
+    offset: usize,
+) -> Result<Vec<VectorIdxRecord>> {
+    let limit = limit as i64;
+    let offset = offset as i64;
+    let rows = sqlx::query_as!(
+        VectorIdxRecord,
         r#"
         SELECT vector.id as id, vector, total_vector_count
         FROM vector
         JOIN vector_stats ON vector.id = vector_stats.id
         WHERE vector_stats.indexed = 0
-        "#
+        LIMIT ? OFFSET ?
+        "#,
+        limit,
+        offset
     )
-    .fetch(executor);
+    .fetch_all(executor)
+    .await?;
 
-    let stream = result.and_then(|row| {
-        future::ok(VectorIdxRecord {
-            id: row.id,
-            vector: row.vector,
-            total_vector_count: row.total_vector_count,
-        })
-    });
-
-    Ok(stream)
+    Ok(rows)
 }
 
 /// 删除向量列表

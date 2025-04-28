@@ -5,7 +5,6 @@ use std::time::Instant;
 
 use anyhow::Result;
 use futures::prelude::*;
-use futures::{StreamExt, TryStreamExt};
 use log::{Level, debug, info, log_enabled, warn};
 use ndarray::prelude::*;
 use opencv::core::{Mat, MatTraitConstManual};
@@ -114,10 +113,10 @@ impl IMDB {
     ///
     /// * `chunk_size` - 每次添加到索引的**图片**数量
     pub async fn build_index(&self, chunk_size: usize) -> Result<()> {
-        let stream = crud::get_vectors(&self.db).await?;
-        let mut stream = stream.chunks(chunk_size);
-
-        while let Some(chunk) = stream.next().await {
+        while let Ok(chunk) = crud::get_vectors_unindexed(&self.db, chunk_size, 0).await {
+            if chunk.is_empty() {
+                break;
+            }
             let mut index = self.get_index_template();
             if !index.is_trained() {
                 panic!("该索引未训练！");
@@ -127,7 +126,6 @@ impl IMDB {
             let mut images = vec![];
 
             for record in chunk {
-                let record = record?;
                 for (i, feature) in record.vector.chunks(32).enumerate() {
                     if feature.len() != 32 {
                         panic!("特征长度不正确");
@@ -240,11 +238,13 @@ impl IMDB {
         Ok(())
     }
 
-    /// 导出所有特征到一个二维数组
-    pub async fn export(&self) -> Result<Array2<u8>> {
+    /// 导出若干图片的特征点到一个二维数组
+    pub async fn export(&self, count: Option<usize>) -> Result<Array2<u8>> {
+        let count = count.unwrap_or(usize::MAX);
         let mut arr = Array2::zeros((0, 32));
-        let mut stream = crud::get_vectors(&self.db).await?;
-        while let Some(record) = stream.try_next().await? {
+        let mut i = 0;
+        let records = crud::get_vectors_unindexed(&self.db, count, 0).await?;
+        for record in records {
             for vector in record.vector.chunks(32) {
                 if vector.len() != 32 {
                     panic!("特征长度不正确");
@@ -252,7 +252,12 @@ impl IMDB {
                 let tmp = ArrayView::from(vector);
                 arr.push(Axis(0), tmp)?;
             }
+            i += 1;
+            if i >= count {
+                break;
+            }
         }
+
         Ok(arr)
     }
 
