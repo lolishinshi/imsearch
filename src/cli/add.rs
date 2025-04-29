@@ -27,7 +27,7 @@ pub struct AddCommand {
     pub suffix: String,
     /// 不添加完整文件路径到数据库，而是使用正则表达式提取出 name 分组作为图片的唯一标识
     /// 例：`/path/to/image/(?<name>[0-9]+).jpg`
-    #[arg(short, long)]
+    #[arg(short, long, verbatim_doc_comment)]
     pub regex: Option<String>,
 }
 
@@ -92,9 +92,10 @@ impl SubCommandExtend for AddCommand {
 
         let task1 = spawn_blocking({
             let pb = pb.clone();
+            let max_width = self.orb.img_max_width;
             move || {
                 images.into_par_iter().progress_with(pb.clone()).for_each(|(image, hash)| {
-                    if let Ok((_, des)) = utils::imread(&image).and_then(|image| {
+                    if let Ok((_, des)) = utils::imread(&image, max_width).and_then(|image| {
                         ORB.with(|orb| utils::detect_and_compute(&mut orb.borrow_mut(), &image))
                     }) {
                         pb.set_message(image.clone());

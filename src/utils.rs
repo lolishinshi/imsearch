@@ -22,10 +22,10 @@ pub fn detect_and_compute(
     Ok((kps, des))
 }
 
-pub fn imread<S: AsRef<str>>(filename: S) -> Result<Mat> {
+pub fn imread<S: AsRef<str>>(filename: S, max_width: u32) -> Result<Mat> {
     let mut img = imgcodecs::imread(filename.as_ref(), imgcodecs::IMREAD_GRAYSCALE)?;
-    if img.cols() > 1920 || img.rows() > 1080 {
-        img = adjust_image_size(&img, 1920, 1080)?;
+    if img.cols() > max_width as i32 {
+        img = adjust_image_size(&img, max_width as i32)?;
     }
     Ok(img)
 }
@@ -47,13 +47,12 @@ pub fn imwrite(filename: &str, img: &impl ToInputArray) -> Result<bool> {
     Ok(imgcodecs::imwrite(filename, img, &flags)?)
 }
 
-// TODO: 对于长图，应该要增加特征点数量
-pub fn adjust_image_size(img: &Mat, width: i32, height: i32) -> Result<Mat> {
-    if img.rows() <= height || img.cols() <= width {
+// 调整图片的最大宽度，同时保持长宽比
+pub fn adjust_image_size(img: &Mat, width: i32) -> Result<Mat> {
+    if img.cols() <= width {
         return Ok(img.clone());
     }
-    let (ow, oh) = (img.cols() as f64, img.rows() as f64);
-    let scale = (height as f64 / oh).min(width as f64 / ow);
+    let scale = width as f64 / img.cols() as f64;
     let mut output = Mat::default();
     imgproc::resize(
         img,

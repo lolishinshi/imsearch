@@ -23,8 +23,8 @@ pub struct MatchCommand {
 
 impl SubCommandExtend for MatchCommand {
     async fn run(&self, _opts: &Opts) -> Result<()> {
-        let img1 = utils::imread(&self.image1)?;
-        let img2 = utils::imread(&self.image2)?;
+        let img1 = utils::imread(&self.image1, self.orb.img_max_width)?;
+        let img2 = utils::imread(&self.image2, self.orb.img_max_width)?;
 
         let mut orb = Slam3ORB::from(&self.orb);
         let (kps1, des1) = utils::detect_and_compute(&mut orb, &img1)?;

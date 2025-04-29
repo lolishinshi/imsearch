@@ -29,7 +29,8 @@ impl SubCommandExtend for SearchCommand {
     async fn run(&self, opts: &Opts) -> anyhow::Result<()> {
         let mut orb = Slam3ORB::from(&self.orb);
         let (_, des) = block_in_place(|| {
-            utils::imread(&self.image).and_then(|image| utils::detect_and_compute(&mut orb, &image))
+            utils::imread(&self.image, self.orb.img_max_width)
+                .and_then(|image| utils::detect_and_compute(&mut orb, &image))
         })?;
 
         let db = IMDBBuilder::new(opts.conf_dir.clone()).mmap(!self.search.no_mmap).open().await?;

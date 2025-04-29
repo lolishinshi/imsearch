@@ -18,7 +18,7 @@ pub struct ShowCommand {
 
 impl SubCommandExtend for ShowCommand {
     async fn run(&self, _opts: &Opts) -> Result<()> {
-        let image = utils::imread(&self.image)?;
+        let image = utils::imread(&self.image, self.orb.img_max_width)?;
 
         let mut orb = Slam3ORB::from(&self.orb);
         let (kps, _) = utils::detect_and_compute(&mut orb, &image)?;

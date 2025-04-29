@@ -42,6 +42,10 @@ pub struct OrbOptions {
     /// ORB 特征点是否不需要方向信息
     #[arg(long)]
     pub orb_not_oriented: bool,
+    /// 图片最大宽度，超过宽度会等比缩放
+    /// 漫画尺寸一般为 B4，长宽比 1.4。1080p 下，B4 的宽度大约为 768
+    #[arg(long, default_value_t = 768, verbatim_doc_comment)]
+    pub img_max_width: u32,
 }
 
 #[derive(Parser, Debug, Clone)]
