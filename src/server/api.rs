@@ -143,7 +143,7 @@ pub async fn build_handler(
     data: Json<BuildRequest>,
 ) -> Result<()> {
     state.db.set_ondisk(data.on_disk);
-    state.db.build_index(data.batch_size).await?;
+    state.db.build_index(data.batch_size, data.no_split).await?;
     Ok(())
 }
 

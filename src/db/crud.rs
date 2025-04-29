@@ -140,6 +140,30 @@ pub async fn count_image_unindexed(executor: &SqlitePool) -> Result<u64> {
     Ok(result.count as u64)
 }
 
+pub async fn get_vectors(
+    executor: &SqlitePool,
+    limit: usize,
+    offset: usize,
+) -> Result<Vec<VectorIdxRecord>> {
+    let limit = limit as i64;
+    let offset = offset as i64;
+    let rows = sqlx::query_as!(
+        VectorIdxRecord,
+        r#"
+        SELECT vector.id as id, vector, total_vector_count
+        FROM vector
+        JOIN vector_stats ON vector.id = vector_stats.id
+        LIMIT ? OFFSET ?
+        "#,
+        limit,
+        offset
+    )
+    .fetch_all(executor)
+    .await?;
+
+    Ok(rows)
+}
+
 /// 获取未索引的向量列表
 pub async fn get_vectors_unindexed(
     executor: &SqlitePool,

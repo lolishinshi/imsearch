@@ -81,9 +81,13 @@ impl IMDBBuilder {
 pub struct IMDB {
     conf_dir: ConfDir,
     db: Database,
-    total_vector_count: RwLock<Vec<i64>>,
-    mmap: RwLock<bool>,
+    /// 是否使用缓存来加速 id 查询，会导致第一次查询速度变慢
     cache: bool,
+    /// 每张图片特征点 ID 的累加数量，用于加速计算
+    total_vector_count: RwLock<Vec<i64>>,
+    /// 是否使用 mmap 模式加载索引
+    mmap: RwLock<bool>,
+    /// 是否使用 OnDiskInvertedLists 格式合并索引
     ondisk: RwLock<bool>,
 }
 
@@ -108,12 +112,63 @@ impl IMDB {
         Ok(crud::check_image_hash(&self.db, hash).await?)
     }
 
+    /// 直接在内存中构建索引
+    pub async fn build_index_without_split(&self, chunk_size: usize) -> Result<()> {
+        info!("正在计算未索引的图片数量……");
+        let image_unindexed = crud::count_image_unindexed(&self.db).await?;
+
+        info!("正在加载索引……");
+        let mut index = self.get_index();
+        if !index.is_trained() {
+            return Err(anyhow::anyhow!("索引未训练"));
+        }
+
+        let pb = ProgressBar::new(image_unindexed as u64).with_style(pb_style());
+        pb.set_message("正在构建索引……");
+
+        let mut processed = 0;
+
+        while let Ok(chunk) = crud::get_vectors_unindexed(&self.db, chunk_size, 0).await {
+            if chunk.is_empty() {
+                break;
+            }
+
+            let mut images = vec![];
+            let mut ids = vec![];
+            let mut features = Array2::zeros((0, 32));
+            features.reserve_rows(chunk.len() * 500)?;
+
+            for record in &chunk {
+                for (i, feature) in record.vector.chunks(32).enumerate() {
+                    features.push_row(ArrayView::from(feature))?;
+                    ids.push(record.total_vector_count - i as i64);
+                }
+                images.push(record.id);
+            }
+
+            pb.set_message("正在构建索引……");
+            block_in_place(|| index.add_with_ids(&features, &ids));
+            pb.set_message("正在保存已构建部分……");
+            block_in_place(|| index.write_file(self.conf_dir.index_tmp()));
+
+            crud::set_indexed_batch(&self.db, &images).await?;
+            std::fs::rename(self.conf_dir.index_tmp(), self.conf_dir.index())?;
+
+            processed += images.len();
+            pb.set_position(processed as u64);
+        }
+
+        pb.finish_with_message("索引构建完成");
+
+        Ok(())
+    }
+
     /// 构建索引
-    ///
-    /// # Arguments
-    ///
-    /// * `chunk_size` - 每次添加到索引的**图片**数量
-    pub async fn build_index(&self, chunk_size: usize) -> Result<()> {
+    pub async fn build_index(&self, chunk_size: usize, no_split: bool) -> Result<()> {
+        if no_split {
+            return self.build_index_without_split(chunk_size).await;
+        }
+
         info!("正在计算未索引的图片数量……");
         let image_unindexed = crud::count_image_unindexed(&self.db).await?;
 
@@ -130,21 +185,21 @@ impl IMDB {
                 panic!("该索引未训练！");
             }
 
-            let mut features = FeatureWithId::new();
             let mut images = vec![];
+            let mut ids = vec![];
+            let mut features = Array2::zeros((0, 32));
+            features.reserve_rows(chunk.len() * 500)?;
 
             for record in chunk {
                 for (i, feature) in record.vector.chunks(32).enumerate() {
-                    if feature.len() != 32 {
-                        panic!("特征长度不正确");
-                    }
-                    features.add(record.total_vector_count - i as i64, feature);
+                    features.push_row(ArrayView::from(feature))?;
+                    ids.push(record.total_vector_count - i as i64);
                 }
                 images.push(record.id);
             }
 
             block_in_place(|| {
-                index.add_with_ids(features.features(), features.ids());
+                index.add_with_ids(&features, &ids);
                 index.write_file(self.conf_dir.index_tmp());
             });
 
@@ -253,7 +308,7 @@ impl IMDB {
         let count = count.unwrap_or(usize::MAX);
         let mut arr = Array2::zeros((0, 32));
         let mut i = 0;
-        let records = crud::get_vectors_unindexed(&self.db, count, 0).await?;
+        let records = crud::get_vectors(&self.db, count, 0).await?;
         for record in records {
             for vector in record.vector.chunks(32) {
                 if vector.len() != 32 {
@@ -439,28 +494,5 @@ impl IMDB {
             *lock = vec;
         }
         Ok(())
-    }
-}
-
-#[derive(Debug)]
-struct FeatureWithId(Vec<i64>, Mat);
-
-impl FeatureWithId {
-    pub fn new() -> Self {
-        Self(vec![], Mat::default())
-    }
-
-    pub fn add(&mut self, id: i64, feature: &[u8]) {
-        self.0.push(id);
-        let mat = Mat::from_slice(feature).unwrap();
-        self.1.push_back(&mat).unwrap();
-    }
-
-    pub fn features(&self) -> &Mat {
-        &self.1
-    }
-
-    pub fn ids(&self) -> &[i64] {
-        &self.0
     }
 }

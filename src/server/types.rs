@@ -75,6 +75,10 @@ pub struct BuildRequest {
     #[schema(default = 100000)]
     #[serde(default = "default_batch_size")]
     pub batch_size: usize,
+    /// 构建索引时，不分割文件，而是直接在内存中构建，每次直接保存全量索引
+    #[schema(default = false)]
+    #[serde(default)]
+    pub no_split: bool,
 }
 
 /// 索引统计信息

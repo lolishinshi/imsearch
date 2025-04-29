@@ -5,6 +5,7 @@ use std::ptr::null_mut;
 
 use faiss_sys::*;
 use log::debug;
+use ndarray::Array2;
 use opencv::prelude::*;
 
 use super::types::*;
@@ -84,11 +85,11 @@ impl FaissIndex {
     ///
     /// * `v` - 向量，大小为 (n, d)
     /// * `ids` - 向量 id 列表，长度为 n
-    pub fn add_with_ids(&mut self, v: &Mat, ids: &[i64]) {
-        assert_eq!(v.cols() * 8, self.d);
-        assert_eq!(v.rows() as usize, ids.len());
+    pub fn add_with_ids(&mut self, v: &Array2<u8>, ids: &[i64]) {
+        assert_eq!(v.dim().1 * 8, self.d as usize);
+        assert_eq!(v.dim().0, ids.len());
         unsafe {
-            faiss_IndexBinary_add_with_ids(self.index, v.rows() as i64, v.data(), ids.as_ptr());
+            faiss_IndexBinary_add_with_ids(self.index, v.dim().0 as i64, v.as_ptr(), ids.as_ptr());
         }
     }
 
