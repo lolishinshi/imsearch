@@ -2,7 +2,7 @@ use std::collections::HashMap;
 
 use blake3::Hash;
 use clap::Parser;
-use indicatif::{ParallelProgressIterator, ProgressBar, ProgressIterator, ProgressStyle};
+use indicatif::{ParallelProgressIterator, ProgressBar, ProgressIterator};
 use log::info;
 use opencv::core::MatTraitConst;
 use rayon::prelude::*;
@@ -13,6 +13,7 @@ use walkdir::WalkDir;
 use crate::cli::SubCommandExtend;
 use crate::config::{Opts, OrbOptions};
 use crate::orb::*;
+use crate::utils::pb_style;
 use crate::{IMDBBuilder, utils};
 
 #[derive(Parser, Debug, Clone)]
@@ -38,10 +39,6 @@ impl SubCommandExtend for AddCommand {
         let re_suf = format!("(?i)({})", self.suffix.replace(',', "|"));
         let re_suf = Regex::new(&re_suf).expect("failed to build regex");
         let db = IMDBBuilder::new(opts.conf_dir.clone()).open().await?;
-        let pb_style = ProgressStyle::default_bar()
-            .template("{spinner:.green} [{elapsed_precise}] [{bar:40.cyan/blue}] {pos}/{len} ({eta}) {msg}")
-            .unwrap()
-            .progress_chars("#>-");
 
         // 收集所有符合条件的文件路径
         info!("开始扫描目录: {}", self.path);
@@ -65,7 +62,7 @@ impl SubCommandExtend for AddCommand {
         // NOTE: 由于异步 + rayon 的组合实在麻烦，这里采用了将计算拆分为多轮，避免在异步上下文中使用 rayon
         let entries = block_in_place(|| {
             let pb = ProgressBar::new(entries.len() as u64)
-                .with_style(pb_style.clone())
+                .with_style(pb_style())
                 .with_message("计算图片哈希中...");
             entries
                 .into_par_iter()
@@ -76,7 +73,7 @@ impl SubCommandExtend for AddCommand {
         info!("计算哈希值完成，共 {} 张不重复图片", entries.len());
 
         let pb = ProgressBar::new(entries.len() as u64)
-            .with_style(pb_style.clone())
+            .with_style(pb_style())
             .with_message("检查已添加图片...");
         let mut images: Vec<(String, Hash)> = vec![];
         for (hash, filename) in entries.into_iter().progress_with(pb) {
@@ -88,7 +85,7 @@ impl SubCommandExtend for AddCommand {
 
         // 创建进度条
         let pb = ProgressBar::new(images.len() as u64)
-            .with_style(pb_style.clone())
+            .with_style(pb_style())
             .with_message("添加图片中...");
 
         let (tx, mut rx) = tokio::sync::mpsc::channel(num_cpus::get());

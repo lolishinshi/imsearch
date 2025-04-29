@@ -148,9 +148,17 @@ impl ConfDir {
         unreachable!()
     }
 
-    /// 返回指定子索引文件的路径
-    pub fn index_sub_with(&self, i: usize) -> PathBuf {
-        self.0.join(format!("index.{}", i))
+    /// 返回所有子索引文件的路径
+    pub fn index_sub_all(&self) -> Vec<PathBuf> {
+        let mut paths = vec![];
+        for i in 1.. {
+            let path = self.0.join(format!("index.{}", i));
+            if !path.exists() {
+                break;
+            }
+            paths.push(path);
+        }
+        paths
     }
 
     /// 返回索引模板文件的路径

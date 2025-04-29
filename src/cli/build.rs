@@ -7,7 +7,7 @@ use crate::{IMDBBuilder, Opts};
 
 #[derive(Parser, Debug, Clone)]
 pub struct BuildCommand {
-    /// 使用 OnDiskInvertedLists 格式合并，注意这种格式无法再转回普通格式并且难以更新，建议仅在输出最终产物时使用
+    /// 使用 OnDiskInvertedLists 格式合并，注意这种格式添加新向量非常低效
     #[arg(long)]
     pub on_disk: bool,
     /// 构建索引时，多少张图片为一个批次

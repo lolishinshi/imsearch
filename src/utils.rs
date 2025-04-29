@@ -4,6 +4,7 @@ use std::path::Path;
 
 use anyhow::Result;
 use blake3::Hash;
+use indicatif::ProgressStyle;
 use opencv::core::*;
 use opencv::{features2d, highgui, imgcodecs, imgproc};
 
@@ -122,4 +123,13 @@ pub fn hash_file(path: impl AsRef<Path>) -> Result<Hash> {
     let mut data = vec![];
     file.read_to_end(&mut data)?;
     Ok(blake3::hash(&data))
+}
+
+pub fn pb_style() -> ProgressStyle {
+    ProgressStyle::default_bar()
+        .template(
+            "{spinner:.green} [{elapsed_precise}] [{bar:40.cyan/blue}] {pos}/{len} ({eta}) {msg}",
+        )
+        .unwrap()
+        .progress_chars("#>-")
 }

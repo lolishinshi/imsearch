@@ -128,6 +128,18 @@ where
     Ok(())
 }
 
+pub async fn count_image_unindexed(executor: &SqlitePool) -> Result<u64> {
+    let result = sqlx::query!(
+        r#"
+        SELECT COUNT(*) as count FROM vector_stats WHERE indexed = 0
+        "#,
+    )
+    .fetch_one(executor)
+    .await?;
+
+    Ok(result.count as u64)
+}
+
 /// 获取未索引的向量列表
 pub async fn get_vectors_unindexed(
     executor: &SqlitePool,

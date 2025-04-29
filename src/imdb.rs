@@ -5,6 +5,7 @@ use std::time::Instant;
 
 use anyhow::Result;
 use futures::prelude::*;
+use indicatif::{ProgressBar, ProgressIterator};
 use log::{Level, debug, info, log_enabled, warn};
 use ndarray::prelude::*;
 use opencv::core::{Mat, MatTraitConstManual};
@@ -15,7 +16,7 @@ use tokio::task::block_in_place;
 use crate::config::ConfDir;
 use crate::db::*;
 use crate::faiss::{FaissIndex, FaissOnDiskInvLists, FaissSearchParams, Neighbor};
-use crate::utils;
+use crate::utils::{self, pb_style};
 
 #[derive(Debug, Clone)]
 pub struct IMDBBuilder {
@@ -113,6 +114,13 @@ impl IMDB {
     ///
     /// * `chunk_size` - 每次添加到索引的**图片**数量
     pub async fn build_index(&self, chunk_size: usize) -> Result<()> {
+        info!("正在计算未索引的图片数量……");
+        let image_unindexed = crud::count_image_unindexed(&self.db).await?;
+
+        let pb = ProgressBar::new(image_unindexed as u64).with_style(pb_style());
+        pb.set_message("正在构建索引...");
+
+        let mut processed = 0;
         while let Ok(chunk) = crud::get_vectors_unindexed(&self.db, chunk_size, 0).await {
             if chunk.is_empty() {
                 break;
@@ -135,8 +143,6 @@ impl IMDB {
                 images.push(record.id);
             }
 
-            info!("构建索引: {}", features.len());
-
             block_in_place(|| {
                 index.add_with_ids(features.features(), features.ids());
                 index.write_file(self.conf_dir.index_tmp());
@@ -144,7 +150,12 @@ impl IMDB {
 
             crud::set_indexed_batch(&self.db, &images).await?;
             std::fs::rename(self.conf_dir.index_tmp(), self.conf_dir.index_sub())?;
+
+            processed += images.len();
+            pb.set_position(processed as u64);
         }
+
+        pb.finish_with_message("索引构建完成");
 
         if *self.ondisk.read().unwrap() {
             if self.conf_dir.ondisk_ivf().exists() {
@@ -164,18 +175,18 @@ impl IMDB {
     fn merge_index_on_memory(&self) -> Result<()> {
         info!("在内存中合并所有索引……");
         let mut index = self.get_index();
+        let sub_index_files = self.conf_dir.index_sub_all();
         let mut files = vec![];
-        for i in 1.. {
-            let index_file = self.conf_dir.index_sub_with(i);
+        for index_file in sub_index_files.iter().progress_with_style(pb_style()) {
             if !index_file.exists() {
                 break;
             }
             let sub_index = FaissIndex::from_file(index_file.to_str().unwrap(), false);
-            info!("合并索引: {} + {}", index.ntotal(), sub_index.ntotal());
             block_in_place(|| index.merge_from(&sub_index, 0));
             files.push(index_file);
         }
 
+        info!("保存索引……");
         block_in_place(|| index.write_file(self.conf_dir.index()));
 
         for file in files {
@@ -193,8 +204,7 @@ impl IMDB {
 
         let mut invfs = vec![];
         let mut files = vec![];
-        for i in 1.. {
-            let index_file = self.conf_dir.index_sub_with(i);
+        for index_file in self.conf_dir.index_sub_all() {
             if !index_file.exists() {
                 break;
             }
@@ -444,10 +454,6 @@ impl FeatureWithId {
         self.0.push(id);
         let mat = Mat::from_slice(feature).unwrap();
         self.1.push_back(&mat).unwrap();
-    }
-
-    pub fn len(&self) -> usize {
-        self.0.len()
     }
 
     pub fn features(&self) -> &Mat {
