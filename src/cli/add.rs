@@ -29,6 +29,9 @@ pub struct AddCommand {
     /// 例：`/path/to/image/(?<name>[0-9]+).jpg`
     #[arg(short, long, verbatim_doc_comment)]
     pub regex: Option<String>,
+    /// 最少特征点，低于该值的图片会被过滤
+    #[arg(short, long, default_value_t = 250)]
+    pub min_keypoints: u32,
 }
 
 impl SubCommandExtend for AddCommand {
@@ -109,10 +112,11 @@ impl SubCommandExtend for AddCommand {
 
         let task2 = tokio::spawn({
             let pb = pb.clone();
+            let min_keypoints = self.min_keypoints as i32;
             async move {
                 while let Some((image, hash, des)) = rx.recv().await {
-                    if des.rows() <= 10 {
-                        pb.println(format!("特征点少于 10: {}", image));
+                    if des.rows() <= min_keypoints {
+                        pb.println(format!("特征点少于 {}: {}", min_keypoints, image));
                         continue;
                     }
 
