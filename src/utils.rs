@@ -22,6 +22,15 @@ pub fn detect_and_compute(
     Ok((kps, des))
 }
 
+pub fn imdecode(buf: &[u8], max_width: u32) -> Result<Mat> {
+    let mat = Mat::from_slice(buf)?;
+    let mut img = imgcodecs::imdecode(&mat, imgcodecs::IMREAD_GRAYSCALE)?;
+    if img.cols() > max_width as i32 {
+        img = adjust_image_size(&img, max_width as i32)?;
+    }
+    Ok(img)
+}
+
 pub fn imread<S: AsRef<str>>(filename: S, max_width: u32) -> Result<Mat> {
     let mut img = imgcodecs::imread(filename.as_ref(), imgcodecs::IMREAD_GRAYSCALE)?;
     if img.cols() > max_width as i32 {

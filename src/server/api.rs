@@ -119,8 +119,7 @@ pub async fn add_image_handler(
         }
         let des = block_in_place(|| -> Result<_> {
             let mut orb = Slam3ORB::from(&state.orb);
-            let mat = Mat::from_slice(&file.contents)?;
-            let img = imgcodecs::imdecode(&mat, imgcodecs::IMREAD_GRAYSCALE)?;
+            let img = utils::imdecode(&file.contents, state.orb.img_max_width)?;
             let (_, des) = utils::detect_and_compute(&mut orb, &img)?;
             Ok(des)
         })?;

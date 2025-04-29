@@ -55,6 +55,7 @@ pub struct ReloadRequest {
 #[derive(Debug, TryFromMultipart)]
 pub struct AddImageRequest {
     pub file: Vec<FieldData<Bytes>>,
+    pub min_keypoints: Option<u32>,
 }
 
 #[derive(Debug, ToSchema)]
@@ -63,6 +64,9 @@ pub struct AddImageForm {
     /// 上传的图片文件，可以是多张图片。主要需要包含文件名，否则无法插入数据库。
     #[schema(format = Binary, content_media_type = "application/octet-stream")]
     pub file: String,
+    /// 最少特征点，低于该值的图片会被过滤
+    #[schema(default = 250)]
+    pub min_keypoints: Option<u32>,
 }
 
 #[derive(Debug, Deserialize, ToSchema)]
