@@ -1,6 +1,5 @@
 use std::collections::HashMap;
 
-use blake3::Hash;
 use clap::Parser;
 use indicatif::{ParallelProgressIterator, ProgressBar, ProgressIterator};
 use log::info;
@@ -10,11 +9,11 @@ use regex::Regex;
 use tokio::task::{block_in_place, spawn_blocking};
 use walkdir::WalkDir;
 
+use crate::IMDBBuilder;
 use crate::cli::SubCommandExtend;
 use crate::config::{Opts, OrbOptions};
 use crate::orb::*;
-use crate::utils::pb_style;
-use crate::{IMDBBuilder, utils};
+use crate::utils::{ImageHash, pb_style};
 
 #[derive(Parser, Debug, Clone)]
 pub struct AddCommand {
@@ -32,6 +31,13 @@ pub struct AddCommand {
     /// 最少特征点，低于该值的图片会被过滤
     #[arg(short, long, default_value_t = 250)]
     pub min_keypoints: u32,
+    // FIXME: 如何确保用户一直在使用相同的哈希算法？
+    /// 图片去重使用的哈希算法
+    #[arg(short = 'H', long, default_value = "blake3")]
+    pub hash: ImageHash,
+    /// 将没有添加的图片列表保存到指定文件
+    #[arg(short = 'F', long)]
+    pub fail_list: Option<String>,
 }
 
 impl SubCommandExtend for AddCommand {
@@ -70,7 +76,7 @@ impl SubCommandExtend for AddCommand {
             entries
                 .into_par_iter()
                 .progress_with(pb)
-                .filter_map(|entry| utils::hash_file(&entry).ok().map(|hash| (hash, entry)))
+                .filter_map(|entry| self.hash.hash_file(&entry).ok().map(|hash| (hash, entry)))
                 .collect::<HashMap<_, _>>()
         });
         info!("计算哈希值完成，共 {} 张不重复图片", entries.len());
@@ -78,9 +84,9 @@ impl SubCommandExtend for AddCommand {
         let pb = ProgressBar::new(entries.len() as u64)
             .with_style(pb_style())
             .with_message("检查已添加图片...");
-        let mut images: Vec<(String, Hash)> = vec![];
+        let mut images: Vec<(String, Vec<u8>)> = vec![];
         for (hash, filename) in entries.into_iter().progress_with(pb) {
-            if !db.check_hash(hash.as_bytes()).await? {
+            if !db.check_hash(&hash).await? {
                 images.push((filename, hash));
             }
         }
@@ -132,7 +138,7 @@ impl SubCommandExtend for AddCommand {
                         None => image,
                     };
 
-                    if let Err(e) = db.add_image(&path, hash.as_bytes(), des).await {
+                    if let Err(e) = db.add_image(&path, &hash, des).await {
                         pb.println(format!("添加图片失败: {}: {}", path, e));
                     }
                 }

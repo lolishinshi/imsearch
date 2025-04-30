@@ -3,6 +3,7 @@ use axum_typed_multipart::{FieldData, TryFromMultipart};
 use serde::{Deserialize, Serialize};
 use utoipa::ToSchema;
 
+use crate::utils::ImageHash;
 /// 搜索请求参数
 #[derive(TryFromMultipart)]
 pub struct SearchRequest {
@@ -55,7 +56,10 @@ pub struct ReloadRequest {
 #[derive(Debug, TryFromMultipart)]
 pub struct AddImageRequest {
     pub file: Vec<FieldData<Bytes>>,
+    #[form_data(default)]
     pub min_keypoints: Option<u32>,
+    #[form_data(default)]
+    pub hash: Option<ImageHash>,
 }
 
 #[derive(Debug, ToSchema)]
@@ -67,6 +71,9 @@ pub struct AddImageForm {
     /// 最少特征点，低于该值的图片会被过滤
     #[schema(default = 250)]
     pub min_keypoints: Option<u32>,
+    /// 图片去重使用的哈希算法
+    #[schema(default = "blake3")]
+    pub hash: Option<ImageHash>,
 }
 
 #[derive(Debug, Deserialize, ToSchema)]

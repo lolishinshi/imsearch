@@ -1,6 +1,6 @@
 [package]
 name = "imsearch"
-version = "2.1.0"
+version = "2.2.0-alpha.1"
 edition = "2024"
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
@@ -50,6 +50,7 @@ features = [
     "flann",
     "imgcodecs",
     "imgproc",
+    "img_hash",
 ]
 
 [dependencies.rocksdb]
@@ -61,3 +62,6 @@ features = ["lz4", "zstd", "multi-threaded-cf"]
 [features]
 default = []
 rocksdb = ["dep:rocksdb"]
+
+[dev-dependencies]
+usearch = { version = "2.17.7", features = ["openmp"] }

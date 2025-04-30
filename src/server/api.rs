@@ -102,6 +102,8 @@ pub async fn add_image_handler(
     State(state): State<Arc<AppState>>,
     data: TypedMultipart<AddImageRequest>,
 ) -> Result<Json<Value>> {
+    let hash = data.hash.unwrap_or_default();
+
     for file in &data.file {
         let file_name = match &file.metadata.file_name {
             Some(file_name) => file_name,
@@ -110,8 +112,8 @@ pub async fn add_image_handler(
             }
         };
 
-        let hash = blake3::hash(&file.contents);
-        if state.db.check_hash(hash.as_bytes()).await? {
+        let hash = hash.hash_bytes(&file.contents)?;
+        if state.db.check_hash(&hash).await? {
             continue;
         }
         let des = block_in_place(|| -> Result<_> {
@@ -122,7 +124,7 @@ pub async fn add_image_handler(
         if des.rows() <= 10 {
             continue;
         }
-        state.db.add_image(file_name, hash.as_bytes(), des).await?;
+        state.db.add_image(file_name, &hash, des).await?;
     }
     Ok(Json(json!({})))
 }

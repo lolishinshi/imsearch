@@ -1,12 +1,14 @@
 use std::fs::File;
 use std::io::Read;
-use std::path::Path;
 
 use anyhow::Result;
-use blake3::Hash;
+use axum_typed_multipart::TryFromField;
+use clap::ValueEnum;
 use indicatif::ProgressStyle;
 use opencv::core::*;
+use opencv::img_hash::p_hash;
 use opencv::{features2d, highgui, imgcodecs, imgproc};
+use utoipa::ToSchema;
 
 use crate::orb::Slam3ORB;
 
@@ -129,13 +131,6 @@ pub fn wilson_score(scores: &[f32]) -> f32 {
         / (1. + z.powi(2) / count)
 }
 
-pub fn hash_file(path: impl AsRef<Path>) -> Result<Hash> {
-    let mut file = File::open(path)?;
-    let mut data = vec![];
-    file.read_to_end(&mut data)?;
-    Ok(blake3::hash(&data))
-}
-
 pub fn pb_style() -> ProgressStyle {
     ProgressStyle::default_bar()
         .template(
@@ -143,4 +138,51 @@ pub fn pb_style() -> ProgressStyle {
         )
         .unwrap()
         .progress_chars("#>-")
+}
+
+#[derive(Debug, Clone, Copy, ValueEnum, ToSchema, TryFromField)]
+pub enum ImageHash {
+    #[schema(rename = "blake3")]
+    Blake3,
+    #[schema(rename = "phash")]
+    Phash,
+}
+
+impl ImageHash {
+    pub fn hash_file(&self, path: &str) -> Result<Vec<u8>> {
+        match self {
+            Self::Blake3 => {
+                let mut file = File::open(path)?;
+                let mut data = vec![];
+                file.read_to_end(&mut data)?;
+                Ok(blake3::hash(&data).as_bytes().to_vec())
+            }
+            Self::Phash => {
+                let img = imgcodecs::imread(path, imgcodecs::IMREAD_ANYCOLOR)?;
+                let mut output_arr = Mat::default();
+                p_hash(&img, &mut output_arr)?;
+                let hash = output_arr.data_bytes()?;
+                Ok(hash.to_vec())
+            }
+        }
+    }
+
+    pub fn hash_bytes(&self, data: &[u8]) -> Result<Vec<u8>> {
+        match self {
+            Self::Blake3 => Ok(blake3::hash(data).as_bytes().to_vec()),
+            Self::Phash => {
+                let img = Mat::from_slice(data)?;
+                let mut output_arr = Mat::default();
+                p_hash(&img, &mut output_arr)?;
+                let hash = output_arr.data_bytes()?;
+                Ok(hash.to_vec())
+            }
+        }
+    }
+}
+
+impl Default for ImageHash {
+    fn default() -> Self {
+        Self::Blake3
+    }
 }

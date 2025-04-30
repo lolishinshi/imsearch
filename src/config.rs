@@ -45,7 +45,7 @@ pub struct OrbOptions {
     #[arg(short = 'S', long, value_name = "HEIGHTxWIDHT", value_parser = parse_size, verbatim_doc_comment, default_value = "1080x768")]
     pub max_size: (i32, i32),
     /// 图片最大长宽比例，超过这个比例的图片，会按比例增加特征点数量
-    #[arg(short = 'A', long, default_value_t = 3.)]
+    #[arg(short = 'A', long, default_value_t = 5.)]
     pub max_aspect_ratio: f32,
 }
 

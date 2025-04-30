@@ -1,5 +1,9 @@
 # Changelog
 
+## 未发布
+
+- 允许使用 blake3 以外的哈希算法去重
+
 ## [2.1.0] - 2025-04-30
 
 - ORB 特征点提取增加 `--max-size` 和 `--max-aspect-ratio` 参数
