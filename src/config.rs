@@ -8,7 +8,6 @@ use directories::ProjectDirs;
 use opencv::imgproc::InterpolationFlags;
 
 use crate::cli::*;
-use crate::orb::Slam3ORB;
 
 static CONF_DIR: LazyLock<ConfDir> = LazyLock::new(|| {
     let proj_dirs = ProjectDirs::from("", "aloxaf", "imsearch").expect("failed to get project dir");
@@ -42,10 +41,12 @@ pub struct OrbOptions {
     /// ORB 特征点是否不需要方向信息
     #[arg(long)]
     pub orb_not_oriented: bool,
-    /// 图片最大宽度，超过宽度会等比缩放
-    /// 漫画尺寸一般为 B4，长宽比 1.4。1080p 下，B4 的宽度大约为 768
-    #[arg(long, default_value_t = 768, verbatim_doc_comment)]
-    pub img_max_width: u32,
+    /// 图片最大尺寸，如果宽高**均**超过这个尺寸，则等比缩放
+    #[arg(short = 'S', long, value_parser = parse_size, verbatim_doc_comment, default_value = "768x1080")]
+    pub max_size: (i32, i32),
+    /// 图片最大长宽比例，超过这个比例的图片，会按比例增加特征点数量
+    #[arg(short = 'A', long, default_value_t = 3.)]
+    pub max_aspect_ratio: f32,
 }
 
 #[derive(Parser, Debug, Clone)]
@@ -101,21 +102,6 @@ pub enum SubCommand {
     #[cfg(feature = "rocksdb")]
     /// 从 rocksdb 格式的旧数据库中更新为新的数据库格式
     UpdateDB(UpdateDBCommand),
-}
-
-impl From<&OrbOptions> for Slam3ORB {
-    fn from(opts: &OrbOptions) -> Self {
-        Self::create(
-            opts.orb_nfeatures as i32,
-            opts.orb_scale_factor,
-            opts.orb_nlevels as i32,
-            opts.orb_ini_th_fast as i32,
-            opts.orb_min_th_fast as i32,
-            opts.orb_interpolation,
-            !opts.orb_not_oriented,
-        )
-        .expect("failed to build Slam3Orb")
-    }
 }
 
 #[derive(Debug, Clone)]
@@ -187,6 +173,14 @@ impl FromStr for ConfDir {
     fn from_str(s: &str) -> Result<Self, Self::Err> {
         Ok(Self(PathBuf::from(s)))
     }
+}
+
+fn parse_size(s: &str) -> anyhow::Result<(i32, i32)> {
+    let parts: Vec<&str> = s.split('x').collect();
+    if parts.len() != 2 {
+        return Err(anyhow::anyhow!("无效的尺寸: {}", s));
+    }
+    Ok((parts[0].parse()?, parts[1].parse()?))
 }
 
 fn parse_interpolation(s: &str) -> Result<InterpolationFlags, String> {

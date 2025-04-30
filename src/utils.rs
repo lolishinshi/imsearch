@@ -13,7 +13,7 @@ use crate::orb::Slam3ORB;
 pub fn detect_and_compute(
     orb: &mut Slam3ORB,
     image: &impl ToInputArray,
-) -> Result<(Vector<KeyPoint>, Mat)> {
+) -> opencv::Result<(Vector<KeyPoint>, Mat)> {
     let mask = Mat::default();
     let lap = Vector::<i32>::from(vec![0, 0]);
     let mut kps = Vector::<KeyPoint>::new();
@@ -22,24 +22,24 @@ pub fn detect_and_compute(
     Ok((kps, des))
 }
 
-pub fn imdecode(buf: &[u8], max_width: u32) -> Result<Mat> {
+pub fn imdecode(buf: &[u8], (width, height): (i32, i32)) -> opencv::Result<Mat> {
     let mat = Mat::from_slice(buf)?;
     let mut img = imgcodecs::imdecode(&mat, imgcodecs::IMREAD_GRAYSCALE)?;
-    if img.cols() > max_width as i32 {
-        img = adjust_image_size(&img, max_width as i32)?;
+    if img.cols() > width && img.rows() > height {
+        img = adjust_image_size(img, (width, height))?;
     }
     Ok(img)
 }
 
-pub fn imread<S: AsRef<str>>(filename: S, max_width: u32) -> Result<Mat> {
+pub fn imread<S: AsRef<str>>(filename: S, (width, height): (i32, i32)) -> opencv::Result<Mat> {
     let mut img = imgcodecs::imread(filename.as_ref(), imgcodecs::IMREAD_GRAYSCALE)?;
-    if img.cols() > max_width as i32 {
-        img = adjust_image_size(&img, max_width as i32)?;
+    if img.cols() > width && img.rows() > height {
+        img = adjust_image_size(img, (width, height))?;
     }
     Ok(img)
 }
 
-pub fn imshow(winname: &str, mat: &impl ToInputArray) -> Result<()> {
+pub fn imshow(winname: &str, mat: &impl ToInputArray) -> opencv::Result<()> {
     highgui::imshow(winname, mat)?;
     while highgui::get_window_property(
         winname,
@@ -51,20 +51,20 @@ pub fn imshow(winname: &str, mat: &impl ToInputArray) -> Result<()> {
     Ok(())
 }
 
-pub fn imwrite(filename: &str, img: &impl ToInputArray) -> Result<bool> {
+pub fn imwrite(filename: &str, img: &impl ToInputArray) -> opencv::Result<bool> {
     let flags = Vector::<i32>::new();
-    Ok(imgcodecs::imwrite(filename, img, &flags)?)
+    imgcodecs::imwrite(filename, img, &flags)
 }
 
-// 调整图片的最大宽度，同时保持长宽比
-pub fn adjust_image_size(img: &Mat, width: i32) -> Result<Mat> {
-    if img.cols() <= width {
-        return Ok(img.clone());
+// 在长宽比例中，选择最大的进行缩放
+pub fn adjust_image_size(img: Mat, (width, height): (i32, i32)) -> opencv::Result<Mat> {
+    let scale = (width as f64 / img.cols() as f64).max(height as f64 / img.rows() as f64);
+    if scale >= 1. {
+        return Ok(img);
     }
-    let scale = width as f64 / img.cols() as f64;
     let mut output = Mat::default();
     imgproc::resize(
-        img,
+        &img,
         &mut output,
         Size::default(),
         scale,
@@ -74,7 +74,10 @@ pub fn adjust_image_size(img: &Mat, width: i32) -> Result<Mat> {
     Ok(output)
 }
 
-pub fn draw_keypoints(image: &impl ToInputArray, keypoints: &Vector<KeyPoint>) -> Result<Mat> {
+pub fn draw_keypoints(
+    image: &impl ToInputArray,
+    keypoints: &Vector<KeyPoint>,
+) -> opencv::Result<Mat> {
     let mut output = Mat::default();
     features2d::draw_keypoints(
         image,
@@ -93,7 +96,7 @@ pub fn draw_matches_knn(
     keypoints2: &Vector<KeyPoint>,
     matches1to2: &Vector<Vector<DMatch>>,
     matches_mask: &Vector<Vector<i8>>,
-) -> Result<Mat> {
+) -> opencv::Result<Mat> {
     let mut output = Mat::default();
     features2d::draw_matches_knn(
         img1,

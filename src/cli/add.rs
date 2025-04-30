@@ -95,12 +95,9 @@ impl SubCommandExtend for AddCommand {
 
         let task1 = spawn_blocking({
             let pb = pb.clone();
-            let max_width = self.orb.img_max_width;
             move || {
                 images.into_par_iter().progress_with(pb.clone()).for_each(|(image, hash)| {
-                    if let Ok((_, des)) = utils::imread(&image, max_width).and_then(|image| {
-                        ORB.with(|orb| utils::detect_and_compute(&mut orb.borrow_mut(), &image))
-                    }) {
+                    if let Ok((_, _, des)) = ORB.with(|orb| orb.borrow_mut().detect_file(&image)) {
                         pb.set_message(image.clone());
                         tx.blocking_send((image, hash, des)).unwrap();
                     } else {

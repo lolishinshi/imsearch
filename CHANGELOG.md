@@ -2,6 +2,7 @@
 
 ## [未发布]
 
+- ORB 特征点提取增加 `--max-size` 和 `--max-aspect-ratio` 参数
 - `add` 增加 `--min-keypoints`
 - 改进图片缩放逻辑为按宽度缩放
 - `export` 命令无视图片是否已经索引

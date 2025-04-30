@@ -1,12 +1,13 @@
 use anyhow::Result;
 use clap::Parser;
+use log::info;
 use opencv::core::*;
-use opencv::prelude::DescriptorMatcherTraitConst;
+use opencv::prelude::*;
 use opencv::{features2d, flann};
 
 use crate::cli::SubCommandExtend;
 use crate::config::{Opts, OrbOptions};
-use crate::orb::Slam3ORB;
+use crate::orb::ORBDetector;
 use crate::utils;
 
 #[derive(Parser, Debug, Clone)]
@@ -23,12 +24,14 @@ pub struct MatchCommand {
 
 impl SubCommandExtend for MatchCommand {
     async fn run(&self, _opts: &Opts) -> Result<()> {
-        let img1 = utils::imread(&self.image1, self.orb.img_max_width)?;
-        let img2 = utils::imread(&self.image2, self.orb.img_max_width)?;
+        let mut orb = ORBDetector::create(self.orb.clone());
+        let (img1, kps1, des1) = orb.detect_file(&self.image1)?;
+        let (img2, kps2, des2) = orb.detect_file(&self.image2)?;
 
-        let mut orb = Slam3ORB::from(&self.orb);
-        let (kps1, des1) = utils::detect_and_compute(&mut orb, &img1)?;
-        let (kps2, des2) = utils::detect_and_compute(&mut orb, &img2)?;
+        info!("图像1大小: {}x{}", img1.cols(), img1.rows());
+        info!("特征点数量: {}", kps1.len());
+        info!("图像2大小: {}x{}", img2.cols(), img2.rows());
+        info!("特征点数量: {}", kps2.len());
 
         let mut matches = Vector::<Vector<DMatch>>::new();
         let mask = Mat::default();

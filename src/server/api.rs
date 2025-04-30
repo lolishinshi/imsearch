@@ -5,7 +5,6 @@ use axum::Json;
 use axum::extract::State;
 use axum_typed_multipart::TypedMultipart;
 use log::info;
-use opencv::imgcodecs;
 use opencv::prelude::*;
 use rayon::prelude::*;
 use serde_json::{Value, json};
@@ -16,7 +15,7 @@ use super::state::AppState;
 use super::types::*;
 use crate::config::OrbOptions;
 use crate::faiss::{FaissSearchParams, get_faiss_stats, reset_faiss_stats};
-use crate::{Slam3ORB, utils};
+use crate::orb::ORBDetector;
 
 /// 搜索一张图片
 #[utoipa::path(
@@ -50,10 +49,8 @@ pub async fn search_handler(
         data.file
             .par_iter()
             .map(|file| {
-                let mut orb = Slam3ORB::from(&orb);
-                let mat = Mat::from_slice(file)?;
-                let img = imgcodecs::imdecode(&mat, imgcodecs::IMREAD_GRAYSCALE)?;
-                let (_, des) = utils::detect_and_compute(&mut orb, &img)?;
+                let mut orb = ORBDetector::create(orb.clone());
+                let (_, _, des) = orb.detect_bytes(file)?;
                 Ok(des)
             })
             .collect::<Result<Vec<_>>>()
@@ -118,9 +115,8 @@ pub async fn add_image_handler(
             continue;
         }
         let des = block_in_place(|| -> Result<_> {
-            let mut orb = Slam3ORB::from(&state.orb);
-            let img = utils::imdecode(&file.contents, state.orb.img_max_width)?;
-            let (_, des) = utils::detect_and_compute(&mut orb, &img)?;
+            let mut orb = ORBDetector::create(state.orb.clone());
+            let (_, _, des) = orb.detect_bytes(&file.contents)?;
             Ok(des)
         })?;
         if des.rows() <= 10 {

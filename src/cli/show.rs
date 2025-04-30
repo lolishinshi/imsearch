@@ -1,9 +1,11 @@
 use anyhow::Result;
 use clap::Parser;
+use log::info;
+use opencv::prelude::*;
 
 use crate::cli::SubCommandExtend;
 use crate::config::{Opts, OrbOptions};
-use crate::orb::Slam3ORB;
+use crate::orb::ORBDetector;
 use crate::utils;
 
 #[derive(Parser, Debug, Clone)]
@@ -18,10 +20,11 @@ pub struct ShowCommand {
 
 impl SubCommandExtend for ShowCommand {
     async fn run(&self, _opts: &Opts) -> Result<()> {
-        let image = utils::imread(&self.image, self.orb.img_max_width)?;
+        let mut orb = ORBDetector::create(self.orb.clone());
+        let (image, kps, _) = orb.detect_file(&self.image)?;
+        info!("图像大小: {}x{}", image.cols(), image.rows());
+        info!("特征点数量: {}", kps.len());
 
-        let mut orb = Slam3ORB::from(&self.orb);
-        let (kps, _) = utils::detect_and_compute(&mut orb, &image)?;
         let output = utils::draw_keypoints(&image, &kps)?;
 
         match &self.output {

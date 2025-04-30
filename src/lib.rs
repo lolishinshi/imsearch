@@ -11,4 +11,3 @@ pub mod utils;
 
 pub use config::Opts;
 pub use imdb::{IMDB, IMDBBuilder};
-pub use orb::Slam3ORB;

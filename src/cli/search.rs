@@ -6,11 +6,11 @@ use clap::{Parser, ValueEnum};
 use log::debug;
 use tokio::task::block_in_place;
 
+use crate::IMDBBuilder;
 use crate::cli::SubCommandExtend;
 use crate::config::{Opts, OrbOptions, SearchOptions};
 use crate::faiss::{FaissSearchParams, get_faiss_stats};
-use crate::orb::Slam3ORB;
-use crate::{IMDBBuilder, utils};
+use crate::orb::ORBDetector;
 
 #[derive(Parser, Debug, Clone)]
 pub struct SearchCommand {
@@ -27,11 +27,8 @@ pub struct SearchCommand {
 
 impl SubCommandExtend for SearchCommand {
     async fn run(&self, opts: &Opts) -> anyhow::Result<()> {
-        let mut orb = Slam3ORB::from(&self.orb);
-        let (_, des) = block_in_place(|| {
-            utils::imread(&self.image, self.orb.img_max_width)
-                .and_then(|image| utils::detect_and_compute(&mut orb, &image))
-        })?;
+        let mut orb = ORBDetector::create(self.orb.clone());
+        let (_, _, des) = block_in_place(|| orb.detect_file(&self.image))?;
 
         let db = IMDBBuilder::new(opts.conf_dir.clone()).mmap(!self.search.no_mmap).open().await?;
         let index = db.get_index();

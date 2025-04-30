@@ -1,4 +1,5 @@
 use std::cell::RefCell;
+use std::collections::HashMap;
 use std::ffi::c_void;
 use std::sync::OnceLock;
 
@@ -8,12 +9,13 @@ use opencv::imgproc::InterpolationFlags;
 use orb_slam3_sys::*;
 
 use crate::config::OrbOptions;
+use crate::utils;
 
 // 注意：ORB_OPTIONS 必须在 ORB 之前初始化
 pub static ORB_OPTIONS: OnceLock<OrbOptions> = OnceLock::new();
 
 thread_local! {
-    pub static ORB: RefCell<Slam3ORB> = RefCell::new(Slam3ORB::from(ORB_OPTIONS.get().unwrap()));
+    pub static ORB: RefCell<ORBDetector> = RefCell::new(ORBDetector::create(ORB_OPTIONS.get().unwrap().clone()));
 }
 
 // OpenCV 的辅助宏
@@ -112,3 +114,61 @@ impl Drop for Slam3ORB {
 
 unsafe impl Sync for Slam3ORB {}
 unsafe impl Send for Slam3ORB {}
+
+pub struct ORBDetector {
+    orb: HashMap<i32, Slam3ORB>,
+    opts: OrbOptions,
+}
+
+impl ORBDetector {
+    pub fn create(options: OrbOptions) -> Self {
+        Self { orb: HashMap::new(), opts: options }
+    }
+
+    fn get_nfeatures(&self, image: &Mat) -> i32 {
+        // 如果长宽都小于最大尺寸，则使用默认的特征点数量
+        if image.cols() < self.opts.max_size.0 && image.rows() < self.opts.max_size.1 {
+            return self.opts.orb_nfeatures as i32;
+        }
+        // 否则按 aspect_ratio 等比增加，最小幅度 10%
+        let min = image.cols().min(image.rows());
+        let max = image.cols().max(image.rows());
+        let aspect_ratio = max as f32 / min as f32;
+        if aspect_ratio > self.opts.max_aspect_ratio {
+            return (self.opts.orb_nfeatures as f32
+                * (aspect_ratio / self.opts.max_aspect_ratio * 10.).round()
+                / 10.) as i32;
+        }
+        self.opts.orb_nfeatures as i32
+    }
+
+    fn get_orb(&mut self, image: &Mat) -> &mut Slam3ORB {
+        let nfeatures = self.get_nfeatures(image);
+        self.orb.entry(nfeatures).or_insert_with(|| {
+            Slam3ORB::create(
+                nfeatures,
+                self.opts.orb_scale_factor,
+                self.opts.orb_nlevels as i32,
+                self.opts.orb_ini_th_fast as i32,
+                self.opts.orb_min_th_fast as i32,
+                self.opts.orb_interpolation,
+                !self.opts.orb_not_oriented,
+            )
+            .unwrap()
+        })
+    }
+
+    pub fn detect_file(&mut self, path: &str) -> Result<(Mat, Vector<KeyPoint>, Mat)> {
+        let image = utils::imread(path, self.opts.max_size)?;
+        let orb = self.get_orb(&image);
+        let (keypoints, descriptors) = utils::detect_and_compute(orb, &image)?;
+        Ok((image, keypoints, descriptors))
+    }
+
+    pub fn detect_bytes(&mut self, bytes: &[u8]) -> Result<(Mat, Vector<KeyPoint>, Mat)> {
+        let image = utils::imdecode(bytes, self.opts.max_size)?;
+        let orb = self.get_orb(&image);
+        let (keypoints, descriptors) = utils::detect_and_compute(orb, &image)?;
+        Ok((image, keypoints, descriptors))
+    }
+}
