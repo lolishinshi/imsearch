@@ -42,7 +42,7 @@ pub struct OrbOptions {
     #[arg(long)]
     pub orb_not_oriented: bool,
     /// 图片最大尺寸，如果宽高**均**超过这个尺寸，则等比缩放
-    #[arg(short = 'S', long, value_parser = parse_size, verbatim_doc_comment, default_value = "768x1080")]
+    #[arg(short = 'S', long, value_name = "HEIGHTxWIDHT", value_parser = parse_size, verbatim_doc_comment, default_value = "1080x768")]
     pub max_size: (i32, i32),
     /// 图片最大长宽比例，超过这个比例的图片，会按比例增加特征点数量
     #[arg(short = 'A', long, default_value_t = 3.)]

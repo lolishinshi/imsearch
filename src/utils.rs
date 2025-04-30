@@ -22,19 +22,19 @@ pub fn detect_and_compute(
     Ok((kps, des))
 }
 
-pub fn imdecode(buf: &[u8], (width, height): (i32, i32)) -> opencv::Result<Mat> {
+pub fn imdecode(buf: &[u8], (height, width): (i32, i32)) -> opencv::Result<Mat> {
     let mat = Mat::from_slice(buf)?;
     let mut img = imgcodecs::imdecode(&mat, imgcodecs::IMREAD_GRAYSCALE)?;
     if img.cols() > width && img.rows() > height {
-        img = adjust_image_size(img, (width, height))?;
+        img = adjust_image_size(img, (height, width))?;
     }
     Ok(img)
 }
 
-pub fn imread<S: AsRef<str>>(filename: S, (width, height): (i32, i32)) -> opencv::Result<Mat> {
+pub fn imread<S: AsRef<str>>(filename: S, (height, width): (i32, i32)) -> opencv::Result<Mat> {
     let mut img = imgcodecs::imread(filename.as_ref(), imgcodecs::IMREAD_GRAYSCALE)?;
     if img.cols() > width && img.rows() > height {
-        img = adjust_image_size(img, (width, height))?;
+        img = adjust_image_size(img, (height, width))?;
     }
     Ok(img)
 }
@@ -57,7 +57,7 @@ pub fn imwrite(filename: &str, img: &impl ToInputArray) -> opencv::Result<bool> 
 }
 
 // 在长宽比例中，选择最大的进行缩放
-pub fn adjust_image_size(img: Mat, (width, height): (i32, i32)) -> opencv::Result<Mat> {
+pub fn adjust_image_size(img: Mat, (height, width): (i32, i32)) -> opencv::Result<Mat> {
     let scale = (width as f64 / img.cols() as f64).max(height as f64 / img.rows() as f64);
     if scale >= 1. {
         return Ok(img);
