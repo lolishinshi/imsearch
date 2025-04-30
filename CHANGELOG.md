@@ -1,6 +1,6 @@
 # Changelog
 
-## [未发布]
+## [2.1.0] - 2025-04-30
 
 - ORB 特征点提取增加 `--max-size` 和 `--max-aspect-ratio` 参数
 - `add` 增加 `--min-keypoints`
