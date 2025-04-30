@@ -4,7 +4,7 @@ use std::sync::Mutex;
 
 use clap::Parser;
 use imsearch::utils::{ImageHash, pb_style};
-use indicatif::{ParallelProgressIterator, ProgressIterator};
+use indicatif::{ParallelProgressIterator, ProgressBar, ProgressIterator};
 use log::info;
 use rayon::prelude::*;
 use regex::Regex;
@@ -15,7 +15,7 @@ use walkdir::WalkDir;
 #[derive(Parser)]
 pub struct Args {
     /// 包含图片的目录路径
-    path: String,
+    path: Vec<String>,
     /// 扫描的文件后缀名，多个后缀用逗号分隔
     #[arg(short, long, default_value = "jpg,png")]
     pub suffix: String,
@@ -35,32 +35,44 @@ fn main() {
     let re_suf = format!("(?i)({})", args.suffix.replace(',', "|"));
     let re_suf = Regex::new(&re_suf).expect("failed to build regex");
 
-    info!("开始扫描目录: {}", args.path);
-    let images = WalkDir::new(&args.path)
-        .into_iter()
-        .filter_map(|entry| {
-            entry.ok().and_then(|entry| {
-                let path = entry.path().to_path_buf();
-                if path.is_file()
-                    && re_suf.is_match(&path.extension().unwrap_or_default().to_string_lossy())
-                {
-                    path.to_str().map(|x| x.to_string())
-                } else {
-                    None
-                }
+    let images = args
+        .path
+        .iter()
+        .flat_map(|path| {
+            info!("开始扫描目录: {}", path);
+            let pb = ProgressBar::new(0);
+            pb.set_style(pb_style());
+            WalkDir::new(path).into_iter().progress_with(pb).filter_map(|entry| {
+                entry.ok().and_then(|entry| {
+                    let path = entry.path().to_path_buf();
+                    if path.is_file()
+                        && re_suf.is_match(&path.extension().unwrap_or_default().to_string_lossy())
+                    {
+                        path.to_str().map(|x| x.to_string())
+                    } else {
+                        None
+                    }
+                })
             })
         })
         .collect::<Vec<_>>();
     info!("扫描完成，共 {} 张图片", images.len());
 
-    info!("对所有图片计算感知哈希……");
+    info!("对所有图片计算 blake3 和 phash……");
     let hashes = images
-        .par_iter()
+        .into_par_iter()
         .progress_with_style(pb_style())
-        .filter_map(|image| ImageHash::Phash.hash_file(&image).ok())
-        .collect::<Vec<_>>();
+        .filter_map(|image| {
+            let b3hash = ImageHash::Blake3.hash_file(&image).ok()?;
+            let phash = ImageHash::Phash.hash_file(&image).ok()?;
+            Some((b3hash, (phash, image)))
+        })
+        .collect::<HashMap<_, _>>();
 
-    info!("开始去重……");
+    info!("blake3 去重完成，共 {} 不重复图片", hashes.len());
+    let (hashes, images): (Vec<_>, Vec<_>) = hashes.into_values().unzip();
+
+    info!("开始进行 phash 去重……");
     let options = IndexOptions {
         dimensions: 64,
         metric: MetricKind::Hamming,
@@ -92,8 +104,7 @@ fn main() {
     let duplicates = duplicates.into_inner().unwrap();
     let total = duplicates.iter().map(|(_, value)| value.len()).sum::<usize>();
 
-    info!("总共 {} 组重复图片", duplicates.len());
-    info!("总共 {} 张重复图片", total);
+    info!("phash 去重完成，共 {} 组重复图片，{} 张重复图片", duplicates.len(), total);
 
     if let Some(output) = args.output {
         let mut file = File::create(output).unwrap();
@@ -104,7 +115,7 @@ fn main() {
                 let v = value.iter().map(|i| &images[*i as usize]).collect::<Vec<_>>();
                 (k, v)
             })
-            .collect::<Vec<_>>();
+            .collect::<HashMap<_, _>>();
         serde_json::to_writer_pretty(&mut file, &duplicates).unwrap();
     }
 }
