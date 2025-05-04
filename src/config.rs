@@ -47,6 +47,9 @@ pub struct OrbOptions {
     /// 图片最大长宽比例，超过这个比例的图片，会按比例增加特征点数量
     #[arg(short = 'A', long, default_value_t = 5.)]
     pub max_aspect_ratio: f32,
+    /// 最大特征点数量
+    #[arg(long, default_value_t = 1000)]
+    pub max_features: u32,
 }
 
 #[derive(Parser, Debug, Clone)]

@@ -135,9 +135,9 @@ impl ORBDetector {
         let max = image.cols().max(image.rows());
         let aspect_ratio = max as f32 / min as f32;
         if aspect_ratio > self.opts.max_aspect_ratio {
-            return (self.opts.orb_nfeatures as f32
-                * (aspect_ratio / self.opts.max_aspect_ratio * 10.).round()
-                / 10.) as i32;
+            let ratio = aspect_ratio / self.opts.max_aspect_ratio;
+            let nfeatures = ((self.opts.orb_nfeatures as f32 * ratio * 10.).round() / 10.) as i32;
+            return nfeatures.min(self.opts.max_features as i32);
         }
         self.opts.orb_nfeatures as i32
     }
