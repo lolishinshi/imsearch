@@ -4,9 +4,23 @@
 
 ## 安装方式
 
-`cargo install --git https://github.com/lolishinshi/imsearch`
+### Docker
 
-imsearch 依赖 opencv，请确保安装了 opencv 和 cmake 等基本构建工具。
+```
+docker run -it -v ./imsearch:/root/.config/imsearch aloxaf/imsearch:latest --help
+```
+
+### 手动安装
+
+```bash
+cargo install --git https://github.com/lolishinshi/imsearch
+```
+
+依赖（以 Ubuntu 24.04 为例，不建议使用更老的版本）：
+
+```bash
+apt install cmake clang libopencv-dev libopenblas-dev
+```
 
 ## 基本用法
 
