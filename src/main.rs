@@ -14,7 +14,7 @@ async fn main() -> anyhow::Result<()> {
             );
         }
         "" => unsafe {
-            env::set_var("RUST_LOG", "imsearch=debug");
+            env::set_var("RUST_LOG", "imsearch=info");
         },
         _ => {}
     }
