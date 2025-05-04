@@ -7,13 +7,19 @@ use log::warn;
 
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
-    env_logger::init();
-
-    if env::var("RUST_LOG").unwrap_or_default() == "debug" {
-        warn!(
-            "不加限制的 debug 模式会导致导致 sqlx 等第三方库输出大量日志，建议使用 RUST_LOG=imsearch=debug"
-        );
+    match &*env::var("RUST_LOG").unwrap_or_default() {
+        "debug" => {
+            warn!(
+                "不加限制的 debug 模式会导致导致 sqlx 等第三方库输出大量日志，建议使用 RUST_LOG=imsearch=debug"
+            );
+        }
+        "" => unsafe {
+            env::set_var("RUST_LOG", "imsearch=debug");
+        },
+        _ => {}
     }
+
+    env_logger::init();
 
     let opts = Opts::parse();
 

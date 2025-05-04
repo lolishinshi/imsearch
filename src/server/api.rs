@@ -3,6 +3,7 @@ use std::time::Instant;
 
 use axum::Json;
 use axum::extract::State;
+use axum_auth::AuthBearer;
 use axum_typed_multipart::TypedMultipart;
 use log::info;
 use opencv::prelude::*;
@@ -72,12 +73,17 @@ pub async fn search_handler(
 #[utoipa::path(
     post,
     path = "/reload",
-    request_body = ReloadRequest
+    request_body = ReloadRequest,
+    security(("bearerAuth" = []))
 )]
 pub async fn reload_handler(
     State(state): State<Arc<AppState>>,
+    AuthBearer(token): AuthBearer,
     data: Json<ReloadRequest>,
 ) -> Result<()> {
+    if token != state.token {
+        return Err(anyhow::anyhow!("鉴权失败").into());
+    }
     let mut lock = state.index.write().await;
     // NOTE: 此处先释放旧索引，再重新加载新索引
     *lock = state.db.get_index_template();
@@ -96,12 +102,17 @@ pub async fn reload_handler(
 #[utoipa::path(
     post,
     path = "/add",
-    request_body(content = AddImageForm, content_type = "multipart/form-data")
+    request_body(content = AddImageForm, content_type = "multipart/form-data"),
+    security(("bearerAuth" = []))
 )]
 pub async fn add_image_handler(
     State(state): State<Arc<AppState>>,
+    AuthBearer(token): AuthBearer,
     data: TypedMultipart<AddImageRequest>,
 ) -> Result<Json<Value>> {
+    if token != state.token {
+        return Err(anyhow::anyhow!("鉴权失败").into());
+    }
     let hash = data.hash.unwrap_or_default();
 
     for file in &data.file {
@@ -133,12 +144,17 @@ pub async fn add_image_handler(
 #[utoipa::path(
     post,
     path = "/build",
-    request_body = BuildRequest
+    request_body = BuildRequest,
+    security(("bearerAuth" = []))
 )]
 pub async fn build_handler(
     State(state): State<Arc<AppState>>,
+    AuthBearer(token): AuthBearer,
     data: Json<BuildRequest>,
 ) -> Result<()> {
+    if token != state.token {
+        return Err(anyhow::anyhow!("鉴权失败").into());
+    }
     state.db.set_ondisk(data.on_disk);
     state.db.build_index(data.batch_size, data.no_split).await?;
     Ok(())
@@ -146,13 +162,20 @@ pub async fn build_handler(
 
 /// 获取搜索统计信息
 #[utoipa::path(
-    post,
+    get,
     path = "/stats",
     responses(
         (status = 200, body = StatsResponse),
-    )
+    ),
+    security(("bearerAuth" = []))
 )]
-pub async fn stats_handler() -> Result<Json<StatsResponse>> {
+pub async fn stats_handler(
+    State(state): State<Arc<AppState>>,
+    AuthBearer(token): AuthBearer,
+) -> Result<Json<StatsResponse>> {
+    if token != state.token {
+        return Err(anyhow::anyhow!("鉴权失败").into());
+    }
     let stats = get_faiss_stats();
     Ok(Json(StatsResponse {
         ndis: stats.ndis,
@@ -164,8 +187,14 @@ pub async fn stats_handler() -> Result<Json<StatsResponse>> {
 }
 
 /// 重置搜索统计信息
-#[utoipa::path(post, path = "/reset_stats")]
-pub async fn reset_stats_handler() -> Result<()> {
+#[utoipa::path(post, path = "/reset_stats", security(("bearerAuth" = [])))]
+pub async fn reset_stats_handler(
+    State(state): State<Arc<AppState>>,
+    AuthBearer(token): AuthBearer,
+) -> Result<()> {
+    if token != state.token {
+        return Err(anyhow::anyhow!("鉴权失败").into());
+    }
     reset_faiss_stats();
     Ok(())
 }

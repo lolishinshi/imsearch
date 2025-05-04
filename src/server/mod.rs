@@ -18,7 +18,14 @@ pub use self::types::*;
 
 #[derive(OpenApi)]
 #[openapi(
-    paths(search_handler, reload_handler, add_image_handler, build_handler, stats_handler),
+    paths(
+        search_handler,
+        reload_handler,
+        add_image_handler,
+        build_handler,
+        stats_handler,
+        reset_stats_handler
+    ),
     components(schemas(
         SearchForm,
         SearchResponse,
@@ -26,7 +33,8 @@ pub use self::types::*;
         AddImageForm,
         BuildRequest,
         StatsResponse
-    ))
+    )),
+    modifiers(&SecurityAddon)
 )]
 pub struct ApiDoc;
 

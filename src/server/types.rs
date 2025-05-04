@@ -1,9 +1,26 @@
 use axum::body::Bytes;
 use axum_typed_multipart::{FieldData, TryFromMultipart};
 use serde::{Deserialize, Serialize};
-use utoipa::ToSchema;
+use utoipa::openapi::security::{HttpAuthScheme, HttpBuilder, SecurityScheme};
+use utoipa::openapi::{Components, OpenApi};
+use utoipa::{Modify, ToSchema};
 
 use crate::utils::ImageHash;
+
+pub struct SecurityAddon;
+
+impl Modify for SecurityAddon {
+    fn modify(&self, openapi: &mut OpenApi) {
+        if openapi.components.is_none() {
+            openapi.components = Some(Components::new());
+        }
+        openapi.components.as_mut().unwrap().add_security_scheme(
+            "bearerAuth",
+            SecurityScheme::Http(HttpBuilder::new().scheme(HttpAuthScheme::Bearer).build()),
+        );
+    }
+}
+
 /// 搜索请求参数
 #[derive(TryFromMultipart)]
 pub struct SearchRequest {

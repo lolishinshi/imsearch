@@ -17,11 +17,19 @@ pub struct AppState {
     pub orb: OrbOptions,
     /// 搜索配置选项
     pub search: SearchOptions,
+    /// 鉴权 token
+    pub token: String,
 }
 
 impl AppState {
     /// 创建新的应用状态
     pub fn new(index: FaissIndex, db: IMDB, opts: ServerCommand) -> Arc<Self> {
-        Arc::new(AppState { index: RwLock::new(index), db, orb: opts.orb, search: opts.search })
+        Arc::new(AppState {
+            index: RwLock::new(index),
+            db,
+            orb: opts.orb,
+            search: opts.search,
+            token: opts.token,
+        })
     }
 }

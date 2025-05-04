@@ -8,6 +8,7 @@ edition = "2024"
 [dependencies]
 anyhow = { version = "1.0.98", features = ["backtrace"] }
 axum = { version = "0.8.3", features = ["multipart", "macros"] }
+axum-auth = { version = "0.8.1", default-features = false, features = ["auth-bearer"] }
 axum_typed_multipart = { version = "0.16.0", default-features = false }
 blake3 = "1.8.2"
 clap = { version = "4.5.37", features = ["derive"] }
@@ -19,6 +20,7 @@ log = "0.4.27"
 ndarray = "0.16.1"
 ndarray-npy = "0.9.1"
 num_cpus = "1.16.0"
+rand = "0.9.1"
 rayon = "1.10.0"
 regex = "1.11.1"
 serde = { version = "1.0.196", features = ["derive"] }
