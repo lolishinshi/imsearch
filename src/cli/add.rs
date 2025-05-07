@@ -1,12 +1,18 @@
+use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
+use anyhow::Result;
 use clap::Parser;
-use indicatif::ProgressBar;
+use futures::StreamExt;
+use indicatif::{ProgressBar, ProgressIterator};
 use log::info;
 use opencv::core::MatTraitConst;
 use regex::Regex;
-use tokio::sync::mpsc::channel;
-use tokio::task::{block_in_place, spawn_blocking};
+use tokio::fs::File;
+use tokio::io::AsyncReadExt;
+use tokio::sync::mpsc::{Sender, channel};
+use tokio::task::{JoinHandle, block_in_place, spawn_blocking};
+use tokio_tar::Archive;
 use walkdir::WalkDir;
 
 use crate::IMDBBuilder;
@@ -19,8 +25,8 @@ use crate::utils::{ImageHash, pb_style};
 pub struct AddCommand {
     #[command(flatten)]
     pub orb: OrbOptions,
-    /// 图片或目录的路径
-    pub path: String,
+    /// 图片所在目录，也支持扫描 tar 归档文件
+    pub path: PathBuf,
     /// 扫描的文件后缀名，多个后缀用逗号分隔
     #[arg(short, long, default_value = "jpg,png")]
     pub suffix: String,
@@ -49,64 +55,46 @@ impl SubCommandExtend for AddCommand {
         let re_suf = Regex::new(&re_suf).expect("failed to build regex");
         let db = Arc::new(IMDBBuilder::new(opts.conf_dir.clone()).open().await?);
 
-        // 收集所有符合条件的文件路径
-        info!("开始扫描目录: {}", self.path);
-        let entries = WalkDir::new(&self.path)
-            .into_iter()
-            .filter_map(|entry| {
-                entry.ok().and_then(|entry| {
-                    let path = entry.path().to_path_buf();
-                    if path.is_file()
-                        && re_suf.is_match(&path.extension().unwrap_or_default().to_string_lossy())
-                    {
-                        path.to_str().map(|x| x.to_string())
-                    } else {
-                        None
-                    }
-                })
-            })
-            .collect::<Vec<_>>();
-        info!("扫描完成，共 {} 张图片", entries.len());
-
-        let pb = ProgressBar::new(entries.len() as u64).with_style(pb_style());
+        let pb = ProgressBar::no_length().with_style(pb_style());
 
         // task1: 哈希计算
-        // NOTE: 对于机械硬盘来说，多线程读取会降低速度，不应该使用多线程。
-        //       对于 SSD 来说，它的读取速度远大于计算速度，没必要使用多线程。
         let (hash_tx, mut hash_rx) = channel(num_cpus::get() * 2);
-        let task1_hash = tokio::spawn({
+        let task1_hash: JoinHandle<Result<()>> = tokio::spawn({
             let hash = self.hash;
-            let hash_tx = hash_tx.clone();
+            let path = self.path.clone();
+            let pb = pb.clone();
+
             async move {
-                for entry in entries {
-                    let data = tokio::fs::read(&entry).await.unwrap();
-                    let hash = block_in_place(|| hash.hash_bytes(&data)).unwrap();
-                    hash_tx.send((entry, data, hash)).await.unwrap();
+                if path.is_file() {
+                    hash_tar_file(path, hash, hash_tx, re_suf, pb).await
+                } else {
+                    hash_direcotry(path, hash, hash_tx, re_suf, pb).await
                 }
             }
         });
 
         // task2: 检查已添加图片
         let (filter_tx, mut filter_rx) = channel(num_cpus::get() * 2);
-        let task2_filter = tokio::spawn({
+        let task2_filter: JoinHandle<Result<()>> = tokio::spawn({
             let pb = pb.clone();
             let db = db.clone();
             let overwrite = self.overwrite;
             async move {
                 while let Some((entry, data, hash)) = hash_rx.recv().await {
-                    let exists = db.check_hash(&hash).await.unwrap();
+                    let exists = db.check_hash(&hash).await?;
                     if exists {
                         if overwrite {
-                            db.update_image_path(&hash, &entry).await.unwrap();
+                            db.update_image_path(&hash, &entry).await?;
                             pb.set_message(format!("更新图片路径: {}", entry));
                         } else {
                             pb.set_message(format!("跳过图片: {}", entry));
                         }
                         pb.inc(1);
                     } else {
-                        filter_tx.send((entry, data, hash)).await.unwrap();
+                        filter_tx.send((entry, data, hash)).await?;
                     }
                 }
+                Ok(())
             }
         });
 
@@ -135,14 +123,14 @@ impl SubCommandExtend for AddCommand {
         });
 
         // task4: 添加图片
-        let task4_add = tokio::spawn({
+        let task4_add: JoinHandle<Result<()>> = tokio::spawn({
             let pb = pb.clone();
             let min_keypoints = self.min_keypoints as i32;
             let overwrite = self.overwrite;
             async move {
                 while let Some((entry, hash, des)) = feature_rx.recv().await {
                     if des.rows() <= min_keypoints {
-                        pb.println(format!("特征点少于 {}: {}", min_keypoints, entry));
+                        pb.set_message(format!("特征点少于 {}: {}", min_keypoints, entry));
                         pb.inc(1);
                         continue;
                     }
@@ -150,33 +138,32 @@ impl SubCommandExtend for AddCommand {
                     let path = match &re_name {
                         Some(re) => {
                             let captures = re.captures(&entry);
-                            if let Some(name) =
-                                captures.and_then(|c| c.name("name").map(|m| m.as_str()))
-                            {
-                                name.to_string()
+                            if let Some(name) = captures.and_then(|c| c.name("name")) {
+                                name.as_str()
                             } else {
                                 pb.println(format!("提取图片名失败: {}", entry));
                                 pb.inc(1);
                                 continue;
                             }
                         }
-                        None => entry.clone(),
+                        None => &entry,
                     };
 
-                    if db.check_hash(&hash).await.unwrap() {
+                    if db.check_hash(&hash).await? {
                         if overwrite {
-                            db.update_image_path(&hash, &path).await.unwrap();
+                            db.update_image_path(&hash, &path).await?;
                             pb.set_message(format!("更新图片路径: {}", path));
                         } else {
                             pb.set_message(format!("跳过图片: {}", path));
                         }
                     } else {
-                        db.add_image(&path, &hash, des).await.unwrap();
+                        db.add_image(&path, &hash, des).await?;
                         pb.set_message(entry);
                     }
 
                     pb.inc(1);
                 }
+                Ok(())
             }
         });
 
@@ -187,4 +174,82 @@ impl SubCommandExtend for AddCommand {
 
         Ok(())
     }
+}
+
+async fn hash_direcotry(
+    path: impl AsRef<Path>,
+    hash: ImageHash,
+    hash_tx: Sender<(String, Vec<u8>, Vec<u8>)>,
+    re_suf: Regex,
+    pb: ProgressBar,
+) -> Result<()> {
+    info!("开始扫描目录: {}", path.as_ref().display());
+    let pb2 = ProgressBar::no_length().with_style(pb_style());
+    let entries = WalkDir::new(path)
+        .into_iter()
+        .progress_with(pb2)
+        .filter_map(|entry| {
+            entry.ok().and_then(|entry| {
+                let path = entry.path();
+                if path.is_file() {
+                    if let Some(ext) = path.extension() {
+                        if re_suf.is_match(&ext.to_string_lossy()) {
+                            return Some(path.to_string_lossy().to_string());
+                        }
+                    }
+                }
+                None
+            })
+        })
+        .collect::<Vec<_>>();
+    info!("扫描完成，共 {} 张图片", entries.len());
+
+    pb.set_length(entries.len() as u64);
+
+    for entry in entries {
+        let data = tokio::fs::read(&entry).await?;
+        let hash_value = block_in_place(|| hash.hash_bytes(&data))?;
+        hash_tx.send((entry, data, hash_value)).await?;
+    }
+    Ok(())
+}
+
+async fn hash_tar_file(
+    path: PathBuf,
+    hash: ImageHash,
+    hash_tx: Sender<(String, Vec<u8>, Vec<u8>)>,
+    re_suf: Regex,
+    _pb: ProgressBar,
+) -> Result<()> {
+    let file = File::open(path).await?;
+    let mut archive = Archive::new(file);
+    let mut entries = archive.entries()?;
+
+    while let Some(entry) = entries.next().await {
+        let mut entry = entry?;
+        // 此处存在非常烦人的 100 字节截断问题
+        // 目前确认使用 astral-sh/tokio-tar + entry.path() 不会导致截断
+        let path = entry.path()?;
+        // 跳过目录
+        if !entry.header().entry_type().is_file() {
+            continue;
+        }
+        // 跳过不符合后缀的文件
+        let Some(ext) = path.extension() else {
+            continue;
+        };
+        if !re_suf.is_match(&ext.to_string_lossy()) {
+            continue;
+        }
+
+        let path = path.to_string_lossy().to_string();
+
+        let mut data = Vec::with_capacity(entry.header().size()? as usize);
+        entry.read_to_end(&mut data).await?;
+
+        let hash_value = block_in_place(|| hash.hash_bytes(&data))?;
+        hash_tx.send((path, data, hash_value)).await?;
+    }
+
+    Ok(())
 }

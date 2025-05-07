@@ -2,6 +2,7 @@
 
 ## 未发布
 
+- `add` 支持 tar 文件
 - `add` 增加 `--overwrite`
 - HTTP 增加鉴权
 - 增加 `--max-features` 参数指定最大特征点数量

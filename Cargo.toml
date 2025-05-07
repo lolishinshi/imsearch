@@ -7,8 +7,11 @@ edition = "2024"
 
 [dependencies]
 anyhow = { version = "1.0.98", features = ["backtrace"] }
+astral-tokio-tar = "0.5.2"
 axum = { version = "0.8.3", features = ["multipart", "macros"] }
-axum-auth = { version = "0.8.1", default-features = false, features = ["auth-bearer"] }
+axum-auth = { version = "0.8.1", default-features = false, features = [
+    "auth-bearer",
+] }
 axum_typed_multipart = { version = "0.16.0", default-features = false }
 blake3 = "1.8.2"
 clap = { version = "4.5.37", features = ["derive"] }
