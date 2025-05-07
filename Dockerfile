@@ -1,4 +1,4 @@
-FROM rust:1-bookworm as BUILDER
+FROM rust:1-bookworm AS BUILDER
 
 RUN sed -i 's/main/main contrib non-free non-free-firmware/' /etc/apt/sources.list.d/debian.sources \
     && apt update \
