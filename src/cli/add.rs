@@ -1,11 +1,11 @@
-use std::collections::HashMap;
+use std::sync::Arc;
 
 use clap::Parser;
-use indicatif::{ParallelProgressIterator, ProgressBar, ProgressIterator};
+use indicatif::ProgressBar;
 use log::info;
 use opencv::core::MatTraitConst;
-use rayon::prelude::*;
 use regex::Regex;
+use tokio::sync::mpsc::channel;
 use tokio::task::{block_in_place, spawn_blocking};
 use walkdir::WalkDir;
 
@@ -35,9 +35,9 @@ pub struct AddCommand {
     /// 图片去重使用的哈希算法
     #[arg(short = 'H', long, default_value = "blake3")]
     pub hash: ImageHash,
-    /// 将没有添加的图片列表保存到指定文件
-    #[arg(short = 'F', long)]
-    pub fail_list: Option<String>,
+    /// 如果图片已添加，是否覆盖旧的记录
+    #[arg(long)]
+    pub overwrite: bool,
 }
 
 impl SubCommandExtend for AddCommand {
@@ -47,7 +47,7 @@ impl SubCommandExtend for AddCommand {
         let re_name = self.regex.as_ref().map(|re| Regex::new(re).expect("failed to build regex"));
         let re_suf = format!("(?i)({})", self.suffix.replace(',', "|"));
         let re_suf = Regex::new(&re_suf).expect("failed to build regex");
-        let db = IMDBBuilder::new(opts.conf_dir.clone()).open().await?;
+        let db = Arc::new(IMDBBuilder::new(opts.conf_dir.clone()).open().await?);
 
         // 收集所有符合条件的文件路径
         info!("开始扫描目录: {}", self.path);
@@ -68,88 +68,123 @@ impl SubCommandExtend for AddCommand {
             .collect::<Vec<_>>();
         info!("扫描完成，共 {} 张图片", entries.len());
 
-        // NOTE: 由于异步 + rayon 的组合实在麻烦，这里采用了将计算拆分为多轮，避免在异步上下文中使用 rayon
-        let entries = block_in_place(|| {
-            let pb = ProgressBar::new(entries.len() as u64)
-                .with_style(pb_style())
-                .with_message("计算图片哈希中...");
-            entries
-                .into_par_iter()
-                .progress_with(pb)
-                .filter_map(|entry| self.hash.hash_file(&entry).ok().map(|hash| (hash, entry)))
-                .collect::<HashMap<_, _>>()
-        });
-        info!("计算哈希值完成，共 {} 张不重复图片", entries.len());
+        let pb = ProgressBar::new(entries.len() as u64).with_style(pb_style());
 
-        let pb = ProgressBar::new(entries.len() as u64)
-            .with_style(pb_style())
-            .with_message("检查已添加图片...");
-        let mut images: Vec<(String, Vec<u8>)> = vec![];
-        for (hash, filename) in entries.into_iter().progress_with(pb) {
-            if !db.check_hash(&hash).await? {
-                images.push((filename, hash));
-            }
-        }
-        info!("检查完成，共 {} 张新图片", images.len());
-
-        // 创建进度条
-        let pb = ProgressBar::new(images.len() as u64)
-            .with_style(pb_style())
-            .with_message("添加图片中...");
-
-        let (tx, mut rx) = tokio::sync::mpsc::channel(num_cpus::get());
-
-        let task1 = spawn_blocking({
-            let pb = pb.clone();
-            move || {
-                images.into_par_iter().progress_with(pb.clone()).for_each(|(image, hash)| {
-                    if let Ok((_, _, des)) = ORB.with(|orb| orb.borrow_mut().detect_file(&image)) {
-                        pb.set_message(image.clone());
-                        tx.blocking_send((image, hash, des)).unwrap();
-                    } else {
-                        pb.println(format!("处理失败: {}", image));
-                    }
-                })
-            }
-        });
-
-        let task2 = tokio::spawn({
-            let pb = pb.clone();
-            let min_keypoints = self.min_keypoints as i32;
+        // task1: 哈希计算
+        // NOTE: 对于机械硬盘来说，多线程读取会降低速度，不应该使用多线程。
+        //       对于 SSD 来说，它的读取速度远大于计算速度，没必要使用多线程。
+        let (hash_tx, mut hash_rx) = channel(num_cpus::get() * 2);
+        let task1_hash = tokio::spawn({
+            let hash = self.hash;
+            let hash_tx = hash_tx.clone();
             async move {
-                while let Some((image, hash, des)) = rx.recv().await {
-                    if des.rows() <= min_keypoints {
-                        pb.println(format!("特征点少于 {}: {}", min_keypoints, image));
-                        continue;
-                    }
+                for entry in entries {
+                    let data = tokio::fs::read(&entry).await.unwrap();
+                    let hash = block_in_place(|| hash.hash_bytes(&data)).unwrap();
+                    hash_tx.send((entry, data, hash)).await.unwrap();
+                }
+            }
+        });
 
-                    let path = match &re_name {
-                        Some(re) => {
-                            let captures = re.captures(&image);
-                            if let Some(name) =
-                                captures.and_then(|c| c.name("name").map(|m| m.as_str()))
-                            {
-                                name.to_string()
-                            } else {
-                                pb.println(format!("提取图片名失败: {}", image));
-                                continue;
-                            }
+        // task2: 检查已添加图片
+        let (filter_tx, mut filter_rx) = channel(num_cpus::get() * 2);
+        let task2_filter = tokio::spawn({
+            let pb = pb.clone();
+            let db = db.clone();
+            let overwrite = self.overwrite;
+            async move {
+                while let Some((entry, data, hash)) = hash_rx.recv().await {
+                    let exists = db.check_hash(&hash).await.unwrap();
+                    if exists {
+                        if overwrite {
+                            db.update_image_path(&hash, &entry).await.unwrap();
+                            pb.set_message(format!("更新图片路径: {}", entry));
+                        } else {
+                            pb.set_message(format!("跳过图片: {}", entry));
                         }
-                        None => image,
-                    };
-
-                    if let Err(e) = db.add_image(&path, &hash, des).await {
-                        pb.println(format!("添加图片失败: {}: {}", path, e));
+                        pb.inc(1);
+                    } else {
+                        filter_tx.send((entry, data, hash)).await.unwrap();
                     }
                 }
             }
         });
 
-        // 等待所有任务完成
-        let _ = tokio::try_join!(task1, task2);
+        // task3: 特征点计算
+        let (feature_tx, mut feature_rx) = channel(num_cpus::get() * 2);
+        let task3_feature = spawn_blocking({
+            let pb = pb.clone();
+            move || {
+                let pb = &pb;
+                let feature_tx = &feature_tx;
+                rayon::scope(|s| {
+                    while let Some((entry, data, hash)) = filter_rx.blocking_recv() {
+                        s.spawn(move |_| {
+                            if let Ok((_, _, des)) =
+                                ORB.with(|orb| orb.borrow_mut().detect_bytes(&data))
+                            {
+                                feature_tx.blocking_send((entry, hash, des)).unwrap();
+                            } else {
+                                pb.set_message(format!("计算特征点失败: {}", entry));
+                                pb.inc(1);
+                            }
+                        });
+                    }
+                });
+            }
+        });
 
-        // 完成后的消息
-        pb.finish_with_message("图片处理完成！");
+        // task4: 添加图片
+        let task4_add = tokio::spawn({
+            let pb = pb.clone();
+            let min_keypoints = self.min_keypoints as i32;
+            let overwrite = self.overwrite;
+            async move {
+                while let Some((entry, hash, des)) = feature_rx.recv().await {
+                    if des.rows() <= min_keypoints {
+                        pb.println(format!("特征点少于 {}: {}", min_keypoints, entry));
+                        pb.inc(1);
+                        continue;
+                    }
+
+                    let path = match &re_name {
+                        Some(re) => {
+                            let captures = re.captures(&entry);
+                            if let Some(name) =
+                                captures.and_then(|c| c.name("name").map(|m| m.as_str()))
+                            {
+                                name.to_string()
+                            } else {
+                                pb.println(format!("提取图片名失败: {}", entry));
+                                pb.inc(1);
+                                continue;
+                            }
+                        }
+                        None => entry.clone(),
+                    };
+
+                    if db.check_hash(&hash).await.unwrap() {
+                        if overwrite {
+                            db.update_image_path(&hash, &path).await.unwrap();
+                            pb.set_message(format!("更新图片路径: {}", path));
+                        } else {
+                            pb.set_message(format!("跳过图片: {}", path));
+                        }
+                    } else {
+                        db.add_image(&path, &hash, des).await.unwrap();
+                        pb.set_message(entry);
+                    }
+
+                    pb.inc(1);
+                }
+            }
+        });
+
+        // 等待所有任务完成
+        let _ = tokio::try_join!(task1_hash, task2_filter, task3_feature, task4_add);
+
+        pb.finish_with_message("图片添加完成");
+
         Ok(())
     }
 }

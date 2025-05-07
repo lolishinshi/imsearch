@@ -2,6 +2,7 @@
 
 ## 未发布
 
+- `add` 增加 `--overwrite`
 - HTTP 增加鉴权
 - 增加 `--max-features` 参数指定最大特征点数量
 - 允许使用 blake3 以外的哈希算法去重

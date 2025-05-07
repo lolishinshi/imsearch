@@ -112,6 +112,11 @@ impl IMDB {
         Ok(crud::check_image_hash(&self.db, hash).await?)
     }
 
+    /// 更新图片路径
+    pub async fn update_image_path(&self, hash: &[u8], path: &str) -> Result<()> {
+        Ok(crud::update_image_path(&self.db, hash, path).await?)
+    }
+
     /// 直接在内存中构建索引
     pub async fn build_index_without_split(&self, chunk_size: usize) -> Result<()> {
         info!("正在计算未索引的图片数量……");

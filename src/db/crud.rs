@@ -36,6 +36,7 @@ pub async fn check_image_hash(executor: &SqlitePool, hash: &[u8]) -> Result<bool
     Ok(result.count > 0)
 }
 
+/// 获取图片路径
 pub async fn get_image_path(executor: &SqlitePool, id: i64) -> Result<String> {
     let result = sqlx::query!(
         r#"
@@ -47,6 +48,21 @@ pub async fn get_image_path(executor: &SqlitePool, id: i64) -> Result<String> {
     .await?;
 
     Ok(result.path)
+}
+
+/// 根据哈希更新图片路径
+pub async fn update_image_path(executor: &SqlitePool, hash: &[u8], path: &str) -> Result<()> {
+    sqlx::query!(
+        r#"
+        UPDATE image SET path = ? WHERE hash = ?
+        "#,
+        path,
+        hash
+    )
+    .execute(executor)
+    .await?;
+
+    Ok(())
 }
 
 /// 批量设置图片为已索引
