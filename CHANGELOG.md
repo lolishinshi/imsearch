@@ -2,6 +2,7 @@
 
 ## 未发布
 
+- 修复 `build` 命令 `--on-disk` 模式无法合并旧索引的问题
 - `add` 将 `--regex` 参数改为 `--replace`
 - `add` 支持 tar 文件
 - `add` 增加 `--overwrite`

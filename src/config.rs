@@ -125,11 +125,6 @@ impl ConfDir {
         self.0.join("index")
     }
 
-    /// 返回索引临时文件的路径
-    pub fn index_tmp(&self) -> PathBuf {
-        self.0.join("index.tmp")
-    }
-
     /// 返回子索引文件的路径
     pub fn index_sub(&self) -> PathBuf {
         for i in 1.. {

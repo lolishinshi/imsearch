@@ -11,7 +11,7 @@ use regex::Regex;
 use tokio::fs::File;
 use tokio::io::AsyncReadExt;
 use tokio::sync::mpsc::{Sender, channel};
-use tokio::task::{JoinHandle, block_in_place, spawn_blocking};
+use tokio::task::{block_in_place, spawn_blocking};
 use tokio_tar::Archive;
 use walkdir::WalkDir;
 
@@ -64,42 +64,43 @@ impl SubCommandExtend for AddCommand {
 
         // task1: 哈希计算
         let (hash_tx, mut hash_rx) = channel(num_cpus::get() * 2);
-        let task1_hash: JoinHandle<Result<()>> = tokio::spawn({
+        let task1_hash = tokio::spawn({
             let hash = self.hash;
             let path = self.path.clone();
             let pb = pb.clone();
 
             async move {
+                // NOTE: 这里刻意不使用 `?` 而是 unwrap，这是为了确保出错时正常崩溃
+                // 如果上抛的话，上层就需要正确打印错误，太过麻烦，不如直接 panic
                 if path.is_file() {
-                    hash_tar_file(path, hash, hash_tx, re_suf, pb).await
+                    hash_tar_file(path, hash, hash_tx, re_suf, pb).await.unwrap();
                 } else {
-                    hash_direcotry(path, hash, hash_tx, re_suf, pb).await
+                    hash_direcotry(path, hash, hash_tx, re_suf, pb).await.unwrap();
                 }
             }
         });
 
         // task2: 检查已添加图片
         let (filter_tx, mut filter_rx) = channel(num_cpus::get() * 2);
-        let task2_filter: JoinHandle<Result<()>> = tokio::spawn({
+        let task2_filter = tokio::spawn({
             let pb = pb.clone();
             let db = db.clone();
             let overwrite = self.overwrite;
             async move {
                 while let Some((entry, data, hash)) = hash_rx.recv().await {
-                    let exists = db.check_hash(&hash).await?;
+                    let exists = db.check_hash(&hash).await.unwrap();
                     if exists {
                         if overwrite {
-                            db.update_image_path(&hash, &entry).await?;
+                            db.update_image_path(&hash, &entry).await.unwrap();
                             pb.set_message(format!("更新图片路径: {}", entry));
                         } else {
                             pb.set_message(format!("跳过已添加图片: {}", entry));
                         }
                         pb.inc(1);
                     } else {
-                        filter_tx.send((entry, data, hash)).await?;
+                        filter_tx.send((entry, data, hash)).await.unwrap();
                     }
                 }
-                Ok(())
             }
         });
 
@@ -135,7 +136,7 @@ impl SubCommandExtend for AddCommand {
             let replace = self.replace[1].clone();
             Some((re, replace))
         };
-        let task4_add: JoinHandle<Result<()>> = tokio::spawn({
+        let task4_add = tokio::spawn({
             let pb = pb.clone();
             let min_keypoints = self.min_keypoints as i32;
             let overwrite = self.overwrite;
@@ -152,21 +153,20 @@ impl SubCommandExtend for AddCommand {
                         None => &*entry,
                     };
 
-                    if db.check_hash(&hash).await? {
+                    if db.check_hash(&hash).await.unwrap() {
                         if overwrite {
-                            db.update_image_path(&hash, &path).await?;
+                            db.update_image_path(&hash, &path).await.unwrap();
                             pb.set_message(format!("更新图片路径: {}", path));
                         } else {
                             pb.set_message(format!("跳过已添加图片: {}", path));
                         }
                     } else {
-                        db.add_image(&path, &hash, des).await?;
+                        db.add_image(&path, &hash, des).await.unwrap();
                         pb.set_message(entry);
                     }
 
                     pb.inc(1);
                 }
-                Ok(())
             }
         });
 
@@ -211,8 +211,13 @@ async fn hash_direcotry(
 
     for entry in entries {
         let data = tokio::fs::read(&entry).await?;
-        let hash_value = block_in_place(|| hash.hash_bytes(&data))?;
-        hash_tx.send((entry, data, hash_value)).await?;
+        match block_in_place(|| hash.hash_bytes(&data)) {
+            Ok(hash_value) => hash_tx.send((entry, data, hash_value)).await?,
+            Err(_) => {
+                pb.println(format!("计算哈希失败: {}", entry));
+                pb.inc(1);
+            }
+        }
     }
     Ok(())
 }
@@ -222,7 +227,7 @@ async fn hash_tar_file(
     hash: ImageHash,
     hash_tx: Sender<(String, Vec<u8>, Vec<u8>)>,
     re_suf: Regex,
-    _pb: ProgressBar,
+    pb: ProgressBar,
 ) -> Result<()> {
     let file = File::open(path).await?;
     let mut archive = Archive::new(file);
@@ -250,8 +255,13 @@ async fn hash_tar_file(
         let mut data = Vec::with_capacity(entry.header().size()? as usize);
         entry.read_to_end(&mut data).await?;
 
-        let hash_value = block_in_place(|| hash.hash_bytes(&data))?;
-        hash_tx.send((path, data, hash_value)).await?;
+        match block_in_place(|| hash.hash_bytes(&data)) {
+            Ok(hash_value) => hash_tx.send((path, data, hash_value)).await?,
+            Err(_) => {
+                pb.println(format!("计算哈希失败: {}", path));
+                pb.inc(1);
+            }
+        }
     }
 
     Ok(())

@@ -159,10 +159,9 @@ impl IMDB {
             pb.set_message("正在构建索引……");
             block_in_place(|| index.add_with_ids(&features, &ids));
             pb.set_message("正在保存已构建部分……");
-            block_in_place(|| index.write_file(self.conf_dir.index_tmp()));
+            block_in_place(|| index.write_file(self.conf_dir.index()));
 
             crud::set_indexed_batch(&self.db, &images).await?;
-            std::fs::rename(self.conf_dir.index_tmp(), self.conf_dir.index())?;
 
             processed += images.len();
             pb.set_position(processed as u64);
@@ -210,11 +209,10 @@ impl IMDB {
 
             block_in_place(|| {
                 index.add_with_ids(&features, &ids);
-                index.write_file(self.conf_dir.index_tmp());
+                index.write_file(self.conf_dir.index_sub());
             });
 
             crud::set_indexed_batch(&self.db, &images).await?;
-            std::fs::rename(self.conf_dir.index_tmp(), self.conf_dir.index_sub())?;
 
             processed += images.len();
             pb.set_position(processed as u64);
@@ -270,13 +268,16 @@ impl IMDB {
         let mut invfs = vec![];
         let mut files = vec![];
         for index_file in self.conf_dir.index_sub_all() {
-            if !index_file.exists() {
-                break;
-            }
             let mut sub_index = FaissIndex::from_file(index_file.to_str().unwrap(), true);
             invfs.push(sub_index.invlists());
             sub_index.set_own_invlists(false);
             files.push(index_file);
+        }
+
+        if self.conf_dir.index().exists() {
+            let mut index = FaissIndex::from_file(self.conf_dir.index().to_str().unwrap(), true);
+            index.set_own_invlists(false);
+            invfs.push(index.invlists());
         }
 
         let mut index = self.get_index_template();
@@ -347,35 +348,32 @@ impl IMDB {
         }
     }
 
-    /// 获取索引
+    /// 获取当前使用的索引，如果索引不存在，则返回模板索引
     pub fn get_index(&self) -> FaissIndex {
         let index_file = self.conf_dir.index();
-        let ivf_file = self.conf_dir.ondisk_ivf();
+        if !index_file.exists() {
+            return self.get_index_template();
+        }
 
-        let index = if index_file.exists() {
-            let mut mmap = *self.mmap.read().unwrap();
-            if ivf_file.exists() {
-                if mmap {
-                    warn!("OnDisk 倒排无法使用 mmap 模式加载");
-                }
-                // NOTE: 此处切换路径的原因是，faiss 会根据「当前路径」而不是 index 所在路径来加载倒排列表
-                set_current_dir(self.conf_dir.path()).unwrap();
-                mmap = false;
+        let mut mmap = *self.mmap.read().unwrap();
+        if self.conf_dir.ondisk_ivf().exists() {
+            if mmap {
+                warn!("OnDisk 倒排无法使用 mmap 模式加载");
             }
-            info!("正在加载索引 {}, mmap: {}", index_file.display(), mmap);
-            let index = FaissIndex::from_file(index_file.to_str().unwrap(), mmap);
-            info!("faiss 版本   : {}", index.faiss_version());
-            info!("已添加特征点 : {}", index.ntotal());
-            info!("倒排列表数量 : {}", index.nlist());
-            info!("不平衡度     : {}", index.imbalance_factor());
-            if log_enabled!(Level::Debug) {
-                index.print_stats();
-            }
-            index
-        } else {
-            self.get_index_template()
-        };
+            // NOTE: 此处切换路径的原因是，faiss 会根据「当前路径」而不是 index 所在路径来加载倒排列表
+            set_current_dir(self.conf_dir.path()).unwrap();
+            mmap = false;
+        }
 
+        info!("正在加载索引 {}, mmap: {}", index_file.display(), mmap);
+        let index = FaissIndex::from_file(index_file.to_str().unwrap(), mmap);
+        info!("faiss 版本   : {}", index.faiss_version());
+        info!("已添加特征点 : {}", index.ntotal());
+        info!("倒排列表数量 : {}", index.nlist());
+        info!("不平衡度     : {}", index.imbalance_factor());
+        if log_enabled!(Level::Debug) {
+            index.print_stats();
+        }
         index
     }
 

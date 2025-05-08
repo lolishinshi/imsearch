@@ -69,14 +69,16 @@ impl FaissIndex {
         unsafe { faiss_IndexBinary_is_trained(self.index) != 0 }
     }
 
-    /// 将索引写入到文件
+    /// 将索引写入到文件，考虑到中途打断的情况，使用临时文件写入再重命名
     pub fn write_file(&self, path: impl AsRef<Path>) {
         let path = path.as_ref();
-        let path = path.to_str().unwrap();
-        let path = CString::new(path).unwrap();
+        let tmp_path = path.with_extension("tmp");
         unsafe {
-            faiss_write_index_binary_fname(self.index, path.as_ptr());
+            let tmp_path = tmp_path.to_str().unwrap();
+            let tmp_path = CString::new(tmp_path).unwrap();
+            faiss_write_index_binary_fname(self.index, tmp_path.as_ptr());
         }
+        std::fs::rename(tmp_path, path).unwrap();
     }
 
     /// 使用自定义 ID 添加向量到索引中
