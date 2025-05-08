@@ -1,4 +1,4 @@
-FROM rust:1-bookworm AS BUILDER
+FROM rust:1-bookworm AS builder
 
 RUN sed -i 's/main/main contrib non-free non-free-firmware/' /etc/apt/sources.list.d/debian.sources \
     && apt update \
@@ -17,6 +17,6 @@ RUN sed -i 's/main/main contrib non-free non-free-firmware/' /etc/apt/sources.li
     && apt install -y intel-mkl-full libopencv-core406 libopencv-highgui406 libopencv-flann406 libopencv-imgproc406 libopencv-contrib406 \
     && rm -rf /var/lib/apt/lists/*
 
-COPY --from=BUILDER /app/target/release/imsearch /usr/local/bin/imsearch
+COPY --from=builder /app/target/release/imsearch /usr/local/bin/imsearch
 
 ENTRYPOINT ["imsearch"]
