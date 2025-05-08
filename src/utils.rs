@@ -140,7 +140,7 @@ pub fn pb_style() -> ProgressStyle {
         .progress_chars("#>-")
 }
 
-#[derive(Debug, Clone, Copy, ValueEnum, ToSchema, TryFromField)]
+#[derive(Debug, Clone, Copy, Eq, PartialEq, ValueEnum, ToSchema, TryFromField)]
 pub enum ImageHash {
     #[schema(rename = "blake3")]
     Blake3,
@@ -171,7 +171,8 @@ impl ImageHash {
         match self {
             Self::Blake3 => Ok(blake3::hash(data).as_bytes().to_vec()),
             Self::Phash => {
-                let img = Mat::from_slice(data)?;
+                let mat = Mat::from_slice(data)?;
+                let img = imgcodecs::imdecode(&mat, imgcodecs::IMREAD_ANYCOLOR)?;
                 let mut output_arr = Mat::default();
                 p_hash(&img, &mut output_arr)?;
                 let hash = output_arr.data_bytes()?;

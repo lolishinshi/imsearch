@@ -1,6 +1,7 @@
 use sqlx::{Executor, Result, Sqlite, SqlitePool};
 
 use super::VectorIdxRecord;
+use crate::utils::ImageHash;
 
 /// 添加图片记录
 pub async fn add_image<'c, E>(executor: E, hash: &[u8], path: &str) -> Result<i64>
@@ -255,4 +256,21 @@ pub async fn get_all_total_vector_count(executor: &SqlitePool) -> Result<Vec<i64
     .await?;
 
     Ok(result.into_iter().map(|row| row.total_vector_count).collect())
+}
+
+/// 猜测先前使用的哈希算法
+pub async fn guess_hash(executor: &SqlitePool) -> Result<ImageHash> {
+    let result = sqlx::query!(
+        r#"
+        SELECT hash FROM image LIMIT 1;
+        "#,
+    )
+    .fetch_one(executor)
+    .await?;
+
+    match result.hash.len() {
+        32 => Ok(ImageHash::Blake3),
+        8 => Ok(ImageHash::Phash),
+        _ => unreachable!(),
+    }
 }

@@ -16,7 +16,7 @@ use tokio::task::block_in_place;
 use crate::config::ConfDir;
 use crate::db::*;
 use crate::faiss::{FaissIndex, FaissOnDiskInvLists, FaissSearchParams, Neighbor};
-use crate::utils::{self, pb_style};
+use crate::utils::{self, ImageHash, pb_style};
 
 #[derive(Debug, Clone)]
 pub struct IMDBBuilder {
@@ -115,6 +115,11 @@ impl IMDB {
     /// 更新图片路径
     pub async fn update_image_path(&self, hash: &[u8], path: &str) -> Result<()> {
         Ok(crud::update_image_path(&self.db, hash, path).await?)
+    }
+
+    /// 猜测先前使用的哈希算法
+    pub async fn guess_hash(&self) -> Option<ImageHash> {
+        crud::guess_hash(&self.db).await.ok()
     }
 
     /// 直接在内存中构建索引

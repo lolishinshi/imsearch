@@ -1,7 +1,7 @@
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
-use anyhow::Result;
+use anyhow::{Result, anyhow};
 use clap::Parser;
 use futures::StreamExt;
 use indicatif::{ProgressBar, ProgressIterator};
@@ -56,6 +56,12 @@ impl SubCommandExtend for AddCommand {
 
         let pb = ProgressBar::no_length().with_style(pb_style());
 
+        if let Some(hash) = db.guess_hash().await {
+            if hash != self.hash {
+                return Err(anyhow!("哈希算法不一致"));
+            }
+        }
+
         // task1: 哈希计算
         let (hash_tx, mut hash_rx) = channel(num_cpus::get() * 2);
         let task1_hash: JoinHandle<Result<()>> = tokio::spawn({
@@ -86,7 +92,7 @@ impl SubCommandExtend for AddCommand {
                             db.update_image_path(&hash, &entry).await?;
                             pb.set_message(format!("更新图片路径: {}", entry));
                         } else {
-                            pb.set_message(format!("跳过图片: {}", entry));
+                            pb.set_message(format!("跳过已添加图片: {}", entry));
                         }
                         pb.inc(1);
                     } else {
@@ -151,7 +157,7 @@ impl SubCommandExtend for AddCommand {
                             db.update_image_path(&hash, &path).await?;
                             pb.set_message(format!("更新图片路径: {}", path));
                         } else {
-                            pb.set_message(format!("跳过图片: {}", path));
+                            pb.set_message(format!("跳过已添加图片: {}", path));
                         }
                     } else {
                         db.add_image(&path, &hash, des).await?;
