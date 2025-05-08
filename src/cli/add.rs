@@ -30,10 +30,10 @@ pub struct AddCommand {
     /// 扫描的文件后缀名，多个后缀用逗号分隔
     #[arg(short, long, default_value = "jpg,png")]
     pub suffix: String,
-    /// 不添加完整文件路径到数据库，而是使用正则表达式提取出 name 分组作为图片的唯一标识
-    /// 例：`/path/to/image/(?<name>[0-9]+).jpg`
-    #[arg(short, long, verbatim_doc_comment)]
-    pub regex: Option<String>,
+    /// 在添加到数据库之前使用正则表达式对图片路径进行处理
+    /// 例：--replace '/path/to/image/(?<name>[0-9]+).jpg' '$name'
+    #[arg(short, long, value_names = ["REGEX", "REPLACE"], verbatim_doc_comment)]
+    pub replace: Vec<String>,
     /// 最少特征点，低于该值的图片会被过滤
     #[arg(short, long, default_value_t = 250)]
     pub min_keypoints: u32,
@@ -50,7 +50,6 @@ impl SubCommandExtend for AddCommand {
     async fn run(&self, opts: &Opts) -> anyhow::Result<()> {
         ORB_OPTIONS.get_or_init(|| self.orb.clone());
 
-        let re_name = self.regex.as_ref().map(|re| Regex::new(re).expect("failed to build regex"));
         let re_suf = format!("(?i)({})", self.suffix.replace(',', "|"));
         let re_suf = Regex::new(&re_suf).expect("failed to build regex");
         let db = Arc::new(IMDBBuilder::new(opts.conf_dir.clone()).open().await?);
@@ -123,6 +122,13 @@ impl SubCommandExtend for AddCommand {
         });
 
         // task4: 添加图片
+        let replace = if self.replace.is_empty() {
+            None
+        } else {
+            let re = Regex::new(&self.replace[0]).expect("failed to build regex");
+            let replace = self.replace[1].clone();
+            Some((re, replace))
+        };
         let task4_add: JoinHandle<Result<()>> = tokio::spawn({
             let pb = pb.clone();
             let min_keypoints = self.min_keypoints as i32;
@@ -135,18 +141,9 @@ impl SubCommandExtend for AddCommand {
                         continue;
                     }
 
-                    let path = match &re_name {
-                        Some(re) => {
-                            let captures = re.captures(&entry);
-                            if let Some(name) = captures.and_then(|c| c.name("name")) {
-                                name.as_str()
-                            } else {
-                                pb.println(format!("提取图片名失败: {}", entry));
-                                pb.inc(1);
-                                continue;
-                            }
-                        }
-                        None => &entry,
+                    let path = match &replace {
+                        Some((re, replace)) => &*re.replace(&entry, replace),
+                        None => &*entry,
                     };
 
                     if db.check_hash(&hash).await? {
