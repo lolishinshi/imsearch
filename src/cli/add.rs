@@ -5,13 +5,13 @@ use anyhow::{Result, anyhow};
 use clap::Parser;
 use futures::StreamExt;
 use indicatif::{ProgressBar, ProgressIterator};
-use log::{debug, info};
+use log::info;
 use opencv::core::MatTraitConst;
 use regex::Regex;
 use tokio::fs::File;
 use tokio::io::AsyncReadExt;
 use tokio::sync::mpsc::{Sender, channel};
-use tokio::task::{block_in_place, spawn_blocking};
+use tokio::task::{JoinHandle, block_in_place, spawn_blocking};
 use tokio_tar::Archive;
 use walkdir::WalkDir;
 
@@ -77,7 +77,6 @@ impl SubCommandExtend for AddCommand {
                 } else {
                     hash_direcotry(path, hash, hash_tx, re_suf, pb).await.unwrap();
                 }
-                debug!("task1 完成");
             }
         });
 
@@ -102,7 +101,6 @@ impl SubCommandExtend for AddCommand {
                         filter_tx.send((entry, data, hash)).await.unwrap();
                     }
                 }
-                debug!("task2 完成");
             }
         });
 
@@ -136,7 +134,6 @@ impl SubCommandExtend for AddCommand {
                     }
                     drop(tx);
                 });
-                debug!("task3 完成");
             }
         });
 
@@ -179,7 +176,6 @@ impl SubCommandExtend for AddCommand {
 
                     pb.inc(1);
                 }
-                debug!("task4 完成");
             }
         });
 
@@ -247,48 +243,50 @@ async fn hash_tar_file(
 ) -> Result<()> {
     let file = File::open(path).await?;
     let mut archive = Archive::new(file);
+    let mut entries = archive.entries()?;
 
-    archive
-        .entries()?
-        .for_each_concurrent(num_cpus::get(), |entry| async {
-            let result: Result<()> = async {
-                let mut entry = entry?;
-                // 此处存在非常烦人的 100 字节截断问题
-                // 目前确认使用 astral-sh/tokio-tar + entry.path() 不会导致截断
-                let path = entry.path()?;
-                // 跳过不符合条件的文件
-                if !entry.header().entry_type().is_file() {
-                    return Ok(());
-                }
-                let Some(ext) = path.extension() else {
-                    return Ok(());
-                };
-                if !re_suf.is_match(&ext.to_string_lossy()) {
-                    return Ok(());
-                }
-
-                let path = path.to_string_lossy().to_string();
-
-                let mut data = Vec::with_capacity(entry.header().size()? as usize);
-                entry.read_to_end(&mut data).await?;
-
-                match block_in_place(|| hash.hash_bytes(&data)) {
-                    Ok(hash_value) => hash_tx.send((path, data, hash_value)).await?,
-                    Err(_) => {
-                        pb.println(format!("计算哈希失败: {}", path));
-                        pb.inc(1);
-                    }
-                }
-                Ok(())
+    // NOTE: tar 的 entries 必须按顺序读取，不能乱序并发
+    let (tx, mut rx) = channel(1);
+    let t1: JoinHandle<Result<()>> = tokio::spawn(async move {
+        while let Some(entry) = entries.next().await {
+            let mut entry = entry?;
+            // 此处存在非常烦人的 100 字节截断问题
+            // 目前确认使用 astral-sh/tokio-tar + entry.path() 不会导致截断
+            let path = entry.path()?;
+            // 跳过不符合条件的文件
+            if !entry.header().entry_type().is_file() {
+                continue;
             }
-            .await;
-
-            if let Err(err) = result {
-                pb.println(format!("处理文件出错: {}", err));
-                pb.inc(1);
+            let Some(ext) = path.extension() else {
+                continue;
+            };
+            if !re_suf.is_match(&ext.to_string_lossy()) {
+                continue;
             }
-        })
-        .await;
+
+            let path = path.to_string_lossy().to_string();
+
+            let mut data = Vec::with_capacity(entry.header().size()? as usize);
+            entry.read_to_end(&mut data).await?;
+
+            tx.send((path, data)).await?;
+        }
+        Ok(())
+    });
+
+    let t2 = tokio::spawn(async move {
+        while let Some((path, data)) = rx.recv().await {
+            match block_in_place(|| hash.hash_bytes(&data)) {
+                Ok(hash_value) => hash_tx.send((path.clone(), data, hash_value)).await.unwrap(),
+                Err(_) => {
+                    pb.println(format!("计算哈希失败: {}", path.clone()));
+                    pb.inc(1);
+                }
+            }
+        }
+    });
+
+    let _ = tokio::try_join!(t1, t2);
 
     Ok(())
 }

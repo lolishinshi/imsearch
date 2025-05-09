@@ -160,8 +160,7 @@ impl IMDB {
     pub fn get_index_template(&self) -> FaissIndex {
         let index_file = self.conf_dir.index_template();
         if index_file.exists() {
-            let index = FaissIndex::from_file(index_file, false);
-            index
+            FaissIndex::from_file(index_file, false)
         } else {
             panic!("模板索引不存在，请先训练索引，并保存为 {}", index_file.display());
         }

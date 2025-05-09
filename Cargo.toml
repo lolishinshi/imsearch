@@ -1,6 +1,6 @@
 [package]
 name = "imsearch"
-version = "2.2.0-alpha.1"
+version = "2.2.0-alpha.2"
 edition = "2024"
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
