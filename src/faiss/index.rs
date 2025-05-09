@@ -253,7 +253,7 @@ impl Drop for FaissIndex {
     fn drop(&mut self) {
         debug!("释放 faiss 索引");
         unsafe {
-            faiss_IndexBinary_free(self.index);
+            faiss_IndexBinaryIVF_free(self.index);
         }
     }
 }
