@@ -11,7 +11,7 @@ use regex::Regex;
 use tokio::fs::File;
 use tokio::io::AsyncReadExt;
 use tokio::sync::mpsc::{Sender, channel};
-use tokio::task::{block_in_place, spawn_blocking};
+use tokio::task::spawn_blocking;
 use tokio_tar::Archive;
 use walkdir::WalkDir;
 
@@ -155,7 +155,7 @@ impl SubCommandExtend for AddCommand {
 
                     if db.check_hash(&hash).await.unwrap() {
                         if overwrite {
-                            db.update_image_path(&hash, &path).await.unwrap();
+                            db.update_image_path(&hash, path).await.unwrap();
                             pb.set_message(format!("更新图片路径: {}", path));
                         } else {
                             pb.set_message(format!("跳过已添加图片: {}", path));
@@ -214,7 +214,7 @@ async fn hash_direcotry(
             if let Ok(data) = tokio::fs::read(&entry).await {
                 // TODO: 能不能避免这次 clone?
                 let cdata = data.clone();
-                // NOTE: 不知道大量 block_in_place 会不会阻塞 tokio runtime，保险期间用 spawn_blocking
+                // NOTE: 不知道大量 block_in_place 会不会阻塞 tokio runtime，保险起见用 spawn_blocking
                 if let Ok(Ok(val)) = spawn_blocking(move || hash.hash_bytes(&cdata)).await {
                     hash_tx.send((entry, data, val)).await.unwrap();
                     return;
@@ -237,38 +237,49 @@ async fn hash_tar_file(
 ) -> Result<()> {
     let file = File::open(path).await?;
     let mut archive = Archive::new(file);
-    let mut entries = archive.entries()?;
 
-    while let Some(entry) = entries.next().await {
-        let mut entry = entry?;
-        // 此处存在非常烦人的 100 字节截断问题
-        // 目前确认使用 astral-sh/tokio-tar + entry.path() 不会导致截断
-        let path = entry.path()?;
-        // 跳过目录
-        if !entry.header().entry_type().is_file() {
-            continue;
-        }
-        // 跳过不符合后缀的文件
-        let Some(ext) = path.extension() else {
-            continue;
-        };
-        if !re_suf.is_match(&ext.to_string_lossy()) {
-            continue;
-        }
+    archive
+        .entries()?
+        .for_each_concurrent(num_cpus::get(), |entry| async {
+            let result: Result<()> = async {
+                let mut entry = entry?;
+                // 此处存在非常烦人的 100 字节截断问题
+                // 目前确认使用 astral-sh/tokio-tar + entry.path() 不会导致截断
+                let path = entry.path()?;
+                // 跳过不符合条件的文件
+                if !entry.header().entry_type().is_file() {
+                    return Ok(());
+                }
+                let Some(ext) = path.extension() else {
+                    return Ok(());
+                };
+                if !re_suf.is_match(&ext.to_string_lossy()) {
+                    return Ok(());
+                }
 
-        let path = path.to_string_lossy().to_string();
+                let path = path.to_string_lossy().to_string();
 
-        let mut data = Vec::with_capacity(entry.header().size()? as usize);
-        entry.read_to_end(&mut data).await?;
+                let mut data = Vec::with_capacity(entry.header().size()? as usize);
+                entry.read_to_end(&mut data).await?;
 
-        match block_in_place(|| hash.hash_bytes(&data)) {
-            Ok(hash_value) => hash_tx.send((path, data, hash_value)).await?,
-            Err(_) => {
-                pb.println(format!("计算哈希失败: {}", path));
+                let cdata = data.clone();
+                match spawn_blocking(move || hash.hash_bytes(&cdata)).await? {
+                    Ok(hash_value) => hash_tx.send((path, data, hash_value)).await?,
+                    Err(_) => {
+                        pb.println(format!("计算哈希失败: {}", path));
+                        pb.inc(1);
+                    }
+                }
+                Ok(())
+            }
+            .await;
+
+            if let Err(err) = result {
+                pb.println(format!("处理文件出错: {}", err));
                 pb.inc(1);
             }
-        }
-    }
+        })
+        .await;
 
     Ok(())
 }
