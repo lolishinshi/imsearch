@@ -209,16 +209,22 @@ async fn hash_direcotry(
 
     pb.set_length(entries.len() as u64);
 
-    for entry in entries {
-        let data = tokio::fs::read(&entry).await?;
-        match block_in_place(|| hash.hash_bytes(&data)) {
-            Ok(hash_value) => hash_tx.send((entry, data, hash_value)).await?,
-            Err(_) => {
-                pb.println(format!("计算哈希失败: {}", entry));
-                pb.inc(1);
+    futures::stream::iter(entries)
+        .for_each_concurrent(num_cpus::get(), |entry| async {
+            if let Ok(data) = tokio::fs::read(&entry).await {
+                // TODO: 能不能避免这次 clone?
+                let cdata = data.clone();
+                // NOTE: 不知道大量 block_in_place 会不会阻塞 tokio runtime，保险期间用 spawn_blocking
+                if let Ok(Ok(val)) = spawn_blocking(move || hash.hash_bytes(&cdata)).await {
+                    hash_tx.send((entry, data, val)).await.unwrap();
+                    return;
+                }
             }
-        }
-    }
+            pb.println(format!("计算哈希失败: {}", entry));
+            pb.inc(1);
+        })
+        .await;
+
     Ok(())
 }
 
