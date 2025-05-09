@@ -28,7 +28,7 @@ pub struct AddCommand {
     /// 图片所在目录，也支持扫描 tar 归档文件
     pub path: PathBuf,
     /// 扫描的文件后缀名，多个后缀用逗号分隔
-    #[arg(short, long, default_value = "jpg,png")]
+    #[arg(short, long, default_value = "jpg,png,webp")]
     pub suffix: String,
     /// 在添加到数据库之前使用正则表达式对图片路径进行处理
     /// 例：--replace '/path/to/image/(?<name>[0-9]+).jpg' '$name'
@@ -171,7 +171,7 @@ impl SubCommandExtend for AddCommand {
                         }
                     } else {
                         db.add_image(&path, &hash, des).await.unwrap();
-                        pb.set_message(entry);
+                        pb.set_message(path.to_owned());
                     }
 
                     pb.inc(1);
