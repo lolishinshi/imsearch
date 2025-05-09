@@ -5,7 +5,7 @@ use anyhow::{Result, anyhow};
 use clap::Parser;
 use futures::StreamExt;
 use indicatif::{ProgressBar, ProgressIterator};
-use log::info;
+use log::{debug, info};
 use opencv::core::MatTraitConst;
 use regex::Regex;
 use tokio::fs::File;
@@ -77,6 +77,7 @@ impl SubCommandExtend for AddCommand {
                 } else {
                     hash_direcotry(path, hash, hash_tx, re_suf, pb).await.unwrap();
                 }
+                debug!("task1 完成");
             }
         });
 
@@ -101,6 +102,7 @@ impl SubCommandExtend for AddCommand {
                         filter_tx.send((entry, data, hash)).await.unwrap();
                     }
                 }
+                debug!("task2 完成");
             }
         });
 
@@ -134,6 +136,7 @@ impl SubCommandExtend for AddCommand {
                     }
                     drop(tx);
                 });
+                debug!("task3 完成");
             }
         });
 
@@ -176,6 +179,7 @@ impl SubCommandExtend for AddCommand {
 
                     pb.inc(1);
                 }
+                debug!("task4 完成");
             }
         });
 
