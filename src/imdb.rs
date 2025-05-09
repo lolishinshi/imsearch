@@ -1,5 +1,6 @@
 use std::collections::HashMap;
 use std::env::set_current_dir;
+use std::fs;
 use std::sync::RwLock;
 use std::time::Instant;
 
@@ -122,188 +123,6 @@ impl IMDB {
         crud::guess_hash(&self.db).await.ok()
     }
 
-    /// 直接在内存中构建索引
-    pub async fn build_index_without_split(&self, chunk_size: usize) -> Result<()> {
-        info!("正在计算未索引的图片数量……");
-        let image_unindexed = crud::count_image_unindexed(&self.db).await?;
-
-        info!("正在加载索引……");
-        let mut index = self.get_index();
-        if !index.is_trained() {
-            return Err(anyhow::anyhow!("索引未训练"));
-        }
-
-        let pb = ProgressBar::new(image_unindexed as u64).with_style(pb_style());
-        pb.set_message("正在构建索引……");
-
-        let mut processed = 0;
-
-        while let Ok(chunk) = crud::get_vectors_unindexed(&self.db, chunk_size, 0).await {
-            if chunk.is_empty() {
-                break;
-            }
-
-            let mut images = vec![];
-            let mut ids = vec![];
-            let mut features = Array2::zeros((0, 32));
-            features.reserve_rows(chunk.len() * 500)?;
-
-            for record in &chunk {
-                for (i, feature) in record.vector.chunks(32).enumerate() {
-                    features.push_row(ArrayView::from(feature))?;
-                    ids.push(record.total_vector_count - i as i64);
-                }
-                images.push(record.id);
-            }
-
-            pb.set_message("正在构建索引……");
-            block_in_place(|| index.add_with_ids(&features, &ids));
-            pb.set_message("正在保存已构建部分……");
-            block_in_place(|| index.write_file(self.conf_dir.index()));
-
-            crud::set_indexed_batch(&self.db, &images).await?;
-
-            processed += images.len();
-            pb.set_position(processed as u64);
-        }
-
-        pb.finish_with_message("索引构建完成");
-
-        Ok(())
-    }
-
-    /// 构建索引
-    pub async fn build_index(&self, chunk_size: usize, no_split: bool) -> Result<()> {
-        if no_split {
-            return self.build_index_without_split(chunk_size).await;
-        }
-
-        info!("正在计算未索引的图片数量……");
-        let image_unindexed = crud::count_image_unindexed(&self.db).await?;
-
-        let pb = ProgressBar::new(image_unindexed as u64).with_style(pb_style());
-        pb.set_message("正在构建索引...");
-
-        let mut processed = 0;
-        while let Ok(chunk) = crud::get_vectors_unindexed(&self.db, chunk_size, 0).await {
-            if chunk.is_empty() {
-                break;
-            }
-            let mut index = self.get_index_template();
-            if !index.is_trained() {
-                panic!("该索引未训练！");
-            }
-
-            let mut images = vec![];
-            let mut ids = vec![];
-            let mut features = Array2::zeros((0, 32));
-            features.reserve_rows(chunk.len() * 500)?;
-
-            for record in chunk {
-                for (i, feature) in record.vector.chunks(32).enumerate() {
-                    features.push_row(ArrayView::from(feature))?;
-                    ids.push(record.total_vector_count - i as i64);
-                }
-                images.push(record.id);
-            }
-
-            block_in_place(|| {
-                index.add_with_ids(&features, &ids);
-                index.write_file(self.conf_dir.index_sub());
-            });
-
-            crud::set_indexed_batch(&self.db, &images).await?;
-
-            processed += images.len();
-            pb.set_position(processed as u64);
-        }
-
-        pb.finish_with_message("索引构建完成");
-
-        if *self.ondisk.read().unwrap() {
-            if self.conf_dir.ondisk_ivf().exists() {
-                warn!("OnDisk 索引已存在，忽略 --on-disk 选项");
-                self.merge_index_on_memory()?;
-            } else {
-                self.merge_index_on_disk()?;
-            }
-        } else {
-            self.merge_index_on_memory()?;
-        }
-
-        Ok(())
-    }
-
-    /// 合并索引
-    fn merge_index_on_memory(&self) -> Result<()> {
-        info!("在内存中合并所有索引……");
-        let mut index = self.get_index();
-        let sub_index_files = self.conf_dir.index_sub_all();
-        let mut files = vec![];
-        for index_file in sub_index_files.iter().progress_with_style(pb_style()) {
-            if !index_file.exists() {
-                break;
-            }
-            let sub_index = FaissIndex::from_file(index_file.to_str().unwrap(), false);
-            block_in_place(|| index.merge_from(&sub_index, 0));
-            files.push(index_file);
-        }
-
-        info!("保存索引……");
-        block_in_place(|| index.write_file(self.conf_dir.index()));
-
-        for file in files {
-            std::fs::remove_file(file)?;
-        }
-
-        Ok(())
-    }
-
-    /// 使用 OnDiskInvertedLists 合并索引
-    ///
-    /// 注意这种模式下，必须合并到一个空索引中
-    fn merge_index_on_disk(&self) -> Result<()> {
-        info!("在磁盘上合并所有索引……");
-
-        let mut invfs = vec![];
-        let mut files = vec![];
-        for index_file in self.conf_dir.index_sub_all() {
-            let mut sub_index = FaissIndex::from_file(index_file.to_str().unwrap(), true);
-            invfs.push(sub_index.invlists());
-            sub_index.set_own_invlists(false);
-            files.push(index_file);
-        }
-
-        if self.conf_dir.index().exists() {
-            let mut index = FaissIndex::from_file(self.conf_dir.index().to_str().unwrap(), true);
-            index.set_own_invlists(false);
-            invfs.push(index.invlists());
-        }
-
-        let mut index = self.get_index_template();
-
-        let mut invlists = FaissOnDiskInvLists::new(
-            index.nlist(),
-            index.code_size() as usize,
-            self.conf_dir.ondisk_ivf().to_str().unwrap(),
-        );
-
-        info!("合并倒排列表……");
-        let ntotal = invlists.merge_from_multiple(&invfs, false, true);
-
-        index.replace_invlists(invlists, true);
-        index.set_ntotal(ntotal as i64);
-
-        info!("保存索引……");
-        block_in_place(|| index.write_file(self.conf_dir.index()));
-
-        for file in files {
-            std::fs::remove_file(file)?;
-        }
-
-        Ok(())
-    }
-
     /// 清除索引缓存
     pub async fn clear_cache(&self, all: bool) -> Result<()> {
         if all {
@@ -341,7 +160,7 @@ impl IMDB {
     pub fn get_index_template(&self) -> FaissIndex {
         let index_file = self.conf_dir.index_template();
         if index_file.exists() {
-            let index = FaissIndex::from_file(index_file.to_str().unwrap(), false);
+            let index = FaissIndex::from_file(index_file, false);
             index
         } else {
             panic!("模板索引不存在，请先训练索引，并保存为 {}", index_file.display());
@@ -366,7 +185,7 @@ impl IMDB {
         }
 
         info!("正在加载索引 {}, mmap: {}", index_file.display(), mmap);
-        let index = FaissIndex::from_file(index_file.to_str().unwrap(), mmap);
+        let index = FaissIndex::from_file(index_file, mmap);
         info!("faiss 版本   : {}", index.faiss_version());
         info!("已添加特征点 : {}", index.ntotal());
         info!("倒排列表数量 : {}", index.nlist());
@@ -501,6 +320,187 @@ impl IMDB {
             let mut lock = self.total_vector_count.write().unwrap();
             *lock = vec;
         }
+        Ok(())
+    }
+}
+
+impl IMDB {
+    /// 直接在内存中构建索引
+    pub async fn build_index_without_split(&self, chunk_size: usize) -> Result<()> {
+        info!("正在计算未索引的图片数量……");
+        let image_unindexed = crud::count_image_unindexed(&self.db).await?;
+
+        info!("正在加载索引……");
+        let mut index = self.get_index();
+        if !index.is_trained() {
+            return Err(anyhow::anyhow!("索引未训练"));
+        }
+
+        let pb = ProgressBar::new(image_unindexed as u64).with_style(pb_style());
+        pb.set_message("正在构建索引……");
+
+        let mut processed = 0;
+
+        while let Ok(chunk) = crud::get_vectors_unindexed(&self.db, chunk_size, 0).await {
+            if chunk.is_empty() {
+                break;
+            }
+
+            let mut images = vec![];
+            let mut ids = vec![];
+            let mut features = Array2::zeros((0, 32));
+            features.reserve_rows(chunk.len() * 500)?;
+
+            for record in &chunk {
+                for (i, feature) in record.vector.chunks(32).enumerate() {
+                    features.push_row(ArrayView::from(feature))?;
+                    ids.push(record.total_vector_count - i as i64);
+                }
+                images.push(record.id);
+            }
+
+            pb.set_message("正在构建索引……");
+            block_in_place(|| index.add_with_ids(&features, &ids));
+            pb.set_message("正在保存已构建部分……");
+            block_in_place(|| index.write_file(self.conf_dir.index()));
+
+            crud::set_indexed_batch(&self.db, &images).await?;
+
+            processed += images.len();
+            pb.set_position(processed as u64);
+        }
+
+        pb.finish_with_message("索引构建完成");
+
+        Ok(())
+    }
+
+    /// 分段构建索引再进行合并
+    pub async fn build_index(&self, chunk_size: usize, no_split: bool) -> Result<()> {
+        if no_split {
+            return self.build_index_without_split(chunk_size).await;
+        }
+
+        info!("正在计算未索引的图片数量……");
+        let image_unindexed = crud::count_image_unindexed(&self.db).await?;
+
+        let pb = ProgressBar::new(image_unindexed as u64).with_style(pb_style());
+        pb.set_message("正在构建索引...");
+
+        let mut processed = 0;
+        while let Ok(chunk) = crud::get_vectors_unindexed(&self.db, chunk_size, 0).await {
+            if chunk.is_empty() {
+                break;
+            }
+            let mut index = self.get_index_template();
+            if !index.is_trained() {
+                panic!("该索引未训练！");
+            }
+
+            let mut images = vec![];
+            let mut ids = vec![];
+            let mut features = Array2::zeros((0, 32));
+            features.reserve_rows(chunk.len() * 500)?;
+
+            for record in chunk {
+                for (i, feature) in record.vector.chunks(32).enumerate() {
+                    features.push_row(ArrayView::from(feature))?;
+                    ids.push(record.total_vector_count - i as i64);
+                }
+                images.push(record.id);
+            }
+
+            block_in_place(|| {
+                index.add_with_ids(&features, &ids);
+                index.write_file(self.conf_dir.index_sub());
+            });
+
+            crud::set_indexed_batch(&self.db, &images).await?;
+
+            processed += images.len();
+            pb.set_position(processed as u64);
+        }
+
+        pb.finish_with_message("索引构建完成");
+
+        if *self.ondisk.read().unwrap() || self.conf_dir.ondisk_ivf().exists() {
+            block_in_place(|| self.merge_index_on_disk())?;
+        } else {
+            block_in_place(|| self.merge_index_on_memory())?;
+        }
+
+        Ok(())
+    }
+
+    /// 合并索引
+    fn merge_index_on_memory(&self) -> Result<()> {
+        info!("在内存中合并所有索引……");
+        let mut index = self.get_index();
+
+        let sub_index_files = self.conf_dir.index_sub_all();
+        for index_file in sub_index_files.iter().progress_with_style(pb_style()) {
+            // 在内存中合并时，子索引不能用 mmap 模式加载
+            let sub_index = FaissIndex::from_file(index_file, false);
+            index.merge_from(&sub_index, 0);
+        }
+
+        info!("保存索引……");
+        index.write_file(self.conf_dir.index());
+
+        for file in sub_index_files {
+            fs::remove_file(file)?;
+        }
+
+        Ok(())
+    }
+
+    /// 使用 OnDiskInvertedLists 合并索引
+    ///
+    /// 注意这种模式下，必须合并到一个空索引中
+    fn merge_index_on_disk(&self) -> Result<()> {
+        info!("在磁盘上合并所有索引……");
+
+        let mut invfs = vec![];
+        for index_file in self.conf_dir.index_sub_all() {
+            let mut sub_index = FaissIndex::from_file(index_file, true);
+            invfs.push(sub_index.invlists());
+            sub_index.set_own_invlists(false);
+        }
+
+        // 旧索引可能是普通格式也可能是 OnDiskIVF 格式
+        if self.conf_dir.index().exists() {
+            let mut index = if self.conf_dir.ondisk_ivf().exists() {
+                FaissIndex::from_file(self.conf_dir.index(), false)
+            } else {
+                FaissIndex::from_file(self.conf_dir.index(), true)
+            };
+            index.set_own_invlists(false);
+            invfs.push(index.invlists());
+        }
+
+        let mut template = self.get_index_template();
+
+        let mut invlists = FaissOnDiskInvLists::new(
+            template.nlist(),
+            template.code_size() as usize,
+            self.conf_dir.ondisk_ivf_tmp(),
+        );
+
+        info!("合并倒排列表……");
+        let ntotal = invlists.merge_from_multiple(&invfs, false, true);
+        invlists.set_filename(self.conf_dir.ondisk_ivf());
+        fs::rename(self.conf_dir.ondisk_ivf_tmp(), self.conf_dir.ondisk_ivf())?;
+
+        template.replace_invlists(invlists, true);
+        template.set_ntotal(ntotal as i64);
+
+        info!("保存索引……");
+        template.write_file(self.conf_dir.index());
+
+        for file in self.conf_dir.index_sub_all() {
+            fs::remove_file(file)?;
+        }
+
         Ok(())
     }
 }

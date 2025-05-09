@@ -2,6 +2,7 @@
 
 ## 未发布
 
+- 提高 `--on-disk` 模式合并索引的速度
 - 修复 `--on-disk` 模式下 ntotal 未正确设置的问题
 - 修复 `build` 命令 `--on-disk` 模式无法合并旧索引的问题
 - `add` 将 `--regex` 参数改为 `--replace`

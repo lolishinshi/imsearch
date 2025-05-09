@@ -40,8 +40,9 @@ impl FaissIndex {
     ///
     /// * `d` - 文件路径
     /// * `mmap` - 是否使用 mmap 模式加载
-    pub fn from_file(path: &str, mmap: bool) -> Self {
+    pub fn from_file<P: AsRef<Path>>(path: P, mmap: bool) -> Self {
         let index = null_mut();
+        let path = path.as_ref().to_str().unwrap();
         let path = CString::new(path).unwrap();
         let io_flags = match mmap {
             true => 0x8 | 0x646f0000,

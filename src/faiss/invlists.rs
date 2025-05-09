@@ -1,5 +1,6 @@
 use std::ffi::CString;
 use std::mem;
+use std::path::Path;
 
 use faiss_sys::*;
 
@@ -9,7 +10,8 @@ pub struct FaissInvLists(pub(super) *mut FaissInvertedLists_H);
 pub struct FaissOnDiskInvLists(pub(super) *mut FaissOnDiskInvertedLists);
 
 impl FaissOnDiskInvLists {
-    pub fn new(nlist: usize, code_size: usize, filename: &str) -> Self {
+    pub fn new<P: AsRef<Path>>(nlist: usize, code_size: usize, filename: P) -> Self {
+        let filename = filename.as_ref().to_str().unwrap();
         unsafe {
             let f = CString::new(filename).unwrap();
             let mut inner = mem::zeroed();
@@ -36,7 +38,8 @@ impl FaissOnDiskInvLists {
         }
     }
 
-    pub fn set_filename(&mut self, filename: &str) {
+    pub fn set_filename<P: AsRef<Path>>(&mut self, filename: P) {
+        let filename = filename.as_ref().to_str().unwrap();
         unsafe {
             let f = CString::new(filename).unwrap();
             faiss_OnDiskInvertedLists_set_filename(self.0, f.as_ptr());
