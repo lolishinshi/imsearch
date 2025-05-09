@@ -11,7 +11,7 @@ use regex::Regex;
 use tokio::fs::File;
 use tokio::io::AsyncReadExt;
 use tokio::sync::mpsc::{Sender, channel};
-use tokio::task::spawn_blocking;
+use tokio::task::{block_in_place, spawn_blocking};
 use tokio_tar::Archive;
 use walkdir::WalkDir;
 
@@ -63,7 +63,7 @@ impl SubCommandExtend for AddCommand {
         }
 
         // task1: 哈希计算
-        let (hash_tx, mut hash_rx) = channel(num_cpus::get() * 2);
+        let (hash_tx, mut hash_rx) = channel(num_cpus::get());
         let task1_hash = tokio::spawn({
             let hash = self.hash;
             let path = self.path.clone();
@@ -81,7 +81,7 @@ impl SubCommandExtend for AddCommand {
         });
 
         // task2: 检查已添加图片
-        let (filter_tx, mut filter_rx) = channel(num_cpus::get() * 2);
+        let (filter_tx, mut filter_rx) = channel(num_cpus::get());
         let task2_filter = tokio::spawn({
             let pb = pb.clone();
             let db = db.clone();
@@ -105,25 +105,34 @@ impl SubCommandExtend for AddCommand {
         });
 
         // task3: 特征点计算
-        let (feature_tx, mut feature_rx) = channel(num_cpus::get() * 2);
+        let (feature_tx, mut feature_rx) = channel(num_cpus::get());
         let task3_feature = spawn_blocking({
             let pb = pb.clone();
+            let (tx, rx) =
+                crossbeam_channel::bounded::<(String, Vec<u8>, Vec<u8>)>(num_cpus::get());
             move || {
-                let pb = &pb;
-                let feature_tx = &feature_tx;
-                rayon::scope(|s| {
-                    while let Some((entry, data, hash)) = filter_rx.blocking_recv() {
-                        s.spawn(move |_| {
-                            if let Ok((_, _, des)) =
-                                ORB.with(|orb| orb.borrow_mut().detect_bytes(&data))
-                            {
-                                feature_tx.blocking_send((entry, hash, des)).unwrap();
-                            } else {
-                                pb.set_message(format!("计算特征点失败: {}", entry));
-                                pb.inc(1);
+                std::thread::scope(|s| {
+                    for _ in 0..num_cpus::get() {
+                        let pb = &pb;
+                        let feature_tx = &feature_tx;
+                        let rx = rx.clone();
+                        s.spawn(move || {
+                            while let Ok((entry, data, hash)) = rx.recv() {
+                                if let Ok((_, _, des)) =
+                                    ORB.with(|orb| orb.borrow_mut().detect_bytes(&data))
+                                {
+                                    feature_tx.blocking_send((entry, hash, des)).unwrap();
+                                } else {
+                                    pb.set_message(format!("计算特征点失败: {}", entry));
+                                    pb.inc(1);
+                                }
                             }
                         });
                     }
+                    while let Some((entry, data, hash)) = filter_rx.blocking_recv() {
+                        tx.send((entry, data, hash)).unwrap();
+                    }
+                    drop(tx);
                 });
             }
         });
@@ -212,10 +221,7 @@ async fn hash_direcotry(
     futures::stream::iter(entries)
         .for_each_concurrent(num_cpus::get(), |entry| async {
             if let Ok(data) = tokio::fs::read(&entry).await {
-                // TODO: 能不能避免这次 clone?
-                let cdata = data.clone();
-                // NOTE: 不知道大量 block_in_place 会不会阻塞 tokio runtime，保险起见用 spawn_blocking
-                if let Ok(Ok(val)) = spawn_blocking(move || hash.hash_bytes(&cdata)).await {
+                if let Ok(val) = block_in_place(|| hash.hash_bytes(&data)) {
                     hash_tx.send((entry, data, val)).await.unwrap();
                     return;
                 }
@@ -262,8 +268,7 @@ async fn hash_tar_file(
                 let mut data = Vec::with_capacity(entry.header().size()? as usize);
                 entry.read_to_end(&mut data).await?;
 
-                let cdata = data.clone();
-                match spawn_blocking(move || hash.hash_bytes(&cdata)).await? {
+                match block_in_place(|| hash.hash_bytes(&data)) {
                     Ok(hash_value) => hash_tx.send((path, data, hash_value)).await?,
                     Err(_) => {
                         pb.println(format!("计算哈希失败: {}", path));
