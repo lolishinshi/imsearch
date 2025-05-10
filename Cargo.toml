@@ -59,18 +59,15 @@ features = [
     "img_hash",
 ]
 
-[dependencies.rocksdb]
-optional = true
-version = "0.21.0"
-default-features = false
-features = ["lz4", "zstd", "multi-threaded-cf"]
-
 [features]
 default = []
-rocksdb = ["dep:rocksdb"]
 
 [dev-dependencies]
+assert_cmd = "2.0.17"
+assert_fs = "1.1.3"
 criterion = "0.5.1"
+predicates = "3.1.3"
+rstest = "0.25.0"
 usearch = { version = "2.17.7", features = ["openmp"] }
 
 [[bench]]

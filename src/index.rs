@@ -41,11 +41,11 @@ impl IndexManager {
 
         if self.conf_dir.ondisk_ivf().exists() {
             if mmap {
+                mmap = false;
                 warn!("OnDisk 倒排无法使用 mmap 模式加载");
             }
             // NOTE: 此处切换路径的原因是，faiss 会根据「当前路径」而不是 index 所在路径来加载倒排列表
             set_current_dir(self.conf_dir.path()).unwrap();
-            mmap = false;
         }
 
         info!("正在加载索引 {}, mmap: {}", index_file.display(), mmap);
@@ -67,29 +67,40 @@ impl IndexManager {
 
     /// 获取聚合索引
     pub fn get_aggregate_index(&self, mmap: bool) -> FaissIndex {
-        let mut index = self.get_main_index(mmap);
+        if self.conf_dir.all_sub_index().is_empty() {
+            self.get_main_index(mmap)
+        } else {
+            info!("正在添加子索引……");
+            let mut template = self.get_template_index();
 
-        info!("正在拼合子索引……");
-        let mut ivfs = vec![];
-        let mut ntotal = 0;
-        for mut sub_index in self.get_sub_index(false) {
-            let ivf = sub_index.invlists();
-            ivfs.push(ivf);
-            sub_index.set_own_invlists(false);
-            ntotal += sub_index.ntotal();
-        }
-        let htack = FaissHStackInvLists::new(ivfs);
-        index.replace_invlists(htack, true);
-        index.set_ntotal(ntotal as i64);
+            let mut invfs = vec![];
+            let mut ntotal = 0;
+            for mut sub_index in self.get_sub_index(mmap) {
+                let ivf = sub_index.invlists();
+                invfs.push(ivf);
+                sub_index.set_own_invlists(false);
+                ntotal += sub_index.ntotal();
+            }
 
-        info!("已合并所有子索引");
-        info!("已添加特征点 : {}", index.ntotal());
-        info!("倒排列表数量 : {}", index.nlist());
-        info!("不平衡度     : {}", index.imbalance_factor());
-        if log_enabled!(Level::Debug) {
-            index.print_stats();
+            if self.conf_dir.index().exists() {
+                let mut index = FaissIndex::from_file(self.conf_dir.index(), mmap);
+                index.set_own_invlists(false);
+                invfs.push(index.invlists());
+            }
+
+            let htack = FaissHStackInvLists::new(invfs);
+            template.replace_invlists(htack, true);
+            template.set_ntotal(ntotal as i64);
+
+            info!("已添加特征点 : {}", template.ntotal());
+            info!("倒排列表数量 : {}", template.nlist());
+            info!("不平衡度     : {}", template.imbalance_factor());
+            if log_enabled!(Level::Debug) {
+                template.print_stats();
+            }
+
+            template
         }
-        index
     }
 
     /// 在内存中合并所有子索引
@@ -125,10 +136,10 @@ impl IndexManager {
             sub_index.set_own_invlists(false);
         }
 
-        // 旧索引可能是普通格式也可能是 OnDiskIVF 格式
+        // 旧索引
         if self.conf_dir.index().exists() {
             let mut index = if self.conf_dir.ondisk_ivf().exists() {
-                // OnDiskIVF 格式永远是 mmap，不需要手动设置
+                // OnDiskIVF 格式永远是 mmap，不能设置 mmap
                 FaissIndex::from_file(self.conf_dir.index(), false)
             } else {
                 FaissIndex::from_file(self.conf_dir.index(), true)

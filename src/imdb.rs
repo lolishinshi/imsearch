@@ -315,7 +315,7 @@ impl IMDB {
 
         if options.no_merge {
             Ok(())
-        } else if options.on_disk || self.conf_dir.ondisk_ivf().exists() {
+        } else if options.on_disk {
             block_in_place(|| self.index.merge_index_on_disk())
         } else {
             block_in_place(|| self.index.merge_index_on_memory())

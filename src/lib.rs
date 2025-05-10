@@ -5,8 +5,6 @@ pub mod faiss;
 pub mod imdb;
 pub mod index;
 pub mod orb;
-#[cfg(feature = "rocksdb")]
-pub mod rocks;
 pub mod server;
 pub mod utils;
 

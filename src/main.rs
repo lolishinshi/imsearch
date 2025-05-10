@@ -48,10 +48,6 @@ async fn main() -> anyhow::Result<()> {
         SubCommand::Export(config) => {
             config.run(&opts).await?;
         }
-        #[cfg(feature = "rocksdb")]
-        SubCommand::UpdateDB(config) => {
-            config.run(&opts).await?;
-        }
     }
 
     Ok(())

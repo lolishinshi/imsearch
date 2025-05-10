@@ -102,9 +102,6 @@ pub enum SubCommand {
     Clean(CleanCommand),
     /// 导出 npy 格式的特征点，供训练使用
     Export(ExportCommand),
-    #[cfg(feature = "rocksdb")]
-    /// 从 rocksdb 格式的旧数据库中更新为新的数据库格式
-    UpdateDB(UpdateDBCommand),
 }
 
 #[derive(Debug, Clone)]
