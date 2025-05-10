@@ -8,8 +8,8 @@ use log::debug;
 use ndarray::Array2;
 use opencv::prelude::*;
 
+use super::FaissInvLists;
 use super::types::*;
-use super::{FaissInvLists, FaissOnDiskInvLists};
 
 /// Faiss 索引
 pub struct FaissIndex {
@@ -215,9 +215,9 @@ impl FaissIndex {
         unsafe { FaissInvLists(faiss_IndexBinaryIVF_invlists(self.index)) }
     }
 
-    pub fn replace_invlists(&mut self, invlists: FaissOnDiskInvLists, own: bool) {
+    pub fn replace_invlists<T: Into<*mut FaissInvertedLists_H>>(&mut self, invlists: T, own: bool) {
         unsafe {
-            faiss_IndexBinaryIVF_replace_invlists(self.index, invlists.0, own as i32);
+            faiss_IndexBinaryIVF_replace_invlists(self.index, invlists.into(), own as i32);
         }
     }
 

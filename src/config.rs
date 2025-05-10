@@ -125,8 +125,8 @@ impl ConfDir {
         self.0.join("index")
     }
 
-    /// 返回子索引文件的路径
-    pub fn index_sub(&self) -> PathBuf {
+    /// 返回下一个子索引文件的路径
+    pub fn next_sub_index(&self) -> PathBuf {
         for i in 1.. {
             let path = self.0.join(format!("index.{}", i));
             if !path.exists() {
@@ -137,7 +137,7 @@ impl ConfDir {
     }
 
     /// 返回所有子索引文件的路径
-    pub fn index_sub_all(&self) -> Vec<PathBuf> {
+    pub fn all_sub_index(&self) -> Vec<PathBuf> {
         let mut paths = vec![];
         for i in 1.. {
             let path = self.0.join(format!("index.{}", i));
@@ -150,7 +150,7 @@ impl ConfDir {
     }
 
     /// 返回索引模板文件的路径
-    pub fn index_template(&self) -> PathBuf {
+    pub fn template_index(&self) -> PathBuf {
         self.0.join("index.template")
     }
 

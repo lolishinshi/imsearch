@@ -26,13 +26,9 @@ pub struct ServerCommand {
 
 impl SubCommandExtend for ServerCommand {
     async fn run(&self, opts: &Opts) -> anyhow::Result<()> {
-        let db = IMDBBuilder::new(opts.conf_dir.clone())
-            .mmap(!self.search.no_mmap)
-            .cache(true)
-            .open()
-            .await?;
+        let db = IMDBBuilder::new(opts.conf_dir.clone()).cache(true).open().await?;
 
-        let mut index = db.get_index();
+        let mut index = db.get_index(!self.search.no_mmap);
         if self.hnsw {
             index.to_hnsw();
         }

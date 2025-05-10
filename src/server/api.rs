@@ -16,6 +16,7 @@ use super::state::AppState;
 use super::types::*;
 use crate::config::OrbOptions;
 use crate::faiss::{FaissSearchParams, get_faiss_stats, reset_faiss_stats};
+use crate::imdb::BuildOptions;
 use crate::orb::ORBDetector;
 
 /// 搜索一张图片
@@ -57,10 +58,11 @@ pub async fn search_handler(
             .collect::<Result<Vec<_>>>()
     })?;
 
-    let index = state.index.read().await;
+    let lock = state.index.write().await;
+    let index = lock.as_ref().unwrap();
     let result = state
         .db
-        .search(&index, &des, state.search.k, state.search.distance, state.search.count, params)
+        .search(index, &des, state.search.k, state.search.distance, state.search.count, params)
         .await?;
 
     Ok(Json(json!({
@@ -86,13 +88,12 @@ pub async fn reload_handler(
     }
     let mut lock = state.index.write().await;
     // NOTE: 此处先释放旧索引，再重新加载新索引
-    *lock = state.db.get_index_template();
-    state.db.set_mmap(!data.no_mmap);
-    let mut index = state.db.get_index();
+    drop(lock.take().unwrap());
+    let mut index = state.db.get_index(!data.no_mmap);
     if data.hnsw {
         index.to_hnsw();
     }
-    *lock = index;
+    lock.replace(index);
     // 更新缓存 ID
     state.db.load_total_vector_count().await?;
     Ok(())
@@ -155,8 +156,12 @@ pub async fn build_handler(
     if token != state.token {
         return Err(anyhow::anyhow!("鉴权失败").into());
     }
-    state.db.set_ondisk(data.on_disk);
-    state.db.build_index(data.batch_size, data.no_split).await?;
+    let options = BuildOptions {
+        on_disk: data.on_disk,
+        batch_size: data.batch_size,
+        no_merge: data.no_merge,
+    };
+    state.db.build_index(options).await?;
     Ok(())
 }
 

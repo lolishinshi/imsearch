@@ -1,13 +1,11 @@
 use std::collections::HashMap;
-use std::env::set_current_dir;
-use std::fs;
 use std::sync::RwLock;
 use std::time::Instant;
 
 use anyhow::Result;
 use futures::prelude::*;
-use indicatif::{ProgressBar, ProgressIterator};
-use log::{Level, debug, info, log_enabled, warn};
+use indicatif::ProgressBar;
+use log::{debug, info};
 use ndarray::prelude::*;
 use opencv::core::{Mat, MatTraitConstManual};
 use opencv::prelude::*;
@@ -16,21 +14,27 @@ use tokio::task::block_in_place;
 
 use crate::config::ConfDir;
 use crate::db::*;
-use crate::faiss::{FaissIndex, FaissOnDiskInvLists, FaissSearchParams, Neighbor};
+use crate::faiss::{FaissIndex, FaissSearchParams, Neighbor};
+use crate::index::IndexManager;
 use crate::utils::{self, ImageHash, pb_style};
+
+#[derive(Debug, Clone)]
+pub struct BuildOptions {
+    pub on_disk: bool,
+    pub batch_size: usize,
+    pub no_merge: bool,
+}
 
 #[derive(Debug, Clone)]
 pub struct IMDBBuilder {
     conf_dir: ConfDir,
     wal: bool,
-    mmap: bool,
     cache: bool,
-    ondisk: bool,
 }
 
 impl IMDBBuilder {
     pub fn new(conf_dir: ConfDir) -> Self {
-        Self { conf_dir, wal: true, mmap: true, cache: false, ondisk: false }
+        Self { conf_dir, wal: true, cache: false }
     }
 
     /// 数据库是否开启 WAL，开启会影响删除
@@ -39,20 +43,9 @@ impl IMDBBuilder {
         self
     }
 
-    /// 是否使用 mmap 模式加载索引
-    pub fn mmap(mut self, mmap: bool) -> Self {
-        self.mmap = mmap;
-        self
-    }
-
     /// 是否使用缓存来加速 id 查询，会导致第一次查询速度变慢
     pub fn cache(mut self, cache: bool) -> Self {
         self.cache = cache;
-        self
-    }
-
-    pub fn ondisk(mut self, ondisk: bool) -> Self {
-        self.ondisk = ondisk;
         self
     }
 
@@ -67,11 +60,10 @@ impl IMDBBuilder {
         }
         let imdb = IMDB {
             db,
-            conf_dir: self.conf_dir,
+            conf_dir: self.conf_dir.clone(),
             total_vector_count: RwLock::new(vec![]),
-            mmap: RwLock::new(self.mmap),
             cache: self.cache,
-            ondisk: RwLock::new(self.ondisk),
+            index: IndexManager::new(self.conf_dir),
         };
         imdb.load_total_vector_count().await?;
         Ok(imdb)
@@ -86,10 +78,7 @@ pub struct IMDB {
     cache: bool,
     /// 每张图片特征点 ID 的累加数量，用于加速计算
     total_vector_count: RwLock<Vec<i64>>,
-    /// 是否使用 mmap 模式加载索引
-    mmap: RwLock<bool>,
-    /// 是否使用 OnDiskInvertedLists 格式合并索引
-    ondisk: RwLock<bool>,
+    index: IndexManager,
 }
 
 impl IMDB {
@@ -156,43 +145,9 @@ impl IMDB {
         Ok(arr)
     }
 
-    /// 获取模板索引
-    pub fn get_index_template(&self) -> FaissIndex {
-        let index_file = self.conf_dir.index_template();
-        if index_file.exists() {
-            FaissIndex::from_file(index_file, false)
-        } else {
-            panic!("模板索引不存在，请先训练索引，并保存为 {}", index_file.display());
-        }
-    }
-
-    /// 获取当前使用的索引，如果索引不存在，则返回模板索引
-    pub fn get_index(&self) -> FaissIndex {
-        let index_file = self.conf_dir.index();
-        if !index_file.exists() {
-            return self.get_index_template();
-        }
-
-        let mut mmap = *self.mmap.read().unwrap();
-        if self.conf_dir.ondisk_ivf().exists() {
-            if mmap {
-                warn!("OnDisk 倒排无法使用 mmap 模式加载");
-            }
-            // NOTE: 此处切换路径的原因是，faiss 会根据「当前路径」而不是 index 所在路径来加载倒排列表
-            set_current_dir(self.conf_dir.path()).unwrap();
-            mmap = false;
-        }
-
-        info!("正在加载索引 {}, mmap: {}", index_file.display(), mmap);
-        let index = FaissIndex::from_file(index_file, mmap);
-        info!("faiss 版本   : {}", index.faiss_version());
-        info!("已添加特征点 : {}", index.ntotal());
-        info!("倒排列表数量 : {}", index.nlist());
-        info!("不平衡度     : {}", index.imbalance_factor());
-        if log_enabled!(Level::Debug) {
-            index.print_stats();
-        }
-        index
+    /// 获取用于搜索的索引
+    pub fn get_index(&self, mmap: bool) -> FaissIndex {
+        self.index.get_aggregate_index(mmap)
     }
 
     /// 在索引中搜索多组描述符，返回 Vec<Vec<(分数, 图片路径)>>
@@ -304,14 +259,6 @@ impl IMDB {
         }
     }
 
-    pub fn set_mmap(&self, mmap: bool) {
-        *self.mmap.write().unwrap() = mmap;
-    }
-
-    pub fn set_ondisk(&self, ondisk: bool) {
-        *self.ondisk.write().unwrap() = ondisk;
-    }
-
     pub async fn load_total_vector_count(&self) -> Result<()> {
         if self.cache {
             info!("正在加载图片 ID 缓存……");
@@ -324,62 +271,8 @@ impl IMDB {
 }
 
 impl IMDB {
-    /// 直接在内存中构建索引
-    pub async fn build_index_without_split(&self, chunk_size: usize) -> Result<()> {
-        info!("正在计算未索引的图片数量……");
-        let image_unindexed = crud::count_image_unindexed(&self.db).await?;
-
-        info!("正在加载索引……");
-        let mut index = self.get_index();
-        if !index.is_trained() {
-            return Err(anyhow::anyhow!("索引未训练"));
-        }
-
-        let pb = ProgressBar::new(image_unindexed as u64).with_style(pb_style());
-        pb.set_message("正在构建索引……");
-
-        let mut processed = 0;
-
-        while let Ok(chunk) = crud::get_vectors_unindexed(&self.db, chunk_size, 0).await {
-            if chunk.is_empty() {
-                break;
-            }
-
-            let mut images = vec![];
-            let mut ids = vec![];
-            let mut features = Array2::zeros((0, 32));
-            features.reserve_rows(chunk.len() * 500)?;
-
-            for record in &chunk {
-                for (i, feature) in record.vector.chunks(32).enumerate() {
-                    features.push_row(ArrayView::from(feature))?;
-                    ids.push(record.total_vector_count - i as i64);
-                }
-                images.push(record.id);
-            }
-
-            pb.set_message("正在构建索引……");
-            block_in_place(|| index.add_with_ids(&features, &ids));
-            pb.set_message("正在保存已构建部分……");
-            block_in_place(|| index.write_file(self.conf_dir.index()));
-
-            crud::set_indexed_batch(&self.db, &images).await?;
-
-            processed += images.len();
-            pb.set_position(processed as u64);
-        }
-
-        pb.finish_with_message("索引构建完成");
-
-        Ok(())
-    }
-
     /// 分段构建索引再进行合并
-    pub async fn build_index(&self, chunk_size: usize, no_split: bool) -> Result<()> {
-        if no_split {
-            return self.build_index_without_split(chunk_size).await;
-        }
-
+    pub async fn build_index(&self, options: BuildOptions) -> Result<()> {
         info!("正在计算未索引的图片数量……");
         let image_unindexed = crud::count_image_unindexed(&self.db).await?;
 
@@ -387,14 +280,12 @@ impl IMDB {
         pb.set_message("正在构建索引...");
 
         let mut processed = 0;
-        while let Ok(chunk) = crud::get_vectors_unindexed(&self.db, chunk_size, 0).await {
+        while let Ok(chunk) = crud::get_vectors_unindexed(&self.db, options.batch_size, 0).await {
             if chunk.is_empty() {
                 break;
             }
-            let mut index = self.get_index_template();
-            if !index.is_trained() {
-                panic!("该索引未训练！");
-            }
+            let mut index = self.index.get_template_index();
+            assert!(index.is_trained(), "该索引未训练！");
 
             let mut images = vec![];
             let mut ids = vec![];
@@ -411,7 +302,7 @@ impl IMDB {
 
             block_in_place(|| {
                 index.add_with_ids(&features, &ids);
-                index.write_file(self.conf_dir.index_sub());
+                index.write_file(self.conf_dir.next_sub_index());
             });
 
             crud::set_indexed_batch(&self.db, &images).await?;
@@ -422,84 +313,12 @@ impl IMDB {
 
         pb.finish_with_message("索引构建完成");
 
-        if *self.ondisk.read().unwrap() || self.conf_dir.ondisk_ivf().exists() {
-            block_in_place(|| self.merge_index_on_disk())?;
+        if options.no_merge {
+            Ok(())
+        } else if options.on_disk || self.conf_dir.ondisk_ivf().exists() {
+            block_in_place(|| self.index.merge_index_on_disk())
         } else {
-            block_in_place(|| self.merge_index_on_memory())?;
+            block_in_place(|| self.index.merge_index_on_memory())
         }
-
-        Ok(())
-    }
-
-    /// 合并索引
-    fn merge_index_on_memory(&self) -> Result<()> {
-        info!("在内存中合并所有索引……");
-        let mut index = self.get_index();
-
-        let sub_index_files = self.conf_dir.index_sub_all();
-        for index_file in sub_index_files.iter().progress_with_style(pb_style()) {
-            // 在内存中合并时，子索引不能用 mmap 模式加载
-            let sub_index = FaissIndex::from_file(index_file, false);
-            index.merge_from(&sub_index, 0);
-        }
-
-        info!("保存索引……");
-        index.write_file(self.conf_dir.index());
-
-        for file in sub_index_files {
-            fs::remove_file(file)?;
-        }
-
-        Ok(())
-    }
-
-    /// 使用 OnDiskInvertedLists 合并索引
-    ///
-    /// 注意这种模式下，必须合并到一个空索引中
-    fn merge_index_on_disk(&self) -> Result<()> {
-        info!("在磁盘上合并所有索引……");
-
-        let mut invfs = vec![];
-        for index_file in self.conf_dir.index_sub_all() {
-            let mut sub_index = FaissIndex::from_file(index_file, true);
-            invfs.push(sub_index.invlists());
-            sub_index.set_own_invlists(false);
-        }
-
-        // 旧索引可能是普通格式也可能是 OnDiskIVF 格式
-        if self.conf_dir.index().exists() {
-            let mut index = if self.conf_dir.ondisk_ivf().exists() {
-                FaissIndex::from_file(self.conf_dir.index(), false)
-            } else {
-                FaissIndex::from_file(self.conf_dir.index(), true)
-            };
-            index.set_own_invlists(false);
-            invfs.push(index.invlists());
-        }
-
-        let mut template = self.get_index_template();
-
-        let mut invlists = FaissOnDiskInvLists::new(
-            template.nlist(),
-            template.code_size() as usize,
-            self.conf_dir.ondisk_ivf_tmp(),
-        );
-
-        info!("合并倒排列表……");
-        let ntotal = invlists.merge_from_multiple(&invfs, false, true);
-        invlists.set_filename(self.conf_dir.ondisk_ivf());
-        fs::rename(self.conf_dir.ondisk_ivf_tmp(), self.conf_dir.ondisk_ivf())?;
-
-        template.replace_invlists(invlists, true);
-        template.set_ntotal(ntotal as i64);
-
-        info!("保存索引……");
-        template.write_file(self.conf_dir.index());
-
-        for file in self.conf_dir.index_sub_all() {
-            fs::remove_file(file)?;
-        }
-
-        Ok(())
     }
 }
