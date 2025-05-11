@@ -171,4 +171,10 @@ impl ORBDetector {
         let (keypoints, descriptors) = utils::detect_and_compute(orb, &image)?;
         Ok((image, keypoints, descriptors))
     }
+
+    pub fn detect_image(&mut self, image: &Mat) -> Result<(Vector<KeyPoint>, Mat)> {
+        let orb = self.get_orb(image);
+        let (keypoints, descriptors) = utils::detect_and_compute(orb, &image)?;
+        Ok((keypoints, descriptors))
+    }
 }

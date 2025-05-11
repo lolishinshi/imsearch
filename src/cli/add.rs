@@ -6,7 +6,7 @@ use clap::Parser;
 use futures::StreamExt;
 use indicatif::{ProgressBar, ProgressIterator};
 use log::info;
-use opencv::core::MatTraitConst;
+use opencv::core::{Mat, MatTraitConst};
 use regex::Regex;
 use tokio::fs::File;
 use tokio::io::AsyncReadExt;
@@ -52,6 +52,14 @@ impl SubCommandExtend for AddCommand {
 
         let re_suf = format!("(?i)({})", self.suffix.replace(',', "|"));
         let re_suf = Regex::new(&re_suf).expect("failed to build regex");
+        let replace = if self.replace.is_empty() {
+            None
+        } else {
+            let re = Regex::new(&self.replace[0]).expect("failed to build regex");
+            let replace = self.replace[1].clone();
+            Some((re, replace))
+        };
+
         let db = Arc::new(IMDBBuilder::new(opts.conf_dir.clone()).open().await?);
 
         let pb = ProgressBar::no_length().with_style(pb_style());
@@ -86,19 +94,24 @@ impl SubCommandExtend for AddCommand {
             let pb = pb.clone();
             let db = db.clone();
             let overwrite = self.overwrite;
+            let replace = replace.clone();
             async move {
-                while let Some((entry, data, hash)) = hash_rx.recv().await {
+                while let Some((entry, img, hash)) = hash_rx.recv().await {
                     let exists = db.check_hash(&hash).await.unwrap();
                     if exists {
                         if overwrite {
-                            db.update_image_path(&hash, &entry).await.unwrap();
-                            pb.set_message(format!("更新图片路径: {}", entry));
+                            let path = match &replace {
+                                Some((re, replace)) => &*re.replace(&entry, replace),
+                                None => &*entry,
+                            };
+                            db.update_image_path(&hash, path).await.unwrap();
+                            pb.set_message(format!("更新图片路径: {}", path));
                         } else {
                             pb.set_message(format!("跳过已添加图片: {}", entry));
                         }
                         pb.inc(1);
                     } else {
-                        filter_tx.send((entry, data, hash)).await.unwrap();
+                        filter_tx.send((entry, img, hash)).await.unwrap();
                     }
                 }
             }
@@ -108,8 +121,7 @@ impl SubCommandExtend for AddCommand {
         let (feature_tx, mut feature_rx) = channel(num_cpus::get());
         let task3_feature = spawn_blocking({
             let pb = pb.clone();
-            let (tx, rx) =
-                crossbeam_channel::bounded::<(String, Vec<u8>, Vec<u8>)>(num_cpus::get());
+            let (tx, rx) = crossbeam_channel::bounded::<(String, Mat, Vec<u8>)>(num_cpus::get());
             move || {
                 std::thread::scope(|s| {
                     for _ in 0..num_cpus::get() {
@@ -117,9 +129,9 @@ impl SubCommandExtend for AddCommand {
                         let feature_tx = &feature_tx;
                         let rx = rx.clone();
                         s.spawn(move || {
-                            while let Ok((entry, data, hash)) = rx.recv() {
-                                if let Ok((_, _, des)) =
-                                    ORB.with(|orb| orb.borrow_mut().detect_bytes(&data))
+                            while let Ok((entry, img, hash)) = rx.recv() {
+                                if let Ok((_, des)) =
+                                    ORB.with(|orb| orb.borrow_mut().detect_image(&img))
                                 {
                                     feature_tx.blocking_send((entry, hash, des)).unwrap();
                                 } else {
@@ -129,8 +141,8 @@ impl SubCommandExtend for AddCommand {
                             }
                         });
                     }
-                    while let Some((entry, data, hash)) = filter_rx.blocking_recv() {
-                        tx.send((entry, data, hash)).unwrap();
+                    while let Some((entry, img, hash)) = filter_rx.blocking_recv() {
+                        tx.send((entry, img, hash)).unwrap();
                     }
                     drop(tx);
                 });
@@ -138,13 +150,6 @@ impl SubCommandExtend for AddCommand {
         });
 
         // task4: 添加图片
-        let replace = if self.replace.is_empty() {
-            None
-        } else {
-            let re = Regex::new(&self.replace[0]).expect("failed to build regex");
-            let replace = self.replace[1].clone();
-            Some((re, replace))
-        };
         let task4_add = tokio::spawn({
             let pb = pb.clone();
             let min_keypoints = self.min_keypoints as i32;
@@ -191,7 +196,7 @@ impl SubCommandExtend for AddCommand {
 async fn hash_direcotry(
     path: impl AsRef<Path>,
     hash: ImageHash,
-    hash_tx: Sender<(String, Vec<u8>, Vec<u8>)>,
+    hash_tx: Sender<(String, Mat, Vec<u8>)>,
     re_suf: Regex,
     pb: ProgressBar,
 ) -> Result<()> {
@@ -221,8 +226,8 @@ async fn hash_direcotry(
     futures::stream::iter(entries)
         .for_each_concurrent(num_cpus::get(), |entry| async {
             if let Ok(data) = tokio::fs::read(&entry).await {
-                if let Ok(val) = block_in_place(|| hash.hash_bytes(&data)) {
-                    hash_tx.send((entry, data, val)).await.unwrap();
+                if let Ok((img, val)) = block_in_place(|| hash.hash_bytes(&data)) {
+                    hash_tx.send((entry, img, val)).await.unwrap();
                     return;
                 }
             }
@@ -237,7 +242,7 @@ async fn hash_direcotry(
 async fn hash_tar_file(
     path: PathBuf,
     hash: ImageHash,
-    hash_tx: Sender<(String, Vec<u8>, Vec<u8>)>,
+    hash_tx: Sender<(String, Mat, Vec<u8>)>,
     re_suf: Regex,
     pb: ProgressBar,
 ) -> Result<()> {
@@ -277,7 +282,7 @@ async fn hash_tar_file(
     let t2 = tokio::spawn(async move {
         while let Some((path, data)) = rx.recv().await {
             match block_in_place(|| hash.hash_bytes(&data)) {
-                Ok(hash_value) => hash_tx.send((path.clone(), data, hash_value)).await.unwrap(),
+                Ok((img, val)) => hash_tx.send((path.clone(), img, val)).await.unwrap(),
                 Err(_) => {
                     pb.println(format!("计算哈希失败: {}", path.clone()));
                     pb.inc(1);

@@ -124,13 +124,13 @@ pub async fn add_image_handler(
             }
         };
 
-        let hash = hash.hash_bytes(&file.contents)?;
+        let (img, hash) = hash.hash_bytes(&file.contents)?;
         if state.db.check_hash(&hash).await? {
             continue;
         }
         let des = block_in_place(|| -> Result<_> {
             let mut orb = ORBDetector::create(state.orb.clone());
-            let (_, _, des) = orb.detect_bytes(&file.contents)?;
+            let (_, des) = orb.detect_image(&img)?;
             Ok(des)
         })?;
         if des.rows() <= 10 {
