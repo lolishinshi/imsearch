@@ -1,25 +1,29 @@
 use std::path::PathBuf;
-use std::sync::Arc;
+use std::sync::{Arc, LazyLock};
 
 use anyhow::Result;
 use crossbeam_channel::{Receiver, Sender, bounded};
 use either::Either;
 use futures::StreamExt;
 use indicatif::{ProgressBar, ProgressIterator};
+use itertools::Itertools;
 use log::info;
 use opencv::core::MatTraitConst;
-use rayon::iter::{ParallelBridge, ParallelIterator};
+use parking_lot::Mutex;
 use regex::Regex;
 use tokio::fs::File;
 use tokio::io::AsyncReadExt;
 use tokio::task::{JoinHandle, spawn_blocking};
 use tokio_tar::Archive;
 use walkdir::WalkDir;
+use yastl::Pool;
 
 use super::types::*;
 use crate::IMDB;
 use crate::orb::ORB;
 use crate::utils::{ImageHash, pb_style, pb_style_speed};
+
+static POOL: LazyLock<Pool> = LazyLock::new(|| Pool::new(num_cpus::get()));
 
 pub fn task_scan(
     path: PathBuf,
@@ -46,20 +50,28 @@ pub fn task_hash(
 ) -> (JoinHandle<()>, Receiver<HashedImageData>) {
     let (tx, rx) = bounded(num_cpus::get());
     let t = spawn_blocking(move || {
-        // 此处创建了一个新的线程池，避免 task_hash 占满线程导致 task_calc 饥饿进而卡住
-        rayon::ThreadPoolBuilder::new().build().unwrap().install(|| {
-            lrx.iter().par_bridge().for_each(|data| match hash.hash_bytes(&data.data) {
-                Ok((img, val)) => {
-                    tx.send(HashedImageData {
-                        path: data.path,
-                        data: img.map(Either::Left).unwrap_or(Either::Right(data.data)),
-                        hash: val,
-                    })
-                    .unwrap();
+        for chunk in &lrx.iter().chunks(num_cpus::get() * 10) {
+            // 由于 hash 计算非常快，这里先将结果收集到 Vec 中，最后再发送
+            // 否则可能因为 channel 堵塞导致线程无法及时结束
+            let result = Arc::new(Mutex::new(Vec::new()));
+            POOL.scoped(|s| {
+                for data in chunk {
+                    s.execute(|| match hash.hash_bytes(&data.data) {
+                        Ok((img, val)) => {
+                            result.lock().push(HashedImageData {
+                                path: data.path,
+                                data: img.map(Either::Left).unwrap_or(Either::Right(data.data)),
+                                hash: val,
+                            });
+                        }
+                        Err(_) => pb.println(format!("计算哈希失败: {}", data.path)),
+                    });
                 }
-                Err(_) => pb.println(format!("计算哈希失败: {}", data.path)),
             });
-        });
+            for data in result.lock().drain(..) {
+                tx.send(data).unwrap();
+            }
+        }
     });
     (t, rx)
 }
@@ -101,18 +113,28 @@ pub fn task_calc(
 ) -> (JoinHandle<()>, Receiver<ProcessableImage>) {
     let (tx, rx) = bounded(num_cpus::get());
     let t = spawn_blocking(move || {
-        lrx.iter().par_bridge().for_each(|data| {
-            if let Ok((_, des)) = ORB.with(|orb| match data.data {
-                Either::Left(img) => orb.borrow_mut().detect_image(img),
-                Either::Right(bytes) => orb.borrow_mut().detect_bytes(&bytes),
-            }) {
-                tx.send(ProcessableImage { path: data.path, hash: data.hash, descriptors: des })
-                    .unwrap();
-            } else {
-                pb.set_message(format!("计算特征点失败: {}", data.path));
-                pb.inc(1);
-            }
-        });
+        for chunk in &lrx.iter().chunks(num_cpus::get() * 10) {
+            POOL.scoped(|s| {
+                for data in chunk {
+                    s.execute(|| {
+                        if let Ok((_, des)) = ORB.with(|orb| match data.data {
+                            Either::Left(img) => orb.borrow_mut().detect_image(img),
+                            Either::Right(bytes) => orb.borrow_mut().detect_bytes(&bytes),
+                        }) {
+                            tx.send(ProcessableImage {
+                                path: data.path,
+                                hash: data.hash,
+                                descriptors: des,
+                            })
+                            .unwrap();
+                        } else {
+                            pb.set_message(format!("计算特征点失败: {}", data.path));
+                            pb.inc(1);
+                        }
+                    });
+                }
+            });
+        }
     });
     (t, rx)
 }
