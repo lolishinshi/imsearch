@@ -11,6 +11,11 @@ pub struct FaissOnDiskInvLists(pub(super) *mut FaissOnDiskInvertedLists);
 
 pub struct FaissHStackInvLists(pub(super) *mut FaissHStackInvertedLists);
 
+pub struct FaissArrayInvLists {
+    code_size: usize,
+    pub(super) inner: *mut FaissArrayInvertedLists,
+}
+
 impl From<FaissOnDiskInvLists> for *mut FaissInvertedLists_H {
     fn from(ivf: FaissOnDiskInvLists) -> Self {
         ivf.0
@@ -20,6 +25,36 @@ impl From<FaissOnDiskInvLists> for *mut FaissInvertedLists_H {
 impl From<FaissHStackInvLists> for *mut FaissInvertedLists_H {
     fn from(ivf: FaissHStackInvLists) -> Self {
         ivf.0 as *mut _
+    }
+}
+
+impl From<FaissArrayInvLists> for *mut FaissInvertedLists_H {
+    fn from(ivf: FaissArrayInvLists) -> Self {
+        ivf.inner
+    }
+}
+
+impl FaissArrayInvLists {
+    pub fn new(nlist: usize, code_size: usize) -> Self {
+        unsafe {
+            let mut inner = mem::zeroed();
+            faiss_ArrayInvertedLists_new(&mut inner, nlist, code_size);
+            FaissArrayInvLists { code_size, inner }
+        }
+    }
+
+    pub fn add_entries(&mut self, list_no: usize, n_entries: usize, ids: &[i64], codes: &[u8]) {
+        assert_eq!(n_entries, ids.len());
+        assert_eq!(n_entries * self.code_size, codes.len());
+        unsafe {
+            faiss_InvertedLists_add_entries(
+                self.inner,
+                list_no,
+                n_entries,
+                ids.as_ptr(),
+                codes.as_ptr(),
+            );
+        }
     }
 }
 

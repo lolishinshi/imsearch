@@ -6,7 +6,7 @@ use indicatif::{ProgressBar, ProgressIterator};
 use log::{Level, info, log_enabled, warn};
 
 use crate::config::ConfDir;
-use crate::faiss::{FaissHStackInvLists, FaissIndex, FaissOnDiskInvLists};
+use crate::faiss::*;
 use crate::utils::pb_style;
 
 #[derive(Debug)]
@@ -50,7 +50,6 @@ impl IndexManager {
 
         info!("正在加载索引 {}, mmap: {}", index_file.display(), mmap);
         let index = FaissIndex::from_file(index_file, mmap);
-        info!("faiss 版本   : {}", index.faiss_version());
         info!("已添加特征点 : {}", index.ntotal());
         info!("倒排列表数量 : {}", index.nlist());
         info!("不平衡度     : {}", index.imbalance_factor());
@@ -108,6 +107,16 @@ impl IndexManager {
         info!("在内存中合并所有索引……");
         let mut index = self.get_main_index(false);
 
+        // 如果是 OnDiskIVF 格式，则需要先转换为内存格式
+        if self.conf_dir.ondisk_ivf().exists() {
+            let mut dst = FaissArrayInvLists::new(index.nlist(), index.code_size() as usize);
+            for i in 0..index.nlist() {
+                let n = index.list_size(i);
+                dst.add_entries(i, n, &index.ids(i), &index.codes(i));
+            }
+            index.replace_invlists(dst, true);
+        }
+
         // 注意在内存中合并时，子索引不能用 mmap 模式加载
         let sub_index_files = self.conf_dir.all_sub_index();
         let pb = ProgressBar::new(sub_index_files.len() as u64).with_style(pb_style());
@@ -120,6 +129,9 @@ impl IndexManager {
 
         for file in sub_index_files {
             fs::remove_file(file)?;
+        }
+        if self.conf_dir.ondisk_ivf().exists() {
+            fs::remove_file(self.conf_dir.ondisk_ivf())?;
         }
         Ok(())
     }

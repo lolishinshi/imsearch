@@ -221,11 +221,24 @@ impl FaissIndex {
         }
     }
 
-    /// 获取 faiss 版本
-    pub fn faiss_version(&self) -> String {
-        let version = unsafe { faiss_get_version() };
-        let version = unsafe { CStr::from_ptr(version) };
-        version.to_string_lossy().to_string()
+    pub fn list_size(&self, list_no: usize) -> usize {
+        unsafe { faiss_IndexBinaryIVF_get_list_size(self.index, list_no) }
+    }
+
+    pub fn ids(&self, list_no: usize) -> Vec<i64> {
+        let mut ids = vec![0i64; self.list_size(list_no)];
+        unsafe {
+            faiss_IndexBinaryIVF_invlists_get_ids(self.index, list_no, ids.as_mut_ptr());
+        }
+        ids
+    }
+
+    pub fn codes(&self, list_no: usize) -> Vec<u8> {
+        let mut codes = vec![0u8; self.list_size(list_no) * self.code_size() as usize];
+        unsafe {
+            faiss_IndexBinaryIVF_invlists_get_codes(self.index, list_no, codes.as_mut_ptr());
+        }
+        codes
     }
 }
 
@@ -260,3 +273,10 @@ impl Drop for FaissIndex {
 
 unsafe impl Sync for FaissIndex {}
 unsafe impl Send for FaissIndex {}
+
+/// 获取 faiss 版本
+pub fn faiss_version() -> String {
+    let version = unsafe { faiss_get_version() };
+    let version = unsafe { CStr::from_ptr(version) };
+    version.to_string_lossy().to_string()
+}
