@@ -1,7 +1,8 @@
 use std::path::PathBuf;
-use std::sync::{Arc, LazyLock, Mutex};
+use std::sync::{Arc, LazyLock};
 
 use anyhow::Result;
+use crossbeam_channel::{Receiver, Sender, bounded};
 use either::Either;
 use futures::StreamExt;
 use indicatif::{ProgressBar, ProgressIterator};
@@ -10,7 +11,6 @@ use opencv::core::MatTraitConst;
 use regex::Regex;
 use tokio::fs::File;
 use tokio::io::AsyncReadExt;
-use tokio::sync::mpsc::{Receiver, Sender, channel};
 use tokio::task::{JoinHandle, spawn_blocking};
 use tokio_tar::Archive;
 use walkdir::WalkDir;
@@ -28,7 +28,7 @@ pub fn task_scan(
     pb: ProgressBar,
     regex_suf: Regex,
 ) -> (JoinHandle<()>, Receiver<ImageData>) {
-    let (tx, rx) = channel(num_cpus::get());
+    let (tx, rx) = bounded(num_cpus::get());
     let t = tokio::spawn(async move {
         // NOTE: 这里刻意不使用 `?` 而是 unwrap，这是为了确保出错时正常崩溃
         // 如果上抛的话，上层就需要正确打印错误，太过麻烦，不如直接 panic
@@ -42,54 +42,45 @@ pub fn task_scan(
 }
 
 pub fn task_hash(
-    mut lrx: Receiver<ImageData>,
+    lrx: Receiver<ImageData>,
     hash: ImageHash,
     pb: ProgressBar,
 ) -> (JoinHandle<()>, Receiver<HashedImageData>) {
-    let (tx, rx) = channel(num_cpus::get());
+    let (tx, rx) = bounded(num_cpus::get());
     let t = spawn_blocking(move || {
-        let mut buffer = vec![];
         let tx = &tx;
         let pb = &pb;
         // NOTE: 这里一次读取 cpu * 10 组数据，然后等待计算完成后再读取下一批
         // 这样可以避免同时 spawn 太多任务，导致内存占用过高
-        while lrx.blocking_recv_many(&mut buffer, num_cpus::get() * 10) != 0 {
-            // 这里先将结果暂存到 Vec 中，最后再发送
-            // 避免出现 hash 早早计算完，但是由于 channel 满了，导致占着线程不释放的情况
-            let result = Arc::new(Mutex::new(Vec::with_capacity(buffer.len())));
-            POOL.scoped(|s| {
-                for data in buffer.drain(..) {
-                    let result = result.clone();
-                    s.execute(move || match hash.hash_bytes(&data.data) {
-                        Ok((img, val)) => {
-                            result.lock().unwrap().push(HashedImageData {
-                                path: data.path,
-                                data: img.map(Either::Left).unwrap_or(Either::Right(data.data)),
-                                hash: val,
-                            });
-                        }
-                        Err(_) => pb.println(format!("计算哈希失败: {}", data.path)),
-                    });
-                }
-            });
-            for data in result.lock().unwrap().drain(..) {
-                tx.blocking_send(data).unwrap();
+        POOL.scoped(|s| {
+            while let Ok(data) = lrx.recv() {
+                s.execute(move || match hash.hash_bytes(&data.data) {
+                    Ok((img, val)) => {
+                        tx.send(HashedImageData {
+                            path: data.path,
+                            data: img.map(Either::Left).unwrap_or(Either::Right(data.data)),
+                            hash: val,
+                        })
+                        .unwrap();
+                    }
+                    Err(_) => pb.println(format!("计算哈希失败: {}", data.path)),
+                });
             }
-        }
+        });
     });
     (t, rx)
 }
 
 pub fn task_filter(
-    mut lrx: Receiver<HashedImageData>,
+    lrx: Receiver<HashedImageData>,
     pb: ProgressBar,
     db: Arc<IMDB>,
     overwrite: bool,
     replace: Option<(Regex, String)>,
 ) -> (JoinHandle<()>, Receiver<HashedImageData>) {
-    let (tx, rx) = channel(num_cpus::get());
+    let (tx, rx) = bounded(num_cpus::get());
     let t = tokio::spawn(async move {
-        while let Some(data) = lrx.recv().await {
+        while let Ok(data) = lrx.recv() {
             let exists = db.check_hash(&data.hash).await.unwrap();
             if exists {
                 if overwrite {
@@ -104,7 +95,7 @@ pub fn task_filter(
                 }
                 pb.inc(1);
             } else {
-                tx.send(data).await.unwrap();
+                tx.send(data).unwrap();
             }
         }
     });
@@ -112,42 +103,39 @@ pub fn task_filter(
 }
 
 pub fn task_calc(
-    mut lrx: Receiver<HashedImageData>,
+    lrx: Receiver<HashedImageData>,
     pb: ProgressBar,
 ) -> (JoinHandle<()>, Receiver<ProcessableImage>) {
-    let (tx, rx) = channel(num_cpus::get());
+    let (tx, rx) = bounded(num_cpus::get());
     let t = spawn_blocking(move || {
-        let mut buffer = vec![];
         let pb = &pb;
         let tx = &tx;
-        while lrx.blocking_recv_many(&mut buffer, num_cpus::get() * 10) != 0 {
-            POOL.scoped(|s| {
-                for data in buffer.drain(..) {
-                    s.execute(move || {
-                        if let Ok((_, des)) = ORB.with(|orb| match data.data {
-                            Either::Left(img) => orb.borrow_mut().detect_image(img),
-                            Either::Right(bytes) => orb.borrow_mut().detect_bytes(&bytes),
-                        }) {
-                            tx.blocking_send(ProcessableImage {
-                                path: data.path.clone(),
-                                hash: data.hash,
-                                descriptors: des,
-                            })
-                            .unwrap();
-                        } else {
-                            pb.set_message(format!("计算特征点失败: {}", data.path));
-                            pb.inc(1);
-                        }
-                    });
-                }
-            });
-        }
+        POOL.scoped(|s| {
+            while let Ok(data) = lrx.recv() {
+                s.execute(move || {
+                    if let Ok((_, des)) = ORB.with(|orb| match data.data {
+                        Either::Left(img) => orb.borrow_mut().detect_image(img),
+                        Either::Right(bytes) => orb.borrow_mut().detect_bytes(&bytes),
+                    }) {
+                        tx.send(ProcessableImage {
+                            path: data.path.clone(),
+                            hash: data.hash,
+                            descriptors: des,
+                        })
+                        .unwrap();
+                    } else {
+                        pb.set_message(format!("计算特征点失败: {}", data.path));
+                        pb.inc(1);
+                    }
+                });
+            }
+        });
     });
     (t, rx)
 }
 
 pub fn task_add(
-    mut lrx: Receiver<ProcessableImage>,
+    lrx: Receiver<ProcessableImage>,
     pb: ProgressBar,
     db: Arc<IMDB>,
     min_keypoints: i32,
@@ -155,7 +143,7 @@ pub fn task_add(
     replace: Option<(Regex, String)>,
 ) -> JoinHandle<()> {
     tokio::spawn(async move {
-        while let Some(data) = lrx.recv().await {
+        while let Ok(data) = lrx.recv() {
             if data.descriptors.rows() <= min_keypoints {
                 pb.set_message(format!("特征点少于 {}: {}", min_keypoints, data.path));
                 pb.inc(1);
@@ -217,7 +205,7 @@ async fn scan_directory(
     futures::stream::iter(entries)
         .for_each_concurrent(32, |entry| async {
             if let Ok(data) = tokio::fs::read(&entry).await {
-                tx.send(ImageData { path: entry, data }).await.unwrap();
+                tx.send(ImageData { path: entry, data }).unwrap();
             }
         })
         .await;
@@ -257,7 +245,7 @@ async fn scan_tar(
         let mut data = Vec::with_capacity(entry.header().size()? as usize);
         entry.read_to_end(&mut data).await?;
 
-        tx.send(ImageData { path, data }).await.unwrap();
+        tx.send(ImageData { path, data }).unwrap();
     }
     Ok(())
 }
