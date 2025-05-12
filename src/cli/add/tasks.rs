@@ -1,5 +1,5 @@
 use std::path::PathBuf;
-use std::sync::{Arc, LazyLock};
+use std::sync::Arc;
 
 use anyhow::Result;
 use crossbeam_channel::{Receiver, Sender, bounded};
@@ -8,20 +8,18 @@ use futures::StreamExt;
 use indicatif::{ProgressBar, ProgressIterator};
 use log::info;
 use opencv::core::MatTraitConst;
+use rayon::iter::{ParallelBridge, ParallelIterator};
 use regex::Regex;
 use tokio::fs::File;
 use tokio::io::AsyncReadExt;
 use tokio::task::{JoinHandle, spawn_blocking};
 use tokio_tar::Archive;
 use walkdir::WalkDir;
-use yastl::Pool;
 
 use super::types::*;
 use crate::IMDB;
 use crate::orb::ORB;
 use crate::utils::{ImageHash, pb_style, pb_style_speed};
-
-static POOL: LazyLock<Pool> = LazyLock::new(|| Pool::new(num_cpus::get()));
 
 pub fn task_scan(
     path: PathBuf,
@@ -48,24 +46,19 @@ pub fn task_hash(
 ) -> (JoinHandle<()>, Receiver<HashedImageData>) {
     let (tx, rx) = bounded(num_cpus::get());
     let t = spawn_blocking(move || {
-        let tx = &tx;
-        let pb = &pb;
-        // NOTE: 这里一次读取 cpu * 10 组数据，然后等待计算完成后再读取下一批
-        // 这样可以避免同时 spawn 太多任务，导致内存占用过高
-        POOL.scoped(|s| {
-            while let Ok(data) = lrx.recv() {
-                s.execute(move || match hash.hash_bytes(&data.data) {
-                    Ok((img, val)) => {
-                        tx.send(HashedImageData {
-                            path: data.path,
-                            data: img.map(Either::Left).unwrap_or(Either::Right(data.data)),
-                            hash: val,
-                        })
-                        .unwrap();
-                    }
-                    Err(_) => pb.println(format!("计算哈希失败: {}", data.path)),
-                });
-            }
+        // 此处创建了一个新的线程池，避免 task_hash 占满线程导致 task_calc 饥饿进而卡住
+        rayon::ThreadPoolBuilder::new().build().unwrap().install(|| {
+            lrx.iter().par_bridge().for_each(|data| match hash.hash_bytes(&data.data) {
+                Ok((img, val)) => {
+                    tx.send(HashedImageData {
+                        path: data.path,
+                        data: img.map(Either::Left).unwrap_or(Either::Right(data.data)),
+                        hash: val,
+                    })
+                    .unwrap();
+                }
+                Err(_) => pb.println(format!("计算哈希失败: {}", data.path)),
+            });
         });
     });
     (t, rx)
@@ -108,26 +101,16 @@ pub fn task_calc(
 ) -> (JoinHandle<()>, Receiver<ProcessableImage>) {
     let (tx, rx) = bounded(num_cpus::get());
     let t = spawn_blocking(move || {
-        let pb = &pb;
-        let tx = &tx;
-        POOL.scoped(|s| {
-            while let Ok(data) = lrx.recv() {
-                s.execute(move || {
-                    if let Ok((_, des)) = ORB.with(|orb| match data.data {
-                        Either::Left(img) => orb.borrow_mut().detect_image(img),
-                        Either::Right(bytes) => orb.borrow_mut().detect_bytes(&bytes),
-                    }) {
-                        tx.send(ProcessableImage {
-                            path: data.path.clone(),
-                            hash: data.hash,
-                            descriptors: des,
-                        })
-                        .unwrap();
-                    } else {
-                        pb.set_message(format!("计算特征点失败: {}", data.path));
-                        pb.inc(1);
-                    }
-                });
+        lrx.iter().par_bridge().for_each(|data| {
+            if let Ok((_, des)) = ORB.with(|orb| match data.data {
+                Either::Left(img) => orb.borrow_mut().detect_image(img),
+                Either::Right(bytes) => orb.borrow_mut().detect_bytes(&bytes),
+            }) {
+                tx.send(ProcessableImage { path: data.path, hash: data.hash, descriptors: des })
+                    .unwrap();
+            } else {
+                pb.set_message(format!("计算特征点失败: {}", data.path));
+                pb.inc(1);
             }
         });
     });
