@@ -1,5 +1,5 @@
 use std::path::PathBuf;
-use std::sync::{Arc, LazyLock};
+use std::sync::{Arc, LazyLock, Mutex};
 
 use anyhow::Result;
 use either::Either;
@@ -54,31 +54,27 @@ pub fn task_hash(
         // NOTE: 这里一次读取 cpu * 10 组数据，然后等待计算完成后再读取下一批
         // 这样可以避免同时 spawn 太多任务，导致内存占用过高
         while lrx.blocking_recv_many(&mut buffer, num_cpus::get() * 10) != 0 {
+            // 这里先将结果暂存到 Vec 中，最后再发送
+            // 避免出现 hash 早早计算完，但是由于 channel 满了，导致占着线程不释放的情况
+            let result = Arc::new(Mutex::new(Vec::with_capacity(buffer.len())));
             POOL.scoped(|s| {
                 for data in buffer.drain(..) {
+                    let result = result.clone();
                     s.execute(move || match hash.hash_bytes(&data.data) {
-                        Ok((img, val)) => match img {
-                            Some(img) => {
-                                tx.blocking_send(HashedImageData {
-                                    path: data.path,
-                                    data: Either::Left(img),
-                                    hash: val,
-                                })
-                                .unwrap();
-                            }
-                            None => {
-                                tx.blocking_send(HashedImageData {
-                                    path: data.path,
-                                    data: Either::Right(data.data),
-                                    hash: val,
-                                })
-                                .unwrap();
-                            }
-                        },
+                        Ok((img, val)) => {
+                            result.lock().unwrap().push(HashedImageData {
+                                path: data.path,
+                                data: img.map(Either::Left).unwrap_or(Either::Right(data.data)),
+                                hash: val,
+                            });
+                        }
                         Err(_) => pb.println(format!("计算哈希失败: {}", data.path)),
                     });
                 }
             });
+            for data in result.lock().unwrap().drain(..) {
+                tx.blocking_send(data).unwrap();
+            }
         }
     });
     (t, rx)
