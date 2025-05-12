@@ -169,16 +169,16 @@ impl ImageHash {
     }
 
     /// 对一个图片的字节序列进行哈希，返回解码后的图片和哈希值
-    pub fn hash_bytes(&self, data: &[u8]) -> Result<(Mat, Vec<u8>)> {
-        let mat = Mat::from_slice(data)?;
-        let img = imgcodecs::imdecode(&mat, imgcodecs::IMREAD_GRAYSCALE)?;
+    pub fn hash_bytes(&self, data: &[u8]) -> Result<(Option<Mat>, Vec<u8>)> {
         match self {
-            Self::Blake3 => Ok((img, blake3::hash(data).as_bytes().to_vec())),
+            Self::Blake3 => Ok((None, blake3::hash(data).as_bytes().to_vec())),
             Self::Phash => {
+                let mat = Mat::from_slice(data)?;
+                let img = imgcodecs::imdecode(&mat, imgcodecs::IMREAD_GRAYSCALE)?;
                 let mut output_arr = Mat::default();
                 p_hash(&img, &mut output_arr)?;
                 let hash = output_arr.data_bytes()?;
-                Ok((img, hash.to_vec()))
+                Ok((Some(img), hash.to_vec()))
             }
         }
     }

@@ -17,6 +17,7 @@ blake3 = "1.8.2"
 clap = { version = "4.5.37", features = ["derive"] }
 crossbeam-channel = "0.5.15"
 directories = "6.0.0"
+either = "1.15.0"
 env_logger = "0.11.8"
 futures = "0.3.31"
 indicatif = { version = "0.17.11", features = ["rayon"] }

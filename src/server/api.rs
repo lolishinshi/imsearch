@@ -52,7 +52,7 @@ pub async fn search_handler(
             .par_iter()
             .map(|file| {
                 let mut orb = ORBDetector::create(orb.clone());
-                let (_, _, des) = orb.detect_bytes(file)?;
+                let (_, des) = orb.detect_bytes(file)?;
                 Ok(des)
             })
             .collect::<Result<Vec<_>>>()
@@ -130,7 +130,10 @@ pub async fn add_image_handler(
         }
         let des = block_in_place(|| -> Result<_> {
             let mut orb = ORBDetector::create(state.orb.clone());
-            let (_, des) = orb.detect_image(&img)?;
+            let (_, des) = match img {
+                Some(img) => orb.detect_image(&img)?,
+                None => orb.detect_bytes(&file.contents)?,
+            };
             Ok(des)
         })?;
         if des.rows() <= 10 {

@@ -90,7 +90,7 @@ impl IndexManager {
 
             let htack = FaissHStackInvLists::new(invfs);
             template.replace_invlists(htack, true);
-            template.set_ntotal(ntotal as i64);
+            template.set_ntotal(ntotal);
 
             info!("已添加特征点 : {}", template.ntotal());
             info!("倒排列表数量 : {}", template.nlist());
