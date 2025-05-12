@@ -65,20 +65,14 @@ impl SubCommandExtend for AddCommand {
             }
         }
 
-        // task1: 哈希计算
-        let (t1, rx) = task1_scan_and_hash(self.hash, self.path.clone(), pb.clone(), re_suf);
-
-        // task2: 检查已添加图片
-        let (t2, rx) = task2_filter(rx, pb.clone(), db.clone(), self.overwrite, replace.clone());
-
-        // task3: 特征点计算
-        let (t3, rx) = task3_calc(rx, pb.clone());
-
-        // task4: 添加图片
-        let t4 = task4_add(rx, pb.clone(), db, self.min_keypoints as i32, self.overwrite, replace);
+        let (t1, rx) = task_scan(self.path.clone(), pb.clone(), re_suf);
+        let (t2, rx) = task_hash(rx, self.hash, pb.clone());
+        let (t3, rx) = task_filter(rx, pb.clone(), db.clone(), self.overwrite, replace.clone());
+        let (t4, rx) = task_calc(rx, pb.clone());
+        let t5 = task_add(rx, pb.clone(), db, self.min_keypoints as i32, self.overwrite, replace);
 
         // 等待所有任务完成
-        let _ = tokio::try_join!(t1, t2, t3, t4);
+        let _ = tokio::try_join!(t1, t2, t3, t4, t5);
 
         pb.finish_with_message("图片添加完成");
 

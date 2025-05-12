@@ -639,15 +639,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "crossbeam-channel"
-version = "0.5.15"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "82b8f8f868b36967f9606790d1903570de9ceaf870a7bf9fbbd3016d636a2cb2"
-dependencies = [
- "crossbeam-utils",
-]
-
-[[package]]
 name = "crossbeam-deque"
 version = "0.8.6"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -958,7 +949,7 @@ dependencies = [
 [[package]]
 name = "faiss-sys"
 version = "0.6.3-alpha.0"
-source = "git+https://github.com/Aloxaf/faiss-rs?branch=imsearch#b2a30eba5d1bb13c5bd3c1e19c07ba1f1d2d57c6"
+source = "git+https://github.com/Aloxaf/faiss-rs?branch=imsearch#4b1d6db66b9ec42cb9326e90fe9ce27c6c2716ea"
 dependencies = [
  "cmake",
 ]
@@ -998,6 +989,15 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "b09cf3155332e944990140d967ff5eceb70df778b34f77d8075db46e4704e6d8"
 dependencies = [
  "num-traits",
+]
+
+[[package]]
+name = "flume"
+version = "0.10.14"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "1657b4441c3403d9f7b3409e47575237dac27b1b5726df654a6ecbf92f0f7577"
+dependencies = [
+ "spin 0.9.8",
 ]
 
 [[package]]
@@ -1416,7 +1416,6 @@ dependencies = [
  "blake3",
  "clap",
  "criterion",
- "crossbeam-channel",
  "directories",
  "either",
  "env_logger",
@@ -1443,6 +1442,7 @@ dependencies = [
  "utoipa",
  "utoipa-swagger-ui",
  "walkdir",
+ "yastl",
 ]
 
 [[package]]
@@ -2825,7 +2825,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "c26083e9a520e8eb87a06b12347679b142dc2ea29e6e409f805644a7a979a5bc"
 dependencies = [
  "atoi",
- "flume",
+ "flume 0.11.1",
  "futures-channel",
  "futures-core",
  "futures-executor",
@@ -3720,6 +3720,16 @@ checksum = "0d65cbf2f12c15564212d48f4e3dfb87923d25d611f2aed18f4cb23f0413d89e"
 dependencies = [
  "libc",
  "rustix",
+]
+
+[[package]]
+name = "yastl"
+version = "0.1.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "8ca6c5a4d66c1a9ea261811cf4773c27343de7e5033e1b75ea3f297dc7db3c1a"
+dependencies = [
+ "flume 0.10.14",
+ "scopeguard",
 ]
 
 [[package]]

@@ -3,7 +3,8 @@ use std::env;
 use clap::Parser;
 use imsearch::cli::SubCommandExtend;
 use imsearch::config::*;
-use log::warn;
+use imsearch::faiss::faiss_version;
+use log::{info, warn};
 
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
@@ -20,6 +21,8 @@ async fn main() -> anyhow::Result<()> {
     }
 
     env_logger::init();
+
+    info!("faiss 版本: {}", faiss_version());
 
     let opts = Opts::parse();
 

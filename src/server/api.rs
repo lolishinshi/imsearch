@@ -131,7 +131,7 @@ pub async fn add_image_handler(
         let des = block_in_place(|| -> Result<_> {
             let mut orb = ORBDetector::create(state.orb.clone());
             let (_, des) = match img {
-                Some(img) => orb.detect_image(&img)?,
+                Some(img) => orb.detect_image(img)?,
                 None => orb.detect_bytes(&file.contents)?,
             };
             Ok(des)

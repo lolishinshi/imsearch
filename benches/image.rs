@@ -48,12 +48,13 @@ fn benchmark_image(c: &mut Criterion) {
 
 fn benchmark_hash(c: &mut Criterion) {
     let jpg = fs::read("benches/test.jpg").unwrap();
-    let img = imgcodecs::imread("benches/test.jpg", imgcodecs::IMREAD_ANYCOLOR).unwrap();
+    let img = imgcodecs::imread("benches/test.jpg", imgcodecs::IMREAD_GRAYSCALE).unwrap();
 
     let mut group = c.benchmark_group("哈希计算");
     group.throughput(Throughput::Bytes(jpg.len() as u64));
     group.bench_function("BLAKE3", |b| b.iter(|| blake3_hash(black_box(&jpg))));
     group.bench_function("pHash", |b| b.iter(|| phash_hash(black_box(&img))));
+    group.finish();
 }
 
 criterion_group!(benches, benchmark_image, benchmark_hash);

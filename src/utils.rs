@@ -140,6 +140,15 @@ pub fn pb_style() -> ProgressStyle {
         .progress_chars("#>-")
 }
 
+pub fn pb_style_speed() -> ProgressStyle {
+    ProgressStyle::default_bar()
+        .template(
+            "{spinner:.green} [{elapsed_precise}] [{bar:40.cyan/blue}] {pos}/{len} ({per_sec}) {msg}",
+        )
+        .unwrap()
+        .progress_chars("#>-")
+}
+
 #[derive(Debug, Clone, Copy, Eq, PartialEq, ValueEnum, ToSchema, TryFromField)]
 pub enum ImageHash {
     #[schema(rename = "blake3")]

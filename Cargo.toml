@@ -15,7 +15,6 @@ axum-auth = { version = "0.8.1", default-features = false, features = [
 axum_typed_multipart = { version = "0.16.0", default-features = false }
 blake3 = "1.8.2"
 clap = { version = "4.5.37", features = ["derive"] }
-crossbeam-channel = "0.5.15"
 directories = "6.0.0"
 either = "1.15.0"
 env_logger = "0.11.8"
@@ -36,6 +35,7 @@ tower-http = { version = "0.5.2", features = ["limit"] }
 utoipa = { version = "5.3.1", features = ["axum_extras"] }
 utoipa-swagger-ui = { version = "9.0.1", features = ["axum"] }
 walkdir = "2.5.0"
+yastl = "0.1.2"
 
 [dependencies.orb-slam3-sys]
 version = "0.1.0"
