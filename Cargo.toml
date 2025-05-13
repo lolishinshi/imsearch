@@ -21,12 +21,10 @@ either = "1.15.0"
 env_logger = "0.11.8"
 futures = "0.3.31"
 indicatif = { version = "0.17.11", features = ["rayon"] }
-itertools = "0.14.0"
 log = "0.4.27"
 ndarray = "0.16.1"
 ndarray-npy = "0.9.1"
 num_cpus = "1.16.0"
-parking_lot = "0.12.3"
 rand = "0.9.1"
 rayon = "1.10.0"
 regex = "1.11.1"
@@ -38,7 +36,6 @@ tower-http = { version = "0.5.2", features = ["limit"] }
 utoipa = { version = "5.3.1", features = ["axum_extras"] }
 utoipa-swagger-ui = { version = "9.0.1", features = ["axum"] }
 walkdir = "2.5.0"
-yastl = "0.1.2"
 
 [dependencies.orb-slam3-sys]
 version = "0.1.0"

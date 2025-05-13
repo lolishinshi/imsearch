@@ -1,30 +1,25 @@
 use std::borrow::Cow;
 use std::path::PathBuf;
-use std::sync::{Arc, LazyLock};
+use std::sync::Arc;
 
 use anyhow::Result;
-use crossbeam_channel::{Receiver, Sender, bounded};
+use crossbeam_channel::{Receiver, Sender, bounded, unbounded};
 use either::Either;
 use futures::StreamExt;
 use indicatif::{ProgressBar, ProgressIterator};
-use itertools::Itertools;
 use log::info;
 use opencv::core::MatTraitConst;
-use parking_lot::Mutex;
 use regex::Regex;
 use tokio::fs::File;
 use tokio::io::AsyncReadExt;
 use tokio::task::{JoinHandle, spawn_blocking};
 use tokio_tar::Archive;
 use walkdir::WalkDir;
-use yastl::Pool;
 
 use super::types::*;
 use crate::IMDB;
 use crate::orb::ORB;
 use crate::utils::{ImageHash, pb_style, pb_style_speed};
-
-static POOL: LazyLock<Pool> = LazyLock::new(|| Pool::new(num_cpus::get()));
 
 pub fn task_scan(
     path: PathBuf,
@@ -51,28 +46,26 @@ pub fn task_hash(
 ) -> (JoinHandle<()>, Receiver<HashedImageData>) {
     let (tx, rx) = bounded(num_cpus::get());
     let t = spawn_blocking(move || {
-        for chunk in &lrx.iter().chunks(num_cpus::get() * 10) {
-            // 由于 hash 计算非常快，这里先将结果收集到 Vec 中，最后再发送
-            // 否则可能因为 channel 堵塞导致线程无法及时结束
-            let result = Arc::new(Mutex::new(Vec::new()));
-            POOL.scoped(|s| {
-                for data in chunk {
-                    s.execute(|| match hash.hash_bytes(&data.data) {
-                        Ok((img, val)) => {
-                            result.lock().push(HashedImageData {
-                                path: data.path,
-                                data: img.map(Either::Left).unwrap_or(Either::Right(data.data)),
-                                hash: val,
-                            });
+        std::thread::scope(|s| {
+            let threads = (num_cpus::get() / 2).max(1);
+            for _ in 0..threads {
+                s.spawn(|| {
+                    while let Ok(data) = lrx.recv() {
+                        match hash.hash_bytes(&data.data) {
+                            Ok((img, val)) => {
+                                tx.send(HashedImageData {
+                                    path: data.path,
+                                    data: img.map(Either::Left).unwrap_or(Either::Right(data.data)),
+                                    hash: val,
+                                })
+                                .unwrap();
+                            }
+                            Err(_) => pb.println(format!("计算哈希失败: {}", data.path)),
                         }
-                        Err(_) => pb.println(format!("计算哈希失败: {}", data.path)),
-                    });
-                }
-            });
-            for data in result.lock().drain(..) {
-                tx.send(data).unwrap();
+                    }
+                });
             }
-        }
+        });
     });
     (t, rx)
 }
@@ -104,12 +97,12 @@ pub fn task_calc(
     lrx: Receiver<HashedImageData>,
     pb: ProgressBar,
 ) -> (JoinHandle<()>, Receiver<ProcessableImage>) {
-    let (tx, rx) = bounded(num_cpus::get());
+    let (tx, rx) = unbounded();
     let t = spawn_blocking(move || {
-        for chunk in &lrx.iter().chunks(num_cpus::get() * 10) {
-            POOL.scoped(|s| {
-                for data in chunk {
-                    s.execute(|| {
+        std::thread::scope(|s| {
+            for _ in 0..num_cpus::get() {
+                s.spawn(|| {
+                    while let Ok(data) = lrx.recv() {
                         if let Ok((_, des)) = ORB.with(|orb| match data.data {
                             Either::Left(img) => orb.borrow_mut().detect_image(img),
                             Either::Right(bytes) => orb.borrow_mut().detect_bytes(&bytes),
@@ -124,10 +117,10 @@ pub fn task_calc(
                             pb.set_message(format!("计算特征点失败: {}", data.path));
                             pb.inc(1);
                         }
-                    });
-                }
-            });
-        }
+                    }
+                });
+            }
+        });
     });
     (t, rx)
 }
