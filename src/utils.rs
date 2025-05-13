@@ -17,10 +17,9 @@ pub fn detect_and_compute(
     image: &impl ToInputArray,
 ) -> opencv::Result<(Vector<KeyPoint>, Mat)> {
     let mask = Mat::default();
-    let lap = Vector::<i32>::from(vec![0, 0]);
     let mut kps = Vector::<KeyPoint>::new();
     let mut des = Mat::default();
-    orb.detect_and_compute(image, &mask, &mut kps, &mut des, &lap)?;
+    orb.detect_and_compute(image, &mask, &mut kps, &mut des)?;
     Ok((kps, des))
 }
 

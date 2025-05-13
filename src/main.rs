@@ -5,6 +5,10 @@ use imsearch::cli::SubCommandExtend;
 use imsearch::config::*;
 use imsearch::faiss::faiss_version;
 use log::{info, warn};
+use tikv_jemallocator::Jemalloc;
+
+#[global_allocator]
+static GLOBAL: Jemalloc = Jemalloc;
 
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {

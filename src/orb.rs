@@ -77,12 +77,12 @@ impl Slam3ORB {
 
     pub fn detect_and_compute(
         &mut self,
-        image: &dyn ToInputArray,
-        mask: &dyn ToInputArray,
+        image: &impl ToInputArray,
+        mask: &impl ToInputArray,
         keypoints: &mut Vector<KeyPoint>,
-        descriptors: &mut dyn ToOutputArray,
-        v_lapping_area: &Vector<i32>,
+        descriptors: &mut impl ToOutputArray,
     ) -> Result<()> {
+        let v_lapping_area = Vector::<i32>::from(vec![0, 0]);
         input_array_arg!(image);
         input_array_arg!(mask);
         output_array_arg!(descriptors);
@@ -130,13 +130,16 @@ impl ORBDetector {
         if image.cols() < self.opts.max_size.0 && image.rows() < self.opts.max_size.1 {
             return self.opts.orb_nfeatures as i32;
         }
-        // 否则按 aspect_ratio 等比增加，最小幅度 10%
+        // 否则按 aspect_ratio 等比增加，最小幅度 100
         let min = image.cols().min(image.rows());
         let max = image.cols().max(image.rows());
         let aspect_ratio = max as f32 / min as f32;
         if aspect_ratio > self.opts.max_aspect_ratio {
-            let ratio = aspect_ratio / self.opts.max_aspect_ratio;
-            let nfeatures = ((self.opts.orb_nfeatures as f32 * ratio * 10.).round() / 10.) as i32;
+            let ratio = aspect_ratio / self.opts.max_aspect_ratio - 1.;
+            // 计算需要增加的特征点数量
+            let extra_nfeatures =
+                (self.opts.orb_nfeatures as f32 * ratio / 100.).round() as i32 * 100;
+            let nfeatures = self.opts.orb_nfeatures as i32 + extra_nfeatures;
             return nfeatures.min(self.opts.max_features as i32);
         }
         self.opts.orb_nfeatures as i32
