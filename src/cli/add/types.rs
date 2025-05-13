@@ -1,6 +1,13 @@
 use either::Either;
 use opencv::core::Mat;
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Duplicate {
+    Overwrite,
+    Append,
+    Ignore,
+}
+
 pub struct ImageData {
     pub path: String,
     pub data: Vec<u8>,

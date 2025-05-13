@@ -6,6 +6,7 @@ use clap::Parser;
 use indicatif::ProgressBar;
 use regex::Regex;
 use tasks::*;
+use types::Duplicate;
 
 mod tasks;
 mod types;
@@ -39,6 +40,9 @@ pub struct AddCommand {
     /// 如果图片已添加，是否覆盖旧的记录
     #[arg(long)]
     pub overwrite: bool,
+    /// 如果图片已添加，是否在旧记录的基础上追加新路径
+    #[arg(long, conflicts_with = "overwrite")]
+    pub append: bool,
 }
 
 impl SubCommandExtend for AddCommand {
@@ -47,12 +51,21 @@ impl SubCommandExtend for AddCommand {
 
         let re_suf = format!("(?i)({})", self.suffix.replace(',', "|"));
         let re_suf = Regex::new(&re_suf).expect("failed to build regex");
+
         let replace = if self.replace.is_empty() {
             None
         } else {
             let re = Regex::new(&self.replace[0]).expect("failed to build regex");
             let replace = self.replace[1].clone();
             Some((re, replace))
+        };
+
+        let duplicate = if self.overwrite {
+            Duplicate::Overwrite
+        } else if self.append {
+            Duplicate::Append
+        } else {
+            Duplicate::Ignore
         };
 
         let db = Arc::new(IMDBBuilder::new(opts.conf_dir.clone()).open().await?);
@@ -67,9 +80,9 @@ impl SubCommandExtend for AddCommand {
 
         let (t1, rx) = task_scan(self.path.clone(), pb.clone(), re_suf);
         let (t2, rx) = task_hash(rx, self.hash, pb.clone());
-        let (t3, rx) = task_filter(rx, pb.clone(), db.clone(), self.overwrite, replace.clone());
+        let (t3, rx) = task_filter(rx, pb.clone(), db.clone(), duplicate, replace.clone());
         let (t4, rx) = task_calc(rx, pb.clone());
-        let t5 = task_add(rx, pb.clone(), db, self.min_keypoints as i32, self.overwrite, replace);
+        let t5 = task_add(rx, pb.clone(), db, self.min_keypoints as i32, duplicate, replace);
 
         // 等待所有任务完成
         let _ = tokio::try_join!(t1, t2, t3, t4, t5);

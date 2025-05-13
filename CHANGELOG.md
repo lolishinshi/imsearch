@@ -2,6 +2,7 @@
 
 ## 未发布
 
+- 允许记录 hash 相同图片的多个路径
 - OnDiskInvertedLists 可以转回普通格式
 - 移除旧数据库迁移功能
 - 删除 `--no-split` 选项

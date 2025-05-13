@@ -1,3 +1,4 @@
+use std::borrow::Cow;
 use std::path::PathBuf;
 use std::sync::{Arc, LazyLock};
 
@@ -80,24 +81,16 @@ pub fn task_filter(
     lrx: Receiver<HashedImageData>,
     pb: ProgressBar,
     db: Arc<IMDB>,
-    overwrite: bool,
+    duplicate: Duplicate,
     replace: Option<(Regex, String)>,
 ) -> (JoinHandle<()>, Receiver<HashedImageData>) {
     let (tx, rx) = bounded(num_cpus::get());
     let t = tokio::spawn(async move {
         while let Ok(data) = lrx.recv() {
-            let exists = db.check_hash(&data.hash).await.unwrap();
-            if exists {
-                if overwrite {
-                    let path = match &replace {
-                        Some((re, replace)) => &*re.replace(&data.path, replace),
-                        None => &*data.path,
-                    };
-                    db.update_image_path(&data.hash, path).await.unwrap();
-                    pb.set_message(format!("更新图片路径: {}", path));
-                } else {
-                    pb.set_message(format!("跳过已添加图片: {}", data.path));
-                }
+            if db.check_hash(&data.hash).await.unwrap() {
+                handle_duplicate(Either::Left(data), duplicate, replace.as_ref(), &db, &pb)
+                    .await
+                    .unwrap();
                 pb.inc(1);
             } else {
                 tx.send(data).unwrap();
@@ -144,7 +137,7 @@ pub fn task_add(
     pb: ProgressBar,
     db: Arc<IMDB>,
     min_keypoints: i32,
-    overwrite: bool,
+    duplicate: Duplicate,
     replace: Option<(Regex, String)>,
 ) -> JoinHandle<()> {
     tokio::spawn(async move {
@@ -162,12 +155,9 @@ pub fn task_add(
 
             // 这里再检查一次，因为可能存在处理过程中新增的重复图片
             if db.check_hash(&data.hash).await.unwrap() {
-                if overwrite {
-                    db.update_image_path(&data.hash, path).await.unwrap();
-                    pb.set_message(format!("更新图片路径: {}", path));
-                } else {
-                    pb.set_message(format!("跳过已添加图片: {}", path));
-                }
+                handle_duplicate(Either::Right(data), duplicate, replace.as_ref(), &db, &pb)
+                    .await
+                    .unwrap();
             } else {
                 db.add_image(path, &data.hash, data.descriptors).await.unwrap();
                 pb.set_message(path.to_owned());
@@ -251,6 +241,40 @@ async fn scan_tar(
         entry.read_to_end(&mut data).await?;
 
         tx.send(ImageData { path, data }).unwrap();
+    }
+    Ok(())
+}
+
+async fn handle_duplicate(
+    data: Either<HashedImageData, ProcessableImage>,
+    duplicate: Duplicate,
+    replace: Option<&(Regex, String)>,
+    db: &Arc<IMDB>,
+    pb: &ProgressBar,
+) -> Result<()> {
+    let (path, hash) = match data.into() {
+        Either::Left(data) => (data.path, data.hash),
+        Either::Right(data) => (data.path, data.hash),
+    };
+
+    match duplicate {
+        Duplicate::Overwrite => {
+            let path = replace
+                .map(|(re, replace)| re.replace(&path, replace))
+                .unwrap_or(Cow::Borrowed(&path));
+            db.update_image_path(&hash, &*path).await?;
+            pb.set_message(format!("更新图片路径: {}", path));
+        }
+        Duplicate::Append => {
+            let path = replace
+                .map(|(re, replace)| re.replace(&path, replace))
+                .unwrap_or(Cow::Borrowed(&path));
+            db.append_image_path(&hash, &*path).await?;
+            pb.set_message(format!("追加图片路径: {}", path));
+        }
+        Duplicate::Ignore => {
+            pb.set_message(format!("跳过已添加图片: {}", path));
+        }
     }
     Ok(())
 }

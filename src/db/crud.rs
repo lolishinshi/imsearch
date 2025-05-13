@@ -1,3 +1,5 @@
+use std::collections::HashSet;
+
 use sqlx::{Executor, Result, Sqlite, SqlitePool};
 
 use super::VectorIdxRecord;
@@ -53,6 +55,30 @@ pub async fn get_image_path(executor: &SqlitePool, id: i64) -> Result<String> {
 
 /// 根据哈希更新图片路径
 pub async fn update_image_path(executor: &SqlitePool, hash: &[u8], path: &str) -> Result<()> {
+    sqlx::query!(
+        r#"
+        UPDATE image SET path = ? WHERE hash = ?
+        "#,
+        path,
+        hash
+    )
+    .execute(executor)
+    .await?;
+
+    Ok(())
+}
+
+/// 追加图片路径
+pub async fn append_image_path(executor: &SqlitePool, hash: &[u8], path: &str) -> Result<()> {
+    let r =
+        sqlx::query!(r"SELECT path FROM image WHERE hash = ?", hash).fetch_one(executor).await?;
+    let mut paths = r.path.split(':').collect::<HashSet<&str>>();
+    if paths.contains(path) {
+        return Ok(());
+    }
+
+    paths.insert(path);
+    let path = paths.into_iter().collect::<Vec<&str>>().join(":");
     sqlx::query!(
         r#"
         UPDATE image SET path = ? WHERE hash = ?

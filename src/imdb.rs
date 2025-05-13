@@ -107,6 +107,11 @@ impl IMDB {
         Ok(crud::update_image_path(&self.db, hash, path).await?)
     }
 
+    /// 追加图片路径
+    pub async fn append_image_path(&self, hash: &[u8], path: &str) -> Result<()> {
+        Ok(crud::append_image_path(&self.db, hash, path).await?)
+    }
+
     /// 猜测先前使用的哈希算法
     pub async fn guess_hash(&self) -> Option<ImageHash> {
         crud::guess_hash(&self.db).await.ok()
