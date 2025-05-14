@@ -2,6 +2,7 @@
 
 ## 未发布
 
+- 导出&推送 prometheus 指标
 - 允许记录 hash 相同图片的多个路径
 - OnDiskInvertedLists 可以转回普通格式
 - 移除旧数据库迁移功能

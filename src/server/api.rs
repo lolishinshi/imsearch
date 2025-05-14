@@ -6,7 +6,9 @@ use axum::extract::State;
 use axum_auth::AuthBearer;
 use axum_typed_multipart::TypedMultipart;
 use log::info;
+use opencv::imgcodecs;
 use opencv::prelude::*;
+use prometheus::TextEncoder;
 use rayon::prelude::*;
 use serde_json::{Value, json};
 use tokio::task::block_in_place;
@@ -17,6 +19,7 @@ use super::types::*;
 use crate::config::OrbOptions;
 use crate::faiss::{FaissSearchParams, get_faiss_stats, reset_faiss_stats};
 use crate::imdb::BuildOptions;
+use crate::metrics::*;
 use crate::orb::ORBDetector;
 
 /// 搜索一张图片
@@ -51,8 +54,11 @@ pub async fn search_handler(
         data.file
             .par_iter()
             .map(|file| {
+                let mat = Mat::from_slice(&file)?;
+                let img = imgcodecs::imdecode(&mat, imgcodecs::IMREAD_GRAYSCALE)?;
+                inc_image_count((img.cols() as u32, img.rows() as u32));
                 let mut orb = ORBDetector::create(orb.clone());
-                let (_, des) = orb.detect_bytes(file)?;
+                let (_, des) = orb.detect_image(img)?;
                 Ok(des)
             })
             .collect::<Result<Vec<_>>>()
@@ -64,6 +70,13 @@ pub async fn search_handler(
         .db
         .search(index, &des, state.search.k, state.search.distance, state.search.count, params)
         .await?;
+
+    inc_search_duration(start.elapsed().as_secs_f64() / des.len() as f64);
+    for v in &result {
+        if !v.is_empty() {
+            inc_search_max_score(v[0].0 as f64);
+        }
+    }
 
     Ok(Json(json!({
         "time": start.elapsed().as_millis(),
@@ -205,4 +218,13 @@ pub async fn reset_stats_handler(
     }
     reset_faiss_stats();
     Ok(())
+}
+
+/// 获取 Prometheus 指标
+#[utoipa::path(get, path = "/metrics")]
+pub async fn metrics_handler(State(_state): State<Arc<AppState>>) -> Result<String> {
+    let encoder = TextEncoder::new();
+    let metrics_families = prometheus::gather();
+    let body = encoder.encode_to_string(&metrics_families)?;
+    Ok(body)
 }

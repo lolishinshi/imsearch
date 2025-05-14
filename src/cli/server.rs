@@ -1,7 +1,10 @@
 use clap::Parser;
-use log::info;
+use log::{error, info};
+use prometheus::{BasicAuthentication, labels};
 use rand::distr::{Alphanumeric, SampleString};
 use tokio::net::TcpListener;
+use tokio::task::block_in_place;
+use tokio::time::{Duration, sleep};
 
 use crate::cli::SubCommandExtend;
 use crate::config::{OrbOptions, SearchOptions};
@@ -22,6 +25,15 @@ pub struct ServerCommand {
     /// 转换为 hnsw 索引加载
     #[arg(long)]
     pub hnsw: bool,
+    /// prometheus 主动推送地址
+    #[arg(long, value_name = "URL")]
+    pub prometheus_push: Option<String>,
+    /// 自定义 instance 标签值
+    #[arg(long, value_name = "NAME")]
+    pub prometheus_instance: Option<String>,
+    /// prometheus 认证信息，格式为 username:password
+    #[arg(long, value_name = "AUTH")]
+    pub prometheus_auth: Option<String>,
 }
 
 impl SubCommandExtend for ServerCommand {
@@ -44,6 +56,39 @@ impl SubCommandExtend for ServerCommand {
 
         // 创建应用
         let app = server::create_app(state);
+
+        if let Some(url) = self.prometheus_push.clone() {
+            let instance = self.prometheus_instance.clone().unwrap_or_else(|| self.addr.clone());
+            let auth = self.prometheus_auth.clone().map(|s| {
+                let mut split = s.splitn(2, ':');
+                let username = split.next().unwrap();
+                let password = split.next().unwrap();
+                (username.to_string(), password.to_string())
+            });
+            tokio::spawn(async move {
+                loop {
+                    let metric_families = prometheus::gather();
+                    let r = block_in_place(|| {
+                        prometheus::push_metrics(
+                            "imsearch",
+                            labels! {
+                                "instance".to_string() => instance.clone(),
+                            },
+                            &url,
+                            metric_families,
+                            auth.clone().map(|(username, password)| BasicAuthentication {
+                                username,
+                                password,
+                            }),
+                        )
+                    });
+                    if let Err(e) = r {
+                        error!("推送指标失败: {}", e);
+                    }
+                    sleep(Duration::from_secs(30)).await;
+                }
+            });
+        }
 
         // 启动服务器
         info!("服务器启动：http://{}", &self.addr);

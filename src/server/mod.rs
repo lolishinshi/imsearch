@@ -24,7 +24,8 @@ pub use self::types::*;
         add_image_handler,
         build_handler,
         stats_handler,
-        reset_stats_handler
+        reset_stats_handler,
+        metrics_handler
     ),
     components(schemas(
         SearchForm,
@@ -47,6 +48,7 @@ pub fn create_app(state: Arc<AppState>) -> Router {
         .route("/build", post(build_handler))
         .route("/stats", get(stats_handler))
         .route("/reset_stats", post(reset_stats_handler))
+        .route("/metrics", get(metrics_handler))
         .merge(SwaggerUi::new("/docs").url("/api-docs/openapi.json", ApiDoc::openapi()))
         .layer(DefaultBodyLimit::disable())
         // 上传限制：50M

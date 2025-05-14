@@ -25,6 +25,7 @@ log = "0.4.27"
 ndarray = "0.16.1"
 ndarray-npy = "0.9.1"
 num_cpus = "1.16.0"
+prometheus = { version = "0.14.0", features = ["process", "push"] }
 rand = "0.9.1"
 rayon = "1.10.0"
 regex = "1.11.1"
