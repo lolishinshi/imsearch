@@ -79,14 +79,21 @@ pub fn task_filter(
 ) -> (JoinHandle<()>, Receiver<HashedImageData>) {
     let (tx, rx) = bounded(num_cpus::get());
     let t = tokio::spawn(async move {
-        while let Ok(data) = lrx.recv() {
+        while let Ok(data) = spawn_blocking({
+            let lrx = lrx.clone();
+            move || lrx.recv()
+        })
+        .await
+        .unwrap()
+        {
             if db.check_hash(&data.hash).await.unwrap() {
                 handle_duplicate(Either::Left(data), duplicate, replace.as_ref(), &db, &pb)
                     .await
                     .unwrap();
                 pb.inc(1);
             } else {
-                tx.send(data).unwrap();
+                let tx = tx.clone();
+                spawn_blocking(move || tx.send(data).unwrap());
             }
         }
     });
@@ -134,7 +141,13 @@ pub fn task_add(
     replace: Option<(Regex, String)>,
 ) -> JoinHandle<()> {
     tokio::spawn(async move {
-        while let Ok(data) = lrx.recv() {
+        while let Ok(data) = spawn_blocking({
+            let lrx = lrx.clone();
+            move || lrx.recv()
+        })
+        .await
+        .unwrap()
+        {
             if data.descriptors.rows() <= min_keypoints {
                 pb.set_message(format!("特征点少于 {}: {}", min_keypoints, data.path));
                 pb.inc(1);
@@ -193,7 +206,8 @@ async fn scan_directory(
     futures::stream::iter(entries)
         .for_each_concurrent(32, |entry| async {
             if let Ok(data) = tokio::fs::read(&entry).await {
-                tx.send(ImageData { path: entry, data }).unwrap();
+                let tx = tx.clone();
+                spawn_blocking(move || tx.send(ImageData { path: entry, data }).unwrap());
             }
         })
         .await;
@@ -233,7 +247,8 @@ async fn scan_tar(
         let mut data = Vec::with_capacity(entry.header().size()? as usize);
         entry.read_to_end(&mut data).await?;
 
-        tx.send(ImageData { path, data }).unwrap();
+        let tx = tx.clone();
+        spawn_blocking(move || tx.send(ImageData { path, data }).unwrap());
     }
     Ok(())
 }
@@ -245,7 +260,7 @@ async fn handle_duplicate(
     db: &Arc<IMDB>,
     pb: &ProgressBar,
 ) -> Result<()> {
-    let (path, hash) = match data.into() {
+    let (path, hash) = match data {
         Either::Left(data) => (data.path, data.hash),
         Either::Right(data) => (data.path, data.hash),
     };
@@ -255,14 +270,14 @@ async fn handle_duplicate(
             let path = replace
                 .map(|(re, replace)| re.replace(&path, replace))
                 .unwrap_or(Cow::Borrowed(&path));
-            db.update_image_path(&hash, &*path).await?;
+            db.update_image_path(&hash, &path).await?;
             pb.set_message(format!("更新图片路径: {}", path));
         }
         Duplicate::Append => {
             let path = replace
                 .map(|(re, replace)| re.replace(&path, replace))
                 .unwrap_or(Cow::Borrowed(&path));
-            db.append_image_path(&hash, &*path).await?;
+            db.append_image_path(&hash, &path).await?;
             pb.set_message(format!("追加图片路径: {}", path));
         }
         Duplicate::Ignore => {

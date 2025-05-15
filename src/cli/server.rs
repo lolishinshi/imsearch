@@ -3,7 +3,7 @@ use log::{error, info};
 use prometheus::{BasicAuthentication, labels};
 use rand::distr::{Alphanumeric, SampleString};
 use tokio::net::TcpListener;
-use tokio::task::block_in_place;
+use tokio::task::spawn_blocking;
 use tokio::time::{Duration, sleep};
 
 use crate::cli::SubCommandExtend;
@@ -60,15 +60,16 @@ impl SubCommandExtend for ServerCommand {
         if let Some(url) = self.prometheus_push.clone() {
             let instance = self.prometheus_instance.clone().unwrap_or_else(|| self.addr.clone());
             let auth = self.prometheus_auth.clone().map(|s| {
-                let mut split = s.splitn(2, ':');
-                let username = split.next().unwrap();
-                let password = split.next().unwrap();
+                let (username, password) = s.split_once(':').unwrap();
                 (username.to_string(), password.to_string())
             });
             tokio::spawn(async move {
                 loop {
                     let metric_families = prometheus::gather();
-                    let r = block_in_place(|| {
+                    let url = url.clone();
+                    let instance = instance.clone();
+                    let auth = auth.clone();
+                    let r = spawn_blocking(move || {
                         prometheus::push_metrics(
                             "imsearch",
                             labels! {
@@ -76,12 +77,14 @@ impl SubCommandExtend for ServerCommand {
                             },
                             &url,
                             metric_families,
-                            auth.clone().map(|(username, password)| BasicAuthentication {
+                            auth.map(|(username, password)| BasicAuthentication {
                                 username,
                                 password,
                             }),
                         )
-                    });
+                    })
+                    .await
+                    .unwrap();
                     if let Err(e) = r {
                         error!("推送指标失败: {}", e);
                     }

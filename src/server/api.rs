@@ -11,7 +11,7 @@ use opencv::prelude::*;
 use prometheus::TextEncoder;
 use rayon::prelude::*;
 use serde_json::{Value, json};
-use tokio::task::block_in_place;
+use tokio::task::spawn_blocking;
 
 use super::error::Result;
 use super::state::AppState;
@@ -50,11 +50,11 @@ pub async fn search_handler(
 
     info!("正在搜索上传图片");
 
-    let des = block_in_place(|| {
+    let des = spawn_blocking(move || {
         data.file
             .par_iter()
             .map(|file| {
-                let mat = Mat::from_slice(&file)?;
+                let mat = Mat::from_slice(file)?;
                 let img = imgcodecs::imdecode(&mat, imgcodecs::IMREAD_GRAYSCALE)?;
                 inc_image_count((img.cols() as u32, img.rows() as u32));
                 let mut orb = ORBDetector::create(orb.clone());
@@ -62,10 +62,11 @@ pub async fn search_handler(
                 Ok(des)
             })
             .collect::<Result<Vec<_>>>()
-    })?;
+    })
+    .await??;
 
     let lock = state.index.write().await;
-    let index = lock.as_ref().unwrap();
+    let index = lock.clone().unwrap();
     let result = state
         .db
         .search(index, &des, state.search.k, state.search.distance, state.search.count, params)
@@ -106,7 +107,7 @@ pub async fn reload_handler(
     if data.hnsw {
         index.to_hnsw();
     }
-    lock.replace(index);
+    lock.replace(Arc::new(index));
     // 更新缓存 ID
     state.db.load_total_vector_count().await?;
     Ok(())
@@ -141,14 +142,19 @@ pub async fn add_image_handler(
         if state.db.check_hash(&hash).await? {
             continue;
         }
-        let des = block_in_place(|| -> Result<_> {
-            let mut orb = ORBDetector::create(state.orb.clone());
+
+        let orb = state.orb.clone();
+        let file = file.contents.clone();
+        let des = spawn_blocking(move || -> Result<_> {
+            let mut orb = ORBDetector::create(orb);
             let (_, des) = match img {
                 Some(img) => orb.detect_image(img)?,
-                None => orb.detect_bytes(&file.contents)?,
+                None => orb.detect_bytes(&file)?,
             };
             Ok(des)
-        })?;
+        })
+        .await??;
+
         if des.rows() <= 10 {
             continue;
         }

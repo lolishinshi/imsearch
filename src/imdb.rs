@@ -1,5 +1,5 @@
 use std::collections::HashMap;
-use std::sync::RwLock;
+use std::sync::{Arc, RwLock};
 use std::time::Instant;
 
 use anyhow::Result;
@@ -10,7 +10,7 @@ use ndarray::prelude::*;
 use opencv::core::{Mat, MatTraitConstManual};
 use opencv::prelude::*;
 use tokio::sync::Mutex;
-use tokio::task::block_in_place;
+use tokio::task::{block_in_place, spawn_blocking};
 
 use crate::config::ConfDir;
 use crate::db::*;
@@ -167,7 +167,7 @@ impl IMDB {
     /// * `params` - 搜索参数
     pub async fn search(
         &self,
-        index: &FaissIndex,
+        index: Arc<FaissIndex>,
         descriptors: &[Mat],
         knn: usize,
         max_distance: u32,
@@ -192,8 +192,7 @@ impl IMDB {
 
         let mut instant = Instant::now();
 
-        // TODO: 这里应该用 spawn_blocking 还是 block_in_place 呢？
-        let neighbors = block_in_place(|| index.search(&mat, knn, params));
+        let neighbors = spawn_blocking(move || index.search(&mat, knn, params)).await?;
         debug!("搜索耗时    ：{}ms", instant.elapsed().as_millis());
         instant = Instant::now();
 
