@@ -50,32 +50,52 @@ pub async fn search_handler(
 
     info!("正在搜索上传图片");
 
-    let des = spawn_blocking(move || {
+    let mut sizes = vec![];
+    let mut deses = vec![];
+    let orbc = orb.clone();
+    let r = spawn_blocking(move || {
         data.file
             .par_iter()
             .map(|file| {
                 let mat = Mat::from_slice(file)?;
                 let img = imgcodecs::imdecode(&mat, imgcodecs::IMREAD_GRAYSCALE)?;
-                inc_image_count((img.cols() as u32, img.rows() as u32));
-                let mut orb = ORBDetector::create(orb.clone());
+                let size = (img.cols() as u32, img.rows() as u32);
+                let mut orb = ORBDetector::create(orbc.clone());
                 let (_, des) = orb.detect_image(img)?;
-                Ok(des)
+                Ok((size, des))
             })
             .collect::<Result<Vec<_>>>()
     })
     .await??;
+    for (size, des) in r {
+        sizes.push(size);
+        deses.push(des);
+    }
 
     let lock = state.index.write().await;
     let index = lock.clone().unwrap();
     let result = state
         .db
-        .search(index, &des, state.search.k, state.search.distance, state.search.count, params)
+        .search(
+            index,
+            &deses,
+            state.search.k,
+            state.search.distance,
+            state.search.count,
+            params.clone(),
+        )
         .await?;
 
-    inc_search_duration(start.elapsed().as_secs_f64() / des.len() as f64);
-    for v in &result {
+    for (v, size) in result.iter().zip(sizes.iter()) {
         if !v.is_empty() {
-            inc_search_max_score(v[0].0 as f64);
+            inc_image_count(*size, params.nprobe, orb.orb_scale_factor);
+            inc_search_duration(
+                *size,
+                params.nprobe,
+                orb.orb_scale_factor,
+                start.elapsed().as_secs_f32() / deses.len() as f32,
+            );
+            inc_search_max_score(*size, params.nprobe, orb.orb_scale_factor, v[0].0);
         }
     }
 
