@@ -25,7 +25,7 @@ static METRIC_SEARCH_MAX_SCORE: LazyLock<HistogramVec> = LazyLock::new(|| {
         "im_search_max_score",
         "max score of the per-image search",
         &["size", "nprobe", "orb_scale_factor"],
-        vec![10.0, 20.0, 30.0, 40.0, 50.0, 60.0, 70.0, 80.0, 90.0, 100.0]
+        (5..=100).step_by(5).map(|x| x as f64).collect()
     )
     .unwrap()
 });
