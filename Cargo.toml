@@ -8,13 +8,13 @@ edition = "2024"
 [dependencies]
 anyhow = { version = "1.0.98", features = ["backtrace"] }
 astral-tokio-tar = "0.5.2"
-axum = { version = "0.8.3", features = ["multipart", "macros"] }
+axum = { version = "0.8.4", features = ["multipart", "macros"] }
 axum-auth = { version = "0.8.1", default-features = false, features = [
     "auth-bearer",
 ] }
-axum_typed_multipart = { version = "0.16.0", default-features = false }
+axum_typed_multipart = { version = "0.16.2", default-features = false }
 blake3 = "1.8.2"
-clap = { version = "4.5.37", features = ["derive"] }
+clap = { version = "4.5.38", features = ["derive"] }
 crossbeam-channel = "0.5.15"
 directories = "6.0.0"
 either = "1.15.0"
@@ -29,14 +29,15 @@ prometheus = { version = "0.14.0", features = ["process", "push"] }
 rand = "0.9.1"
 rayon = "1.10.0"
 regex = "1.11.1"
-serde = { version = "1.0.196", features = ["derive"] }
+serde = { version = "1.0.219", features = ["derive"] }
 serde_json = "1.0.140"
 sqlx = { version = "0.8.5", features = ["sqlite", "runtime-tokio"] }
 tikv-jemallocator = "0.6.0"
-tokio = { version = "1.44.2", features = ["macros", "rt-multi-thread", "rt"] }
+tokio = { version = "1.45.0", features = ["macros", "rt-multi-thread", "rt"] }
 tower-http = { version = "0.5.2", features = ["limit"] }
 utoipa = { version = "5.3.1", features = ["axum_extras"] }
-utoipa-swagger-ui = { version = "9.0.1", features = ["axum"] }
+# zip yank 掉了 2.6.x 版本，但是 utoipa-swagger-ui 9.0.1 最低依赖 2.6.x
+utoipa-swagger-ui = { version = "=9.0.0", features = ["axum"] }
 walkdir = "2.5.0"
 
 [dependencies.orb-slam3-sys]
