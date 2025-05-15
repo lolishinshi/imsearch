@@ -93,7 +93,7 @@ pub fn task_filter(
                 pb.inc(1);
             } else {
                 let tx = tx.clone();
-                spawn_blocking(move || tx.send(data).unwrap());
+                spawn_blocking(move || tx.send(data).unwrap()).await.unwrap();
             }
         }
     });
@@ -207,7 +207,9 @@ async fn scan_directory(
         .for_each_concurrent(32, |entry| async {
             if let Ok(data) = tokio::fs::read(&entry).await {
                 let tx = tx.clone();
-                spawn_blocking(move || tx.send(ImageData { path: entry, data }).unwrap());
+                spawn_blocking(move || tx.send(ImageData { path: entry, data }).unwrap())
+                    .await
+                    .unwrap();
             }
         })
         .await;
@@ -248,7 +250,7 @@ async fn scan_tar(
         entry.read_to_end(&mut data).await?;
 
         let tx = tx.clone();
-        spawn_blocking(move || tx.send(ImageData { path, data }).unwrap());
+        spawn_blocking(move || tx.send(ImageData { path, data }).unwrap()).await?;
     }
     Ok(())
 }
