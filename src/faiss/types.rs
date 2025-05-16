@@ -8,7 +8,14 @@ pub struct FaissSearchParams {
     pub max_codes: usize,
 }
 
+impl Default for FaissSearchParams {
+    fn default() -> Self {
+        Self { nprobe: 1, max_codes: 0 }
+    }
+}
+
 /// Faiss 搜索结果
+#[derive(Debug, Clone)]
 pub struct Neighbor {
     /// 向量在索引中的 ID
     pub index: i64,

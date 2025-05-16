@@ -82,6 +82,18 @@ impl FaissIndex {
         std::fs::rename(tmp_path, path).unwrap();
     }
 
+    /// 添加若干条向量到索引中
+    ///
+    /// # Arguments
+    ///
+    /// * `v` - 向量，大小为 (n, d)
+    pub fn add(&mut self, v: &Array2<u8>) {
+        assert_eq!(v.dim().1 * 8, self.d as usize);
+        unsafe {
+            faiss_IndexBinary_add(self.index, v.dim().0 as i64, v.as_ptr());
+        }
+    }
+
     /// 使用自定义 ID 添加向量到索引中
     ///
     /// # Arguments
@@ -103,26 +115,29 @@ impl FaissIndex {
     /// * `points` - 需要搜索的向量数组，大小为 (n, d)，其中 n 为向量数量，d 为向量维度
     /// * `knn` - 每个向量需要返回的最近邻数量
     /// * `params` - 搜索参数
-    pub fn search(
+    pub fn search<P: Into<Option<FaissSearchParams>>>(
         &self,
         points: &Mat,
         knn: usize,
-        params: FaissSearchParams,
+        params: P,
     ) -> Vec<Vec<Neighbor>> {
         assert_eq!(points.cols() * 8, self.d);
         let mut distances = vec![0i32; points.rows() as usize * knn];
         let mut labels = vec![0i64; points.rows() as usize * knn];
 
+        // FIXME: 此处直接使用了 SearchParametersIVF，但实际上 FaissIndex 不一定是 FaissIndexBinaryIVF
         // 初始化参数
-        let mut raw_params = MaybeUninit::<*mut FaissSearchParametersIVF>::uninit();
-        unsafe {
-            faiss_SearchParametersIVF_new_with(
-                raw_params.as_mut_ptr(),
-                null_mut(),
-                params.nprobe,
-                params.max_codes,
-            )
-        };
+        let mut raw_params = MaybeUninit::<*mut FaissSearchParametersIVF>::zeroed();
+        if let Some(params) = params.into() {
+            unsafe {
+                faiss_SearchParametersIVF_new_with(
+                    raw_params.as_mut_ptr(),
+                    null_mut(),
+                    params.nprobe,
+                    params.max_codes,
+                )
+            };
+        }
 
         // 搜索
         unsafe {

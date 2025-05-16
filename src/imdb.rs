@@ -299,6 +299,8 @@ impl IMDB {
             for record in chunk {
                 for (i, feature) in record.vector.chunks(32).enumerate() {
                     features.push_row(ArrayView::from(feature))?;
+                    // total_vector_count 记录了截止到这张图片的特征点数量累加和
+                    // 因此使用它减去特征点本身的序号，就可以得到一个唯一的特征点 ID
                     ids.push(record.total_vector_count - i as i64);
                 }
                 images.push(record.id);
