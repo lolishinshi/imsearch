@@ -1,7 +1,8 @@
+use std::io::{self, Write};
+
 use anyhow::Result;
 use clap::Parser;
 use log::info;
-use std::io::{self, Write};
 
 use crate::cli::SubCommandExtend;
 use crate::{IMDBBuilder, Opts};
