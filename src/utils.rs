@@ -7,7 +7,7 @@ use clap::ValueEnum;
 use indicatif::ProgressStyle;
 use opencv::core::*;
 use opencv::img_hash::p_hash;
-use opencv::{features2d, highgui, imgcodecs, imgproc};
+use opencv::{features2d, imgcodecs, imgproc};
 use utoipa::ToSchema;
 
 use crate::orb::Slam3ORB;
@@ -40,15 +40,22 @@ pub fn imread<S: AsRef<str>>(filename: S, (height, width): (i32, i32)) -> opencv
     Ok(img)
 }
 
+#[cfg(feature = "gui")]
 pub fn imshow(winname: &str, mat: &impl ToInputArray) -> opencv::Result<()> {
-    highgui::imshow(winname, mat)?;
-    while highgui::get_window_property(
+    opencv::highgui::imshow(winname, mat)?;
+    while opencv::highgui::get_window_property(
         winname,
-        highgui::WindowPropertyFlags::WND_PROP_FULLSCREEN as i32,
+        opencv::highgui::WindowPropertyFlags::WND_PROP_FULLSCREEN as i32,
     )? >= 0.0
     {
-        highgui::wait_key(50)?;
+        opencv::highgui::wait_key(50)?;
     }
+    Ok(())
+}
+
+#[cfg(not(feature = "gui"))]
+pub fn imshow(_winname: &str, _mat: &impl ToInputArray) -> opencv::Result<()> {
+    eprintln!("请启用 `gui` 特性以使用 GUI 展示");
     Ok(())
 }
 
