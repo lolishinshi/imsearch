@@ -69,9 +69,9 @@ pub struct SearchOptions {
     /// 搜索的倒排列表数量
     #[arg(long, default_value = "3")]
     pub nprobe: usize,
-    /// 搜索的最大向量数量，0 表示不限制
-    #[arg(long, default_value = "0")]
-    pub max_codes: usize,
+    /// HNSW 搜索时每次访问的节点数量
+    #[arg(long, default_value = "16")]
+    pub ef_search: usize,
 }
 
 #[derive(Parser, Debug, Clone)]

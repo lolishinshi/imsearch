@@ -43,7 +43,7 @@ pub async fn search_handler(
     };
     let params = FaissSearchParams {
         nprobe: data.nprobe.unwrap_or(state.search.nprobe),
-        max_codes: data.max_codes.unwrap_or(state.search.max_codes),
+        ef_search: data.ef_search.unwrap_or(state.search.ef_search),
     };
 
     let start = Instant::now();

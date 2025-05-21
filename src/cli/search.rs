@@ -34,7 +34,7 @@ impl SubCommandExtend for SearchCommand {
         let db = IMDBBuilder::new(opts.conf_dir.clone()).open().await?;
         let index = Arc::new(db.get_index(!self.search.no_mmap));
         let params =
-            FaissSearchParams { nprobe: self.search.nprobe, max_codes: self.search.max_codes };
+            FaissSearchParams { nprobe: self.search.nprobe, ef_search: self.search.ef_search };
 
         let result = db
             .search(index, &[des], self.search.k, self.search.distance, self.search.count, params)

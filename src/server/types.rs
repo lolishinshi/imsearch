@@ -28,7 +28,7 @@ pub struct SearchRequest {
     pub orb_nfeatures: Option<u32>,
     pub orb_scale_factor: Option<f32>,
     pub nprobe: Option<usize>,
-    pub max_codes: Option<usize>,
+    pub ef_search: Option<usize>,
 }
 
 /// 搜索表单（用于API文档）
@@ -44,8 +44,8 @@ pub struct SearchForm {
     pub orb_scale_factor: Option<f32>,
     /// 搜索扫描的倒排列表数量
     pub nprobe: Option<usize>,
-    /// 搜索扫描的最大向量数量
-    pub max_codes: Option<usize>,
+    /// HNSW 搜索时每次访问的节点数量
+    pub ef_search: Option<usize>,
 }
 
 /// 搜索响应

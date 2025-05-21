@@ -1,5 +1,9 @@
 # Changelog
 
+## 未发布
+
+- 搜索参数去掉 max_codes，增加 ef_search
+
 ## [2.2.0] - 2025-05-19
 
 - 导出&推送 prometheus 指标
