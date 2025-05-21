@@ -23,7 +23,7 @@ impl IndexManager {
     }
 
     /// 获取模板索引
-    pub fn get_template_index(&self) -> FaissIndex {
+    pub fn get_template_index(&self) -> Result<FaissIndex> {
         let index_file = self.conf_dir.template_index();
         if index_file.exists() {
             FaissIndex::from_file(index_file, false)
@@ -33,7 +33,7 @@ impl IndexManager {
     }
 
     /// 获取主索引
-    fn get_main_index(&self, mut mmap: bool) -> FaissIndex {
+    fn get_main_index(&self, mut mmap: bool) -> Result<FaissIndex> {
         let index_file = self.conf_dir.index();
         if !index_file.exists() {
             return self.get_template_index();
@@ -49,32 +49,33 @@ impl IndexManager {
         }
 
         info!("正在加载索引 {}, mmap: {}", index_file.display(), mmap);
-        let index = FaissIndex::from_file(index_file, mmap);
+        let index = FaissIndex::from_file(index_file, mmap)?;
         info!("已添加特征点 : {}", index.ntotal());
         info!("倒排列表数量 : {}", index.nlist());
         info!("不平衡度     : {}", index.imbalance_factor());
         if log_enabled!(Level::Debug) {
             index.print_stats();
         }
-        index
+        Ok(index)
     }
 
     /// 获取子索引
-    fn get_sub_index(&self, mmap: bool) -> impl Iterator<Item = FaissIndex> {
+    fn get_sub_index(&self, mmap: bool) -> impl Iterator<Item = Result<FaissIndex>> {
         self.conf_dir.all_sub_index().into_iter().map(move |file| FaissIndex::from_file(file, mmap))
     }
 
     /// 获取聚合索引
-    pub fn get_aggregate_index(&self, mmap: bool) -> FaissIndex {
+    pub fn get_aggregate_index(&self, mmap: bool) -> Result<FaissIndex> {
         if self.conf_dir.all_sub_index().is_empty() {
             self.get_main_index(mmap)
         } else {
             info!("正在添加子索引……");
-            let mut template = self.get_template_index();
+            let mut template = self.get_template_index()?;
 
             let mut invfs = vec![];
             let mut ntotal = 0;
-            for mut sub_index in self.get_sub_index(mmap) {
+            for sub_index in self.get_sub_index(mmap) {
+                let mut sub_index = sub_index?;
                 let ivf = sub_index.invlists();
                 invfs.push(ivf);
                 sub_index.set_own_invlists(false);
@@ -82,13 +83,13 @@ impl IndexManager {
             }
 
             if self.conf_dir.index().exists() {
-                let mut index = FaissIndex::from_file(self.conf_dir.index(), mmap);
+                let mut index = FaissIndex::from_file(self.conf_dir.index(), mmap)?;
                 index.set_own_invlists(false);
                 invfs.push(index.invlists());
             }
 
             let htack = FaissHStackInvLists::new(invfs);
-            template.replace_invlists(htack, true);
+            template.replace_invlists(htack, true)?;
             template.set_ntotal(ntotal);
 
             info!("已添加特征点 : {}", template.ntotal());
@@ -98,34 +99,34 @@ impl IndexManager {
                 template.print_stats();
             }
 
-            template
+            Ok(template)
         }
     }
 
     /// 在内存中合并所有子索引
     pub fn merge_index_on_memory(&self) -> Result<()> {
         info!("在内存中合并所有索引……");
-        let mut index = self.get_main_index(false);
+        let mut index = self.get_main_index(false)?;
 
         // 如果是 OnDiskIVF 格式，则需要先转换为内存格式
         if self.conf_dir.ondisk_ivf().exists() {
             let mut dst = FaissArrayInvLists::new(index.nlist(), index.code_size() as usize);
             for i in 0..index.nlist() {
                 let n = index.list_size(i);
-                dst.add_entries(i, n, &index.ids(i), &index.codes(i));
+                dst.add_entries(i, n, &index.ids(i), &index.codes(i))?;
             }
-            index.replace_invlists(dst, true);
+            index.replace_invlists(dst, true)?;
         }
 
         // 注意在内存中合并时，子索引不能用 mmap 模式加载
         let sub_index_files = self.conf_dir.all_sub_index();
         let pb = ProgressBar::new(sub_index_files.len() as u64).with_style(pb_style());
         for sub_index in self.get_sub_index(false).progress_with(pb) {
-            index.merge_from(&sub_index, 0);
+            index.merge_from(&sub_index?, 0)?;
         }
 
         info!("保存索引……");
-        index.write_file(self.conf_dir.index());
+        index.write_file(self.conf_dir.index())?;
 
         for file in sub_index_files {
             fs::remove_file(file)?;
@@ -143,7 +144,8 @@ impl IndexManager {
         info!("在磁盘上合并所有索引……");
 
         let mut invfs = vec![];
-        for mut sub_index in self.get_sub_index(true) {
+        for sub_index in self.get_sub_index(true) {
+            let mut sub_index = sub_index?;
             invfs.push(sub_index.invlists());
             sub_index.set_own_invlists(false);
         }
@@ -152,15 +154,15 @@ impl IndexManager {
         if self.conf_dir.index().exists() {
             let mut index = if self.conf_dir.ondisk_ivf().exists() {
                 // OnDiskIVF 格式永远是 mmap，不能设置 mmap
-                FaissIndex::from_file(self.conf_dir.index(), false)
+                FaissIndex::from_file(self.conf_dir.index(), false)?
             } else {
-                FaissIndex::from_file(self.conf_dir.index(), true)
+                FaissIndex::from_file(self.conf_dir.index(), true)?
             };
             index.set_own_invlists(false);
             invfs.push(index.invlists());
         }
 
-        let mut template = self.get_template_index();
+        let mut template = self.get_template_index()?;
 
         let mut invlists = FaissOnDiskInvLists::new(
             template.nlist(),
@@ -169,15 +171,15 @@ impl IndexManager {
         );
 
         info!("合并倒排列表……");
-        let ntotal = invlists.merge_from_multiple(invfs, false, true);
+        let ntotal = invlists.merge_from_multiple(invfs, false, true)?;
         invlists.set_filename(self.conf_dir.ondisk_ivf());
         fs::rename(self.conf_dir.ondisk_ivf_tmp(), self.conf_dir.ondisk_ivf())?;
 
-        template.replace_invlists(invlists, true);
+        template.replace_invlists(invlists, true)?;
         template.set_ntotal(ntotal as i64);
 
         info!("保存索引……");
-        template.write_file(self.conf_dir.index());
+        template.write_file(self.conf_dir.index())?;
 
         for file in self.conf_dir.all_sub_index() {
             fs::remove_file(file)?;

@@ -2,6 +2,7 @@ use std::ffi::{CStr, CString};
 use std::path::Path;
 use std::ptr::null_mut;
 
+use anyhow::Result;
 use faiss_sys::*;
 use log::debug;
 use ndarray::Array2;
@@ -9,6 +10,7 @@ use opencv::prelude::*;
 
 use super::FaissInvLists;
 use super::types::*;
+use crate::faiss::faiss_try;
 
 /// Faiss 索引
 pub struct FaissIndex {
@@ -24,13 +26,17 @@ impl FaissIndex {
     ///
     /// * `d` - 向量维数，对于二进制向量来说，是总 bit 数
     /// * `description` - 索引的描述字符串
-    pub fn new(d: i32, description: &str) -> Self {
+    pub fn new(d: i32, description: &str) -> Result<Self> {
         let index = null_mut();
         let description = CString::new(description).unwrap();
         unsafe {
-            faiss_index_binary_factory(&index as *const _ as *mut _, d, description.as_ptr());
+            faiss_try(faiss_index_binary_factory(
+                &index as *const _ as *mut _,
+                d,
+                description.as_ptr(),
+            ))?;
         }
-        Self { index, d }
+        Ok(Self { index, d })
     }
 
     /// 从文件加载索引
@@ -39,7 +45,7 @@ impl FaissIndex {
     ///
     /// * `d` - 文件路径
     /// * `mmap` - 是否使用 mmap 模式加载
-    pub fn from_file<P: AsRef<Path>>(path: P, mmap: bool) -> Self {
+    pub fn from_file<P: AsRef<Path>>(path: P, mmap: bool) -> Result<Self> {
         let index = null_mut();
         let path = path.as_ref().to_str().unwrap();
         let path = CString::new(path).unwrap();
@@ -48,10 +54,14 @@ impl FaissIndex {
             _ => 0,
         };
         unsafe {
-            faiss_read_index_binary_fname(path.as_ptr(), io_flags, &index as *const _ as *mut _);
+            faiss_try(faiss_read_index_binary_fname(
+                path.as_ptr(),
+                io_flags,
+                &index as *const _ as *mut _,
+            ))?;
         }
         let d = unsafe { faiss_IndexBinary_d(index) };
-        Self { index, d }
+        Ok(Self { index, d })
     }
 
     /// 该索引中的向量数量
@@ -70,15 +80,16 @@ impl FaissIndex {
     }
 
     /// 将索引写入到文件，考虑到中途打断的情况，使用临时文件写入再重命名
-    pub fn write_file(&self, path: impl AsRef<Path>) {
+    pub fn write_file(&self, path: impl AsRef<Path>) -> Result<()> {
         let path = path.as_ref();
         let tmp_path = path.with_extension("tmp");
         unsafe {
             let tmp_path = tmp_path.to_str().unwrap();
             let tmp_path = CString::new(tmp_path).unwrap();
-            faiss_write_index_binary_fname(self.index, tmp_path.as_ptr());
+            faiss_try(faiss_write_index_binary_fname(self.index, tmp_path.as_ptr()))?;
         }
-        std::fs::rename(tmp_path, path).unwrap();
+        std::fs::rename(tmp_path, path)?;
+        Ok(())
     }
 
     /// 添加若干条向量到索引中
@@ -99,12 +110,18 @@ impl FaissIndex {
     ///
     /// * `v` - 向量，大小为 (n, d)
     /// * `ids` - 向量 id 列表，长度为 n
-    pub fn add_with_ids(&mut self, v: &Array2<u8>, ids: &[i64]) {
+    pub fn add_with_ids(&mut self, v: &Array2<u8>, ids: &[i64]) -> Result<()> {
         assert_eq!(v.dim().1 * 8, self.d as usize);
         assert_eq!(v.dim().0, ids.len());
         unsafe {
-            faiss_IndexBinary_add_with_ids(self.index, v.dim().0 as i64, v.as_ptr(), ids.as_ptr());
+            faiss_try(faiss_IndexBinary_add_with_ids(
+                self.index,
+                v.dim().0 as i64,
+                v.as_ptr(),
+                ids.as_ptr(),
+            ))?;
         }
+        Ok(())
     }
 
     /// 批量搜索 points 中的向量，对每个向量，返回 knn 个最近邻
@@ -128,7 +145,7 @@ impl FaissIndex {
         let raw_params = params.into_raw();
         // 搜索
         unsafe {
-            faiss_IndexBinary_search_with_params(
+            faiss_try(faiss_IndexBinary_search_with_params(
                 self.index,
                 points.rows() as i64,
                 points.data(),
@@ -136,7 +153,8 @@ impl FaissIndex {
                 *raw_params,
                 distances.as_mut_ptr(),
                 labels.as_mut_ptr(),
-            );
+            ))
+            .unwrap();
         }
 
         // 整理结果
@@ -205,20 +223,30 @@ impl FaissIndex {
     ///
     /// * `other` - 需要合并的索引
     /// * `add_id` - 合并是在原 ID 基础上增加的 ID
-    pub fn merge_from(&mut self, other: &Self, add_id: i64) {
+    pub fn merge_from(&mut self, other: &Self, add_id: i64) -> Result<()> {
         unsafe {
-            faiss_IndexBinaryIVF_merge_from(self.index, other.index, add_id);
+            faiss_try(faiss_IndexBinaryIVF_merge_from(self.index, other.index, add_id))?;
         }
+        Ok(())
     }
 
     pub fn invlists(&self) -> FaissInvLists {
         unsafe { FaissInvLists(faiss_IndexBinaryIVF_invlists(self.index)) }
     }
 
-    pub fn replace_invlists<T: Into<*mut FaissInvertedLists_H>>(&mut self, invlists: T, own: bool) {
+    pub fn replace_invlists<T: Into<*mut FaissInvertedLists_H>>(
+        &mut self,
+        invlists: T,
+        own: bool,
+    ) -> Result<()> {
         unsafe {
-            faiss_IndexBinaryIVF_replace_invlists(self.index, invlists.into(), own as i32);
+            faiss_try(faiss_IndexBinaryIVF_replace_invlists(
+                self.index,
+                invlists.into(),
+                own as i32,
+            ))?;
         }
+        Ok(())
     }
 
     pub fn list_size(&self, list_no: usize) -> usize {

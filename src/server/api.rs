@@ -123,7 +123,7 @@ pub async fn reload_handler(
     let mut lock = state.index.write().await;
     // NOTE: 此处先释放旧索引，再重新加载新索引
     drop(lock.take().unwrap());
-    let mut index = state.db.get_index(!data.no_mmap);
+    let mut index = state.db.get_index(!data.no_mmap)?;
     if data.hnsw {
         index.to_hnsw();
     }

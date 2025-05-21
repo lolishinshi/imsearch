@@ -2,7 +2,10 @@ use std::ffi::CString;
 use std::mem;
 use std::path::Path;
 
+use anyhow::Result;
 use faiss_sys::*;
+
+use crate::faiss::faiss_try;
 
 pub struct FaissInvLists(pub(super) *mut FaissInvertedLists_H);
 
@@ -43,18 +46,25 @@ impl FaissArrayInvLists {
         }
     }
 
-    pub fn add_entries(&mut self, list_no: usize, n_entries: usize, ids: &[i64], codes: &[u8]) {
+    pub fn add_entries(
+        &mut self,
+        list_no: usize,
+        n_entries: usize,
+        ids: &[i64],
+        codes: &[u8],
+    ) -> Result<()> {
         assert_eq!(n_entries, ids.len());
         assert_eq!(n_entries * self.code_size, codes.len());
         unsafe {
-            faiss_InvertedLists_add_entries(
+            faiss_try(faiss_InvertedLists_add_entries(
                 self.inner,
                 list_no,
                 n_entries,
                 ids.as_ptr(),
                 codes.as_ptr(),
-            );
+            ))?;
         }
+        Ok(())
     }
 }
 
@@ -74,16 +84,17 @@ impl FaissOnDiskInvLists {
         ivfs: Vec<FaissInvLists>,
         shift_ids: bool,
         verbose: bool,
-    ) -> usize {
+    ) -> Result<usize> {
         unsafe {
             let mut ivfs = ivfs.into_iter().map(|ivf| ivf.0 as *const _).collect::<Vec<_>>();
-            faiss_OnDiskInvertedLists_merge_from_multiple(
+            let n = faiss_try(faiss_OnDiskInvertedLists_merge_from_multiple(
                 self.0,
                 ivfs.as_mut_ptr(),
                 ivfs.len() as i32,
                 shift_ids as i32,
                 verbose as i32,
-            ) as usize
+            ))?;
+            Ok(n as usize)
         }
     }
 

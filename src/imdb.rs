@@ -151,7 +151,7 @@ impl IMDB {
     }
 
     /// 获取用于搜索的索引
-    pub fn get_index(&self, mmap: bool) -> FaissIndex {
+    pub fn get_index(&self, mmap: bool) -> Result<FaissIndex> {
         self.index.get_aggregate_index(mmap)
     }
 
@@ -288,7 +288,7 @@ impl IMDB {
             if chunk.is_empty() {
                 break;
             }
-            let mut index = self.index.get_template_index();
+            let mut index = self.index.get_template_index()?;
             assert!(index.is_trained(), "该索引未训练！");
 
             let mut images = vec![];
@@ -307,9 +307,9 @@ impl IMDB {
             }
 
             block_in_place(|| {
-                index.add_with_ids(&features, &ids);
-                index.write_file(self.conf_dir.next_sub_index());
-            });
+                index.add_with_ids(&features, &ids)?;
+                index.write_file(self.conf_dir.next_sub_index())
+            })?;
 
             crud::set_indexed_batch(&self.db, &images).await?;
 
