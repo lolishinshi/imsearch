@@ -4,6 +4,7 @@
 
 import faiss
 import os
+import numpy as np
 from sys import argv
 
 def main():
@@ -22,28 +23,41 @@ def main():
         print("警告：索引不为空，转换后不会保留旧数据")
 
     print("正在转换索引...")
-
     quantizer = faiss.downcast_IndexBinary(index.quantizer)
-    if target == "--flat":
-        if not isinstance(quantizer, faiss.IndexBinaryHNSW):
-            print("索引的量化器不是 faiss.IndexBinaryHNSW")
-            return
-        storage = faiss.downcast_IndexBinary(quantizer.storage)
-        new_quantizer = faiss.IndexBinaryFlat(index.d)
 
-    elif target == "--hnsw":
-        if not isinstance(quantizer, faiss.IndexBinaryFlat):
-            print("索引的量化器不是 faiss.IndexBinaryFlat")
+    match quantizer:
+        case faiss.IndexBinaryHNSW():
+            storage = faiss.downcast_IndexBinary(quantizer.storage)
+        case faiss.IndexBinaryFlat():
+            storage = quantizer
+        case _:
+            print("索引的量化器不是 faiss.IndexBinaryHNSW 或 faiss.IndexBinaryFlat")
             return
-        storage = quantizer
-        new_quantizer = faiss.IndexBinaryHNSW(index.d)
-    else:
-        print("参数错误")
-        return
+
+    match target:
+        case "--flat":
+            new_quantizer = faiss.IndexBinaryFlat(index.d)
+        case "--hnsw":
+            new_quantizer = faiss.IndexBinaryHNSW(index.d)
+        case "--hnsw-lsg":
+            # https://github.com/19-hanhan/LSG
+            new_quantizer = faiss.IndexBinaryHNSW(index.d)
+            if not hasattr(new_quantizer, "add_lsg"):
+                print("当前 faiss 版本不支持 LSG 优化，请使用 https://github.com/Aloxaf/faiss/tree/imsearch 分支")
+                return
+        case _:
+            print("参数错误")
+            return
 
     new_quantizer.reset()
-    new_quantizer.train_c(storage.ntotal, storage.xb.data())
-    new_quantizer.add_c(storage.ntotal, storage.xb.data())
+    if target == "--hnsw-lsg":
+        D = np.empty((storage.ntotal, 10), dtype=np.int32)
+        I = np.empty((storage.ntotal, 10), dtype=np.int64)
+        storage.search_c(storage.ntotal, storage.xb.data(), 10, faiss.swig_ptr(D), faiss.swig_ptr(I))
+        avgdis = np.mean(D, axis=1, dtype=np.float32)
+        new_quantizer.add_lsg(storage.ntotal, storage.xb.data(), faiss.swig_ptr(avgdis), 1.0)
+    else:
+        new_quantizer.add_c(storage.ntotal, storage.xb.data())
     new_quantizer.is_trained = True
     # 直接替换旧索引的 quantizer，得到的结果大小不一致
     # 干脆重新创建一个索引，只保留新的量化器，不允许保留旧数据
