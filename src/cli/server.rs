@@ -35,7 +35,11 @@ pub struct ServerCommand {
 
 impl SubCommandExtend for ServerCommand {
     async fn run(&self, opts: &Opts) -> anyhow::Result<()> {
-        let db = IMDBBuilder::new(opts.conf_dir.clone()).cache(true).open().await?;
+        let db = IMDBBuilder::new(opts.conf_dir.clone())
+            .cache(true)
+            .score_type(self.search.score_type)
+            .open()
+            .await?;
 
         let index = db.get_index(!self.search.no_mmap)?;
 

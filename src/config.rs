@@ -3,7 +3,7 @@ use std::path::{Path, PathBuf};
 use std::str::FromStr;
 use std::sync::LazyLock;
 
-use clap::{Parser, Subcommand};
+use clap::{Parser, Subcommand, ValueEnum};
 use directories::ProjectDirs;
 use opencv::imgproc::InterpolationFlags;
 
@@ -72,6 +72,9 @@ pub struct SearchOptions {
     /// HNSW 搜索时每次访问的节点数量
     #[arg(long, default_value = "16")]
     pub ef_search: usize,
+    /// 评分方式
+    #[arg(long, value_enum, default_value_t = ScoreType::Wilson)]
+    pub score_type: ScoreType,
 }
 
 #[derive(Parser, Debug, Clone)]
@@ -186,4 +189,12 @@ fn parse_interpolation(s: &str) -> Result<InterpolationFlags, String> {
         "lanczos4" => Ok(InterpolationFlags::INTER_LANCZOS4),
         _ => Err(format!("无效的插值方式: {}", s)),
     }
+}
+
+#[derive(ValueEnum, Debug, Clone, Copy)]
+pub enum ScoreType {
+    /// 威尔逊评分
+    Wilson,
+    /// 计数评分
+    Count,
 }

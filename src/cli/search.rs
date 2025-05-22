@@ -31,7 +31,10 @@ impl SubCommandExtend for SearchCommand {
         let mut orb = ORBDetector::create(self.orb.clone());
         let (_, _, des) = block_in_place(|| orb.detect_file(&self.image))?;
 
-        let db = IMDBBuilder::new(opts.conf_dir.clone()).open().await?;
+        let db = IMDBBuilder::new(opts.conf_dir.clone())
+            .score_type(self.search.score_type)
+            .open()
+            .await?;
         let index = Arc::new(db.get_index(!self.search.no_mmap)?);
         let params =
             FaissSearchParams { nprobe: self.search.nprobe, ef_search: self.search.ef_search };

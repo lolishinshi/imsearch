@@ -12,7 +12,7 @@ use opencv::prelude::*;
 use tokio::sync::Mutex;
 use tokio::task::{block_in_place, spawn_blocking};
 
-use crate::config::ConfDir;
+use crate::config::{ConfDir, ScoreType};
 use crate::db::*;
 use crate::faiss::{FaissIndex, FaissSearchParams, Neighbor};
 use crate::index::IndexManager;
@@ -30,11 +30,12 @@ pub struct IMDBBuilder {
     conf_dir: ConfDir,
     wal: bool,
     cache: bool,
+    score_type: ScoreType,
 }
 
 impl IMDBBuilder {
     pub fn new(conf_dir: ConfDir) -> Self {
-        Self { conf_dir, wal: true, cache: false }
+        Self { conf_dir, wal: true, cache: false, score_type: ScoreType::Wilson }
     }
 
     /// 数据库是否开启 WAL，开启会影响删除
@@ -46,6 +47,11 @@ impl IMDBBuilder {
     /// 是否使用缓存来加速 id 查询，会导致第一次查询速度变慢
     pub fn cache(mut self, cache: bool) -> Self {
         self.cache = cache;
+        self
+    }
+
+    pub fn score_type(mut self, score_type: ScoreType) -> Self {
+        self.score_type = score_type;
         self
     }
 
@@ -64,6 +70,7 @@ impl IMDBBuilder {
             total_vector_count: RwLock::new(vec![]),
             cache: self.cache,
             index: IndexManager::new(self.conf_dir),
+            score_type: self.score_type,
         };
         imdb.load_total_vector_count().await?;
         Ok(imdb)
@@ -79,6 +86,7 @@ pub struct IMDB {
     /// 每张图片特征点 ID 的累加数量，用于加速计算
     total_vector_count: RwLock<Vec<i64>>,
     index: IndexManager,
+    score_type: ScoreType,
 }
 
 impl IMDB {
@@ -234,10 +242,16 @@ impl IMDB {
 
         // 计算得分，并取前 10 个结果
         let counter = counter.into_inner();
-        let mut result = counter
-            .into_iter()
-            .map(|(id, scores)| (100. * utils::wilson_score(&scores), id))
-            .collect::<Vec<_>>();
+        let mut result = match self.score_type {
+            ScoreType::Wilson => counter
+                .into_iter()
+                .map(|(id, scores)| (100. * utils::wilson_score(&scores), id))
+                .collect::<Vec<_>>(),
+            ScoreType::Count => counter
+                .into_iter()
+                .map(|(id, scores)| (scores.len() as f32, id))
+                .collect::<Vec<_>>(),
+        };
         result.sort_unstable_by(|a, b| b.0.partial_cmp(&a.0).unwrap());
         result.truncate(max_result);
 
