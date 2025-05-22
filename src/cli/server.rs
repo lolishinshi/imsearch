@@ -22,9 +22,6 @@ pub struct ServerCommand {
     /// 请求验证 token，不填则随机生成
     #[arg(long, default_value_t = String::new())]
     pub token: String,
-    /// 转换为 hnsw 索引加载
-    #[arg(long)]
-    pub hnsw: bool,
     /// prometheus 主动推送地址
     #[arg(long, value_name = "URL")]
     pub prometheus_push: Option<String>,
@@ -40,10 +37,7 @@ impl SubCommandExtend for ServerCommand {
     async fn run(&self, opts: &Opts) -> anyhow::Result<()> {
         let db = IMDBBuilder::new(opts.conf_dir.clone()).cache(true).open().await?;
 
-        let mut index = db.get_index(!self.search.no_mmap)?;
-        if self.hnsw {
-            index.to_hnsw();
-        }
+        let index = db.get_index(!self.search.no_mmap)?;
 
         let mut self_clone = self.clone();
         if self_clone.token.is_empty() {

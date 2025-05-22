@@ -123,10 +123,7 @@ pub async fn reload_handler(
     let mut lock = state.index.write().await;
     // NOTE: 此处先释放旧索引，再重新加载新索引
     drop(lock.take().unwrap());
-    let mut index = state.db.get_index(!data.no_mmap)?;
-    if data.hnsw {
-        index.to_hnsw();
-    }
+    let index = state.db.get_index(!data.no_mmap)?;
     lock.replace(Arc::new(index));
     // 更新缓存 ID
     state.db.load_total_vector_count().await?;
