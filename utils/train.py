@@ -23,6 +23,10 @@ def main():
     index.clustering_index = clustering_index
 
     tr = np.load(argv[2], mmap_mode="r")
+    if tr.shape[0] > 2**31 - 1:
+        print(f"训练特征点数量不能超过 2^31-1，当前数量为 {tr.shape[0]}")
+        return
+
     index.train(tr)
 
     faiss.write_index_binary(index, f'{description}.train')

@@ -41,6 +41,9 @@ def main():
 
     index = faiss.index_binary_factory(d, description)
     xt = np.load(argv[2], mmap_mode="r")
+    if xt.shape[0] > 2**31 - 1:
+        print(f"训练特征点数量不能超过 2^31-1，当前数量为 {xt.shape[0]}")
+        return
 
     if not (256 * index.nlist >= len(xt) >= 30 * index.nlist):
         print(f"警告：训练集数量 {len(xt)} 不在合理范围内（{256 * index.nlist} - {30 * index.nlist}）")
