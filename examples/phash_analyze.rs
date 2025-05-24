@@ -1,15 +1,28 @@
 use std::collections::HashMap;
 use std::fs::File;
 use std::sync::Mutex;
+use std::time::Instant;
 
 use clap::Parser;
+use hnsw_rs::prelude::*;
 use imsearch::utils::{ImageHash, pb_style};
 use indicatif::{ParallelProgressIterator, ProgressBar, ProgressIterator};
 use log::info;
 use rayon::prelude::*;
 use regex::Regex;
-use usearch::{Index, IndexOptions, MetricKind, ScalarKind, b1x8};
 use walkdir::WalkDir;
+
+pub struct Dist64BitHamming;
+
+impl Distance<u64> for Dist64BitHamming {
+    fn eval(&self, va: &[u64], vb: &[u64]) -> f32 {
+        unsafe {
+            let a = va.get_unchecked(0);
+            let b = vb.get_unchecked(0);
+            (a ^ b).count_ones() as f32 / 64.
+        }
+    }
+}
 
 /// phash 的去重效果分析工具
 #[derive(Parser)]
@@ -55,6 +68,7 @@ fn main() {
                 })
             })
         })
+        .take(10000)
         .collect::<Vec<_>>();
     info!("扫描完成，共 {} 张图片", images.len());
 
@@ -65,6 +79,9 @@ fn main() {
         .filter_map(|image| {
             let b3hash = ImageHash::Blake3.hash_file(&image).ok()?;
             let phash = ImageHash::Phash.hash_file(&image).ok()?;
+            let mut b = [0u8; 8];
+            b.copy_from_slice(&phash);
+            let phash = u64::from_le_bytes(b);
             Some((b3hash, (phash, image)))
         })
         .collect::<HashMap<_, _>>();
@@ -73,34 +90,22 @@ fn main() {
     let (hashes, images): (Vec<_>, Vec<_>) = hashes.into_values().unzip();
 
     info!("开始进行 phash 去重……");
-    let options = IndexOptions {
-        dimensions: 64,
-        metric: MetricKind::Hamming,
-        quantization: ScalarKind::B1,
-        ..Default::default()
-    };
-    let index = Index::new(&options).unwrap();
-    // NOTE: SB usearch 必须 reserver，否则直接 coredump
-    index.reserve(hashes.len()).unwrap();
+    let now = Instant::now();
+    let index = Hnsw::<u64, Dist64BitHamming>::new(15, hashes.len(), 16, 40, Dist64BitHamming);
     let duplicates = Mutex::new(HashMap::new());
-    // NOTE: SB usearch 压根不是线程安全的
-    hashes.iter().progress_with_style(pb_style()).enumerate().for_each(|(i, hash)| {
-        assert!(hash.len() == 8);
-        let hash = b1x8::from_u8s(hash);
-        let result = index.search(hash, 1).unwrap();
-        let result = result
-            .keys
-            .into_iter()
-            .zip(result.distances)
-            .filter(|(_, distance)| *distance <= args.threshold as f32)
-            .next();
-        if let Some((key, _)) = result {
-            duplicates.lock().unwrap().entry(key).or_insert(vec![]).push(i as u64);
+    // NOTE: 此处由于使用了 par_iter，结果会存在一定随机性
+    hashes.par_iter().progress_with_style(pb_style()).enumerate().for_each(|(i, &hash)| {
+        let result = index.search(&[hash], 1, 16);
+        let result =
+            result.into_iter().filter(|n| n.distance * 64. <= args.threshold as f32).next();
+        if let Some(n) = result {
+            duplicates.lock().unwrap().entry(n.d_id).or_insert(vec![]).push(i as u64);
         } else {
-            index.add(i as u64, hash).unwrap();
+            index.insert((&[hash], i));
         }
     });
-
+    let elapsed = now.elapsed();
+    info!("phash 去重完成，耗时 {:?}", elapsed);
     let duplicates = duplicates.into_inner().unwrap();
     let total = duplicates.iter().map(|(_, value)| value.len()).sum::<usize>();
 
