@@ -107,6 +107,10 @@ pub struct BuildRequest {
     #[schema(default = false)]
     #[serde(default)]
     pub no_merge: bool,
+    /// 构建索引时，使用的 efSearch 参数
+    #[schema(default = 16)]
+    #[serde(default)]
+    pub ef_search: usize,
 }
 
 /// 索引统计信息

@@ -268,6 +268,19 @@ impl FaissIndex {
         }
         codes
     }
+
+    pub fn set_ef_search(&mut self, ef_search: usize) {
+        let quantizer = unsafe {
+            let quantizer = faiss_IndexBinaryIVF_quantizer(self.index);
+            faiss_IndexBinaryHNSW_cast(quantizer)
+        };
+        if quantizer.is_null() {
+            return;
+        }
+        unsafe {
+            faiss_IndexBinaryHNSW_set_efSearch(quantizer, ef_search as i32);
+        }
+    }
 }
 
 impl Drop for FaissIndex {

@@ -23,6 +23,7 @@ pub struct BuildOptions {
     pub on_disk: bool,
     pub batch_size: usize,
     pub no_merge: bool,
+    pub ef_search: usize,
 }
 
 #[derive(Debug, Clone)]
@@ -303,6 +304,7 @@ impl IMDB {
                 break;
             }
             let mut index = self.index.get_template_index()?;
+            index.set_ef_search(options.ef_search);
             assert!(index.is_trained(), "该索引未训练！");
 
             let mut images = vec![];

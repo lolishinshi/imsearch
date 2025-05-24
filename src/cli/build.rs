@@ -17,6 +17,9 @@ pub struct BuildCommand {
     /// 不合并文件，而是直接保存为多索引
     #[arg(long, conflicts_with_all = ["on_disk"])]
     pub no_merge: bool,
+    /// 构建索引时使用的 efSearch 参数
+    #[arg(long, value_name = "EF_SEARCH", default_value_t = 16)]
+    pub ef_search: usize,
 }
 
 impl SubCommandExtend for BuildCommand {
@@ -26,6 +29,7 @@ impl SubCommandExtend for BuildCommand {
             on_disk: self.on_disk,
             batch_size: self.batch_size,
             no_merge: self.no_merge,
+            ef_search: self.ef_search,
         };
         db.build_index(options).await?;
         info!("构建索引成功");

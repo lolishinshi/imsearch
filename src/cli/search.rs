@@ -24,6 +24,9 @@ pub struct SearchCommand {
     /// 输出格式
     #[arg(long, value_name = "FORMAT", default_value = "table")]
     pub output_format: OutputFormat,
+    /// 默认索引文件名
+    #[arg(short = 'I', long, value_name = "NAME", default_value = "index")]
+    pub index_name: String,
 }
 
 impl SubCommandExtend for SearchCommand {
@@ -31,10 +34,10 @@ impl SubCommandExtend for SearchCommand {
         let mut orb = ORBDetector::create(self.orb.clone());
         let (_, _, des) = block_in_place(|| orb.detect_file(&self.image))?;
 
-        let db = IMDBBuilder::new(opts.conf_dir.clone())
-            .score_type(self.search.score_type)
-            .open()
-            .await?;
+        let mut conf_dir = opts.conf_dir.clone();
+        conf_dir.set_default(self.index_name.clone());
+
+        let db = IMDBBuilder::new(conf_dir).score_type(self.search.score_type).open().await?;
         let index = Arc::new(db.get_index(!self.search.no_mmap)?);
         let params =
             FaissSearchParams { nprobe: self.search.nprobe, ef_search: self.search.ef_search };

@@ -11,7 +11,7 @@ use crate::cli::*;
 
 static CONF_DIR: LazyLock<ConfDir> = LazyLock::new(|| {
     let proj_dirs = ProjectDirs::from("", "aloxaf", "imsearch").expect("failed to get project dir");
-    ConfDir(proj_dirs.config_dir().to_path_buf())
+    ConfDir { path: proj_dirs.config_dir().to_path_buf(), default: "index".to_string() }
 });
 
 fn default_config_dir() -> &'static str {
@@ -108,27 +108,34 @@ pub enum SubCommand {
 }
 
 #[derive(Debug, Clone)]
-pub struct ConfDir(PathBuf);
+pub struct ConfDir {
+    path: PathBuf,
+    default: String,
+}
 
 impl ConfDir {
     pub fn path(&self) -> &Path {
-        self.0.as_path()
+        self.path.as_path()
+    }
+
+    pub fn set_default(&mut self, default: String) {
+        self.default = default;
     }
 
     /// 返回数据库文件的路径
     pub fn database(&self) -> PathBuf {
-        self.0.join("imsearch.db")
+        self.path.join("imsearch.db")
     }
 
     /// 返回索引文件的路径
     pub fn index(&self) -> PathBuf {
-        self.0.join("index")
+        self.path.join(&self.default)
     }
 
     /// 返回下一个子索引文件的路径
     pub fn next_sub_index(&self) -> PathBuf {
         for i in 1.. {
-            let path = self.0.join(format!("index.{}", i));
+            let path = self.path.join(format!("index.{}", i));
             if !path.exists() {
                 return path;
             }
@@ -140,7 +147,7 @@ impl ConfDir {
     pub fn all_sub_index(&self) -> Vec<PathBuf> {
         let mut paths = vec![];
         for i in 1.. {
-            let path = self.0.join(format!("index.{}", i));
+            let path = self.path.join(format!("index.{}", i));
             if !path.exists() {
                 break;
             }
@@ -151,17 +158,17 @@ impl ConfDir {
 
     /// 返回索引模板文件的路径
     pub fn template_index(&self) -> PathBuf {
-        self.0.join("index.template")
+        self.path.join("index.template")
     }
 
     /// 返回 ondisk ivf 文件的路径
     pub fn ondisk_ivf(&self) -> PathBuf {
-        self.0.join("index.ivfdata")
+        self.path.join("index.ivfdata")
     }
 
     /// 返回 ondisk ivf 文件的临时路径
     pub fn ondisk_ivf_tmp(&self) -> PathBuf {
-        self.0.join("index.ivfdata.tmp")
+        self.path.join("index.ivfdata.tmp")
     }
 }
 
@@ -169,7 +176,7 @@ impl FromStr for ConfDir {
     type Err = Infallible;
 
     fn from_str(s: &str) -> Result<Self, Self::Err> {
-        Ok(Self(PathBuf::from(s)))
+        Ok(Self { path: PathBuf::from(s), default: "index".to_string() })
     }
 }
 

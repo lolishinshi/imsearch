@@ -199,6 +199,7 @@ pub async fn build_handler(
         on_disk: data.on_disk,
         batch_size: data.batch_size,
         no_merge: data.no_merge,
+        ef_search: data.ef_search,
     };
     state.db.build_index(options).await?;
     Ok(())
