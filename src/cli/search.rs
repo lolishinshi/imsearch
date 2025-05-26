@@ -43,7 +43,14 @@ impl SubCommandExtend for SearchCommand {
             FaissSearchParams { nprobe: self.search.nprobe, ef_search: self.search.ef_search };
 
         let result = db
-            .search(index, &[des], self.search.k, self.search.distance, self.search.count, params)
+            .search(
+                index,
+                &[des.view()],
+                self.search.k,
+                self.search.distance,
+                self.search.count,
+                params,
+            )
             .await?;
 
         let stats = get_faiss_stats();

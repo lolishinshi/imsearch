@@ -8,7 +8,7 @@ use either::Either;
 use futures::StreamExt;
 use indicatif::{ProgressBar, ProgressIterator};
 use log::info;
-use opencv::core::MatTraitConst;
+use ndarray::ArrayView2;
 use regex::Regex;
 use tokio::fs::File;
 use tokio::io::AsyncReadExt;
@@ -18,6 +18,7 @@ use walkdir::WalkDir;
 
 use super::types::*;
 use crate::IMDB;
+use crate::faiss::FaissIndex;
 use crate::orb::ORB;
 use crate::utils::{ImageHash, pb_style, pb_style_speed};
 
@@ -139,8 +140,11 @@ pub fn task_add(
     min_keypoints: i32,
     duplicate: Duplicate,
     replace: Option<(Regex, String)>,
+    hash: ImageHash,
+    phash_threshold: u32,
 ) -> JoinHandle<()> {
     tokio::spawn(async move {
+        let mut index = FaissIndex::new(64, "BHash8").unwrap();
         while let Ok(data) = spawn_blocking({
             let lrx = lrx.clone();
             move || lrx.recv()
@@ -148,7 +152,7 @@ pub fn task_add(
         .await
         .unwrap()
         {
-            if data.descriptors.rows() <= min_keypoints {
+            if data.descriptors.dim().0 <= min_keypoints as usize {
                 pb.set_message(format!("特征点少于 {}: {}", min_keypoints, data.path));
                 pb.inc(1);
                 continue;
@@ -159,13 +163,27 @@ pub fn task_add(
                 None => &*data.path,
             };
 
+            let mut is_duplicate = false;
+            if hash == ImageHash::Phash {
+                let array = ArrayView2::from_shape((1, 8), &data.hash).unwrap();
+                let result = index.search(array, 1, None);
+                if !result[0].is_empty() && result[0][0].distance <= phash_threshold as i32 {
+                    is_duplicate = true;
+                } else {
+                    index.add(array);
+                }
+            }
             // 这里再检查一次，因为可能存在处理过程中新增的重复图片
             if db.check_hash(&data.hash).await.unwrap() {
+                is_duplicate = true;
+            }
+
+            if is_duplicate {
                 handle_duplicate(Either::Right(data), duplicate, replace.as_ref(), &db, &pb)
                     .await
                     .unwrap();
             } else {
-                db.add_image(path, &data.hash, data.descriptors).await.unwrap();
+                db.add_image(path, &data.hash, data.descriptors.view()).await.unwrap();
                 pb.set_message(path.to_owned());
             }
 

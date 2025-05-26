@@ -64,7 +64,6 @@ features = [
 
 [features]
 default = []
-gui = ["opencv/highgui"]
 
 [dev-dependencies]
 assert_cmd = "2.0.17"

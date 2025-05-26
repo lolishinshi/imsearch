@@ -31,12 +31,6 @@ async fn main() -> anyhow::Result<()> {
     let opts = Opts::parse();
 
     match &opts.subcmd {
-        SubCommand::Show(config) => {
-            config.run(&opts).await?;
-        }
-        SubCommand::Match(config) => {
-            config.run(&opts).await?;
-        }
         SubCommand::Add(config) => {
             config.run(&opts).await?;
         }

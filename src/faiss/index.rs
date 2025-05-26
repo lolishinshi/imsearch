@@ -5,8 +5,7 @@ use std::ptr::null_mut;
 use anyhow::Result;
 use faiss_sys::*;
 use log::debug;
-use ndarray::Array2;
-use opencv::prelude::*;
+use ndarray::ArrayView2;
 
 use super::FaissInvLists;
 use super::types::*;
@@ -97,7 +96,7 @@ impl FaissIndex {
     /// # Arguments
     ///
     /// * `v` - 向量，大小为 (n, d)
-    pub fn add(&mut self, v: &Array2<u8>) {
+    pub fn add(&mut self, v: ArrayView2<u8>) {
         assert_eq!(v.dim().1 * 8, self.d as usize);
         unsafe {
             faiss_IndexBinary_add(self.index, v.dim().0 as i64, v.as_ptr());
@@ -110,7 +109,7 @@ impl FaissIndex {
     ///
     /// * `v` - 向量，大小为 (n, d)
     /// * `ids` - 向量 id 列表，长度为 n
-    pub fn add_with_ids(&mut self, v: &Array2<u8>, ids: &[i64]) -> Result<()> {
+    pub fn add_with_ids(&mut self, v: ArrayView2<u8>, ids: &[i64]) -> Result<()> {
         assert_eq!(v.dim().1 * 8, self.d as usize);
         assert_eq!(v.dim().0, ids.len());
         unsafe {
@@ -133,28 +132,42 @@ impl FaissIndex {
     /// * `params` - 搜索参数
     pub fn search(
         &self,
-        points: &Mat,
+        points: ArrayView2<u8>,
         knn: usize,
-        params: FaissSearchParams,
+        params: Option<FaissSearchParams>,
     ) -> Vec<Vec<Neighbor>> {
-        assert_eq!(points.cols() * 8, self.d);
-        let mut distances = vec![0i32; points.rows() as usize * knn];
-        let mut labels = vec![0i64; points.rows() as usize * knn];
+        assert_eq!(points.dim().1 * 8, self.d as usize);
+        let mut distances = vec![0i32; points.dim().0 * knn];
+        let mut labels = vec![0i64; points.dim().0 * knn];
 
         // 初始化参数
-        let raw_params = params.into_raw();
-        // 搜索
-        unsafe {
-            faiss_try(faiss_IndexBinary_search_with_params(
-                self.index,
-                points.rows() as i64,
-                points.data(),
-                knn as i64,
-                *raw_params,
-                distances.as_mut_ptr(),
-                labels.as_mut_ptr(),
-            ))
-            .unwrap();
+        if let Some(params) = params {
+            let raw_params = params.into_raw();
+            // 搜索
+            unsafe {
+                faiss_try(faiss_IndexBinary_search_with_params(
+                    self.index,
+                    points.dim().0 as i64,
+                    points.as_ptr(),
+                    knn as i64,
+                    *raw_params,
+                    distances.as_mut_ptr(),
+                    labels.as_mut_ptr(),
+                ))
+                .unwrap();
+            }
+        } else {
+            unsafe {
+                faiss_try(faiss_IndexBinary_search(
+                    self.index,
+                    points.dim().0 as i64,
+                    points.as_ptr(),
+                    knn as i64,
+                    distances.as_mut_ptr(),
+                    labels.as_mut_ptr(),
+                ))
+                .unwrap();
+            }
         }
 
         // 整理结果
@@ -163,6 +176,7 @@ impl FaissIndex {
             let neighbors = labels
                 .iter()
                 .zip(distances)
+                .filter(|(index, _)| **index != -1)
                 .map(|(index, distance)| Neighbor { index: *index, distance: *distance })
                 .collect::<Vec<_>>();
             result.push(neighbors);

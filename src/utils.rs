@@ -5,9 +5,10 @@ use anyhow::Result;
 use axum_typed_multipart::TryFromField;
 use clap::ValueEnum;
 use indicatif::ProgressStyle;
+use ndarray::{Array2, ArrayView2};
 use opencv::core::*;
 use opencv::img_hash::p_hash;
-use opencv::{features2d, imgcodecs, imgproc};
+use opencv::{imgcodecs, imgproc};
 use utoipa::ToSchema;
 
 use crate::orb::Slam3ORB;
@@ -15,12 +16,14 @@ use crate::orb::Slam3ORB;
 pub fn detect_and_compute(
     orb: &mut Slam3ORB,
     image: &impl ToInputArray,
-) -> opencv::Result<(Vector<KeyPoint>, Mat)> {
+) -> opencv::Result<(Vec<KeyPoint>, Array2<u8>)> {
     let mask = Mat::default();
     let mut kps = Vector::<KeyPoint>::new();
     let mut des = Mat::default();
     orb.detect_and_compute(image, &mask, &mut kps, &mut des)?;
-    Ok((kps, des))
+    let kps = kps.to_vec();
+    let des = ArrayView2::from_shape((kps.len(), 32), des.data_bytes()?).unwrap();
+    Ok((kps, des.to_owned()))
 }
 
 pub fn imdecode(buf: &[u8], (height, width): (i32, i32)) -> opencv::Result<Mat> {
@@ -40,30 +43,6 @@ pub fn imread<S: AsRef<str>>(filename: S, (height, width): (i32, i32)) -> opencv
     Ok(img)
 }
 
-#[cfg(feature = "gui")]
-pub fn imshow(winname: &str, mat: &impl ToInputArray) -> opencv::Result<()> {
-    opencv::highgui::imshow(winname, mat)?;
-    while opencv::highgui::get_window_property(
-        winname,
-        opencv::highgui::WindowPropertyFlags::WND_PROP_FULLSCREEN as i32,
-    )? >= 0.0
-    {
-        opencv::highgui::wait_key(50)?;
-    }
-    Ok(())
-}
-
-#[cfg(not(feature = "gui"))]
-pub fn imshow(_winname: &str, _mat: &impl ToInputArray) -> opencv::Result<()> {
-    eprintln!("请启用 `gui` 特性以使用 GUI 展示");
-    Ok(())
-}
-
-pub fn imwrite(filename: &str, img: &impl ToInputArray) -> opencv::Result<bool> {
-    let flags = Vector::<i32>::new();
-    imgcodecs::imwrite(filename, img, &flags)
-}
-
 // 在长宽比例中，选择最大的进行缩放
 pub fn adjust_image_size(img: Mat, (height, width): (i32, i32)) -> opencv::Result<Mat> {
     let scale = (width as f64 / img.cols() as f64).max(height as f64 / img.rows() as f64);
@@ -78,45 +57,6 @@ pub fn adjust_image_size(img: Mat, (height, width): (i32, i32)) -> opencv::Resul
         scale,
         scale,
         imgproc::InterpolationFlags::INTER_AREA as i32,
-    )?;
-    Ok(output)
-}
-
-pub fn draw_keypoints(
-    image: &impl ToInputArray,
-    keypoints: &Vector<KeyPoint>,
-) -> opencv::Result<Mat> {
-    let mut output = Mat::default();
-    features2d::draw_keypoints(
-        image,
-        keypoints,
-        &mut output,
-        Scalar::all(-1.0),
-        features2d::DrawMatchesFlags::DEFAULT,
-    )?;
-    Ok(output)
-}
-
-pub fn draw_matches_knn(
-    img1: &impl ToInputArray,
-    keypoints1: &Vector<KeyPoint>,
-    img2: &impl ToInputArray,
-    keypoints2: &Vector<KeyPoint>,
-    matches1to2: &Vector<Vector<DMatch>>,
-    matches_mask: &Vector<Vector<i8>>,
-) -> opencv::Result<Mat> {
-    let mut output = Mat::default();
-    features2d::draw_matches_knn(
-        img1,
-        keypoints1,
-        img2,
-        keypoints2,
-        matches1to2,
-        &mut output,
-        Scalar::from((0., 255., 0.)),
-        Scalar::from((255., 0., 0.)),
-        matches_mask,
-        features2d::DrawMatchesFlags::DEFAULT,
     )?;
     Ok(output)
 }

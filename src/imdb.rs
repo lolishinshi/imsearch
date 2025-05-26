@@ -7,8 +7,6 @@ use futures::prelude::*;
 use indicatif::ProgressBar;
 use log::{debug, info};
 use ndarray::prelude::*;
-use opencv::core::{Mat, MatTraitConstManual};
-use opencv::prelude::*;
 use tokio::sync::Mutex;
 use tokio::task::{block_in_place, spawn_blocking};
 
@@ -92,16 +90,16 @@ pub struct IMDB {
 
 impl IMDB {
     /// 添加图片到数据库
-    pub async fn add_image(
+    pub async fn add_image<'a>(
         &self,
         filename: impl AsRef<str>,
         hash: &[u8],
-        descriptors: Mat,
+        descriptors: ArrayView2<'a, u8>,
     ) -> Result<bool> {
         let mut tx = self.db.begin_with("BEGIN IMMEDIATE").await?;
         let id = crud::add_image(&mut *tx, hash, filename.as_ref()).await?;
-        crud::add_vector(&mut *tx, id, descriptors.data_typed::<u8>()?).await?;
-        crud::add_vector_stats(&mut *tx, id, descriptors.rows() as i64).await?;
+        crud::add_vector(&mut *tx, id, descriptors.as_slice().unwrap()).await?;
+        crud::add_vector_stats(&mut *tx, id, descriptors.dim().0 as i64).await?;
         tx.commit().await?;
         Ok(true)
     }
@@ -174,34 +172,31 @@ impl IMDB {
     /// * `max_distance` - 最大距离
     /// * `max_result` - 最大结果数量
     /// * `params` - 搜索参数
-    pub async fn search(
+    pub async fn search<'a>(
         &self,
         index: Arc<FaissIndex>,
-        descriptors: &[Mat],
+        descriptors: &[ArrayView2<'a, u8>],
         knn: usize,
         max_distance: u32,
         max_result: usize,
         params: FaissSearchParams,
     ) -> Result<Vec<Vec<(f32, String)>>> {
-        let mut mat = Mat::default();
-        for des in descriptors {
-            mat.push_back(des).unwrap();
-        }
+        let mat = ndarray::concatenate(Axis(0), descriptors)?;
 
         info!(
             "对 {} 组 {} 条向量搜索 {} 个最近邻, {:?}",
             descriptors.len(),
-            mat.rows(),
+            mat.dim().0,
             knn,
             params
         );
-        if mat.rows() == 0 {
+        if mat.dim().0 == 0 {
             return Ok(vec![vec![]; descriptors.len()]);
         }
 
         let mut instant = Instant::now();
 
-        let neighbors = spawn_blocking(move || index.search(&mat, knn, params)).await?;
+        let neighbors = spawn_blocking(move || index.search(mat.view(), knn, Some(params))).await?;
         debug!("搜索耗时    ：{}ms", instant.elapsed().as_millis());
         instant = Instant::now();
 
@@ -209,7 +204,7 @@ impl IMDB {
         let mut res = &*neighbors;
         let mut cur;
         for item in descriptors {
-            (cur, res) = res.split_at(item.rows() as usize);
+            (cur, res) = res.split_at(item.dim().0);
             result.push(self.process_neighbor_group(cur, max_distance as i32, max_result).await?);
         }
 
@@ -323,7 +318,7 @@ impl IMDB {
             }
 
             block_in_place(|| {
-                index.add_with_ids(&features, &ids)?;
+                index.add_with_ids(features.view(), &ids)?;
                 index.write_file(self.conf_dir.next_sub_index())
             })?;
 

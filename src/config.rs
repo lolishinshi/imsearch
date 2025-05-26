@@ -89,10 +89,6 @@ pub struct Opts {
 
 #[derive(Subcommand, Debug, Clone)]
 pub enum SubCommand {
-    /// 展示一张图片上的所有特征点
-    Show(ShowCommand),
-    /// 展示两张图片之间的特征点匹配关系
-    Match(MatchCommand),
     /// 添加图片特征点到数据库
     Add(AddCommand),
     /// 从数据库中搜索图片
