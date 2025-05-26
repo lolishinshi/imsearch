@@ -13,7 +13,7 @@ docker run -it -v ./imsearch:/root/.config/imsearch aloxaf/imsearch:latest --hel
 ### 手动安装
 
 ```bash
-env RUSTFLAGS='-C target-cpu=x86-64-v3' cargo install --git https://github.com/lolishinshi/imsearch --locked
+cargo install --git https://github.com/lolishinshi/imsearch --locked
 ```
 
 依赖（以 Ubuntu 24.04 为例，不建议使用更老的版本）：
