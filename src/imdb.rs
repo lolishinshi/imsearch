@@ -96,18 +96,18 @@ impl IMDBBuilder {
                 index.load(self.conf_dir.index_phash().to_str().unwrap()).unwrap();
             }
 
-            let (count, _) = crud::get_count(&db).await?;
-            if count as usize != index.size() {
-                warn!("phash 索引大小不一致，正在重新构建……");
-                index.reset().unwrap();
-                let vectors = crud::get_all_hash(&db).await?;
-                index.reserve(vectors.len()).unwrap();
-                for (id, hash) in vectors {
-                    let hash = b1x8::from_u8s(&hash);
-                    index.add(id as u64, hash).unwrap();
+            if let Ok((count, _)) = crud::get_count(&db).await {
+                if count as usize != index.size() {
+                    warn!("phash 索引大小不一致，正在重新构建……");
+                    index.reset().unwrap();
+                    let vectors = crud::get_all_hash(&db).await?;
+                    index.reserve(vectors.len()).unwrap();
+                    for (id, hash) in vectors {
+                        let hash = b1x8::from_u8s(&hash);
+                        index.add(id as u64, hash).unwrap();
+                    }
                 }
             }
-
             Some(index)
         } else {
             None
