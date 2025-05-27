@@ -156,7 +156,8 @@ pub async fn add_image_handler(
         };
 
         let (img, hash) = hash.hash_bytes(&file.contents)?;
-        if state.db.check_hash(&hash).await? {
+        if state.db.check_hash(&hash, 0).await?.is_some() {
+            // TODO: 处理重复图片
             continue;
         }
 

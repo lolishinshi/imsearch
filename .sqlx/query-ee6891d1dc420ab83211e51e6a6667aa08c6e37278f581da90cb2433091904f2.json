@@ -1,10 +1,10 @@
 {
   "db_name": "SQLite",
-  "query": "\n        SELECT COUNT(*) as count FROM image WHERE hash = ?\n        ",
+  "query": "\n        SELECT id FROM image WHERE hash = ?\n        ",
   "describe": {
     "columns": [
       {
-        "name": "count",
+        "name": "id",
         "ordinal": 0,
         "type_info": "Integer"
       }
@@ -13,8 +13,8 @@
       "Right": 1
     },
     "nullable": [
-      false
+      true
     ]
   },
-  "hash": "bfcc4c4310bdb87cad783e8cad83627b10180386b7aac8090192c9732dc31723"
+  "hash": "ee6891d1dc420ab83211e51e6a6667aa08c6e37278f581da90cb2433091904f2"
 }

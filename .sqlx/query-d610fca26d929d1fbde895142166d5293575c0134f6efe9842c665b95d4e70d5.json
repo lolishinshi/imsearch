@@ -1,6 +1,6 @@
 {
   "db_name": "SQLite",
-  "query": "SELECT path FROM image WHERE hash = ?",
+  "query": "SELECT path FROM image WHERE id = ?",
   "describe": {
     "columns": [
       {
@@ -16,5 +16,5 @@
       false
     ]
   },
-  "hash": "369cedd7cdf488b20c956747f112fe263320797b52440e27cc6a6f225105000f"
+  "hash": "d610fca26d929d1fbde895142166d5293575c0134f6efe9842c665b95d4e70d5"
 }

@@ -28,7 +28,7 @@ impl SubCommandExtend for CleanCommand {
             let mut input = String::new();
             io::stdin().read_line(&mut input)?;
 
-            if input.trim().to_lowercase() != "Y" {
+            if input.trim().to_lowercase() != "y" {
                 info!("操作已取消");
                 return Ok(());
             }

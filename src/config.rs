@@ -123,6 +123,11 @@ impl ConfDir {
         self.path.join("imsearch.db")
     }
 
+    /// 返回 phash 索引文件路径
+    pub fn index_phash(&self) -> PathBuf {
+        self.path.join("index.phash")
+    }
+
     /// 返回索引文件的路径
     pub fn index(&self) -> PathBuf {
         self.path.join(&self.default)

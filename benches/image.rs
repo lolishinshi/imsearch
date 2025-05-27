@@ -5,7 +5,7 @@ use criterion::{Criterion, Throughput, criterion_group, criterion_main};
 use imsearch::orb::Slam3ORB;
 use imsearch::utils;
 use ndarray::Array2;
-use opencv::core::{KeyPoint, Vector};
+use opencv::core::KeyPoint;
 use opencv::img_hash::p_hash;
 use opencv::imgcodecs;
 use opencv::imgproc::InterpolationFlags;

@@ -2,13 +2,14 @@ use std::collections::HashMap;
 use std::sync::{Arc, RwLock};
 use std::time::Instant;
 
-use anyhow::Result;
+use anyhow::{Result, anyhow};
 use futures::prelude::*;
 use indicatif::ProgressBar;
-use log::{debug, info};
+use log::{debug, info, warn};
 use ndarray::prelude::*;
 use tokio::sync::Mutex;
 use tokio::task::{block_in_place, spawn_blocking};
+use usearch::{Index, IndexOptions, MetricKind, ScalarKind, b1x8};
 
 use crate::config::{ConfDir, ScoreType};
 use crate::db::*;
@@ -30,11 +31,18 @@ pub struct IMDBBuilder {
     wal: bool,
     cache: bool,
     score_type: ScoreType,
+    hash: ImageHash,
 }
 
 impl IMDBBuilder {
     pub fn new(conf_dir: ConfDir) -> Self {
-        Self { conf_dir, wal: true, cache: false, score_type: ScoreType::Wilson }
+        Self {
+            conf_dir,
+            wal: true,
+            cache: false,
+            score_type: ScoreType::Wilson,
+            hash: ImageHash::Blake3,
+        }
     }
 
     /// 数据库是否开启 WAL，开启会影响删除
@@ -54,15 +62,57 @@ impl IMDBBuilder {
         self
     }
 
+    pub fn hash(mut self, hash: ImageHash) -> Self {
+        self.hash = hash;
+        self
+    }
+
     pub async fn open(self) -> Result<IMDB> {
         if !self.conf_dir.path().exists() {
             std::fs::create_dir_all(self.conf_dir.path())?;
         }
         let db = init_db(self.conf_dir.database(), self.wal).await?;
+
         if let Ok((image_count, vector_count)) = crud::get_count(&db).await {
             info!("图片数量  : {}", image_count);
             info!("特征点数量：{}", vector_count);
         }
+
+        let hash = crud::guess_hash(&db).await.ok();
+        if hash.is_some() && hash.unwrap() != self.hash {
+            return Err(anyhow!("哈希算法不一致"));
+        }
+
+        let pindex = if self.hash == ImageHash::Phash {
+            let options = IndexOptions {
+                dimensions: 64,
+                metric: MetricKind::Hamming,
+                quantization: ScalarKind::B1,
+                ..Default::default()
+            };
+            let index = Index::new(&options).unwrap();
+            index.reserve(32).unwrap();
+            if self.conf_dir.index_phash().exists() {
+                index.load(self.conf_dir.index_phash().to_str().unwrap()).unwrap();
+            }
+
+            let (count, _) = crud::get_count(&db).await?;
+            if count as usize != index.size() {
+                warn!("phash 索引大小不一致，正在重新构建……");
+                index.reset().unwrap();
+                let vectors = crud::get_all_hash(&db).await?;
+                index.reserve(vectors.len()).unwrap();
+                for (id, hash) in vectors {
+                    let hash = b1x8::from_u8s(&hash);
+                    index.add(id as u64, hash).unwrap();
+                }
+            }
+
+            Some(index)
+        } else {
+            None
+        };
+
         let imdb = IMDB {
             db,
             conf_dir: self.conf_dir.clone(),
@@ -70,13 +120,14 @@ impl IMDBBuilder {
             cache: self.cache,
             index: IndexManager::new(self.conf_dir),
             score_type: self.score_type,
+            pindex,
         };
+
         imdb.load_total_vector_count().await?;
         Ok(imdb)
     }
 }
 
-#[derive(Debug)]
 pub struct IMDB {
     conf_dir: ConfDir,
     db: Database,
@@ -84,7 +135,11 @@ pub struct IMDB {
     cache: bool,
     /// 每张图片特征点 ID 的累加数量，用于加速计算
     total_vector_count: RwLock<Vec<i64>>,
+    /// 特征点索引
     index: IndexManager,
+    /// phash 索引
+    pindex: Option<Index>,
+    /// 评分方式
     score_type: ScoreType,
 }
 
@@ -95,33 +150,45 @@ impl IMDB {
         filename: impl AsRef<str>,
         hash: &[u8],
         descriptors: ArrayView2<'a, u8>,
-    ) -> Result<bool> {
+    ) -> Result<i64> {
         let mut tx = self.db.begin_with("BEGIN IMMEDIATE").await?;
         let id = crud::add_image(&mut *tx, hash, filename.as_ref()).await?;
         crud::add_vector(&mut *tx, id, descriptors.as_slice().unwrap()).await?;
         crud::add_vector_stats(&mut *tx, id, descriptors.dim().0 as i64).await?;
+        if let Some(index) = &self.pindex {
+            if index.size() >= index.capacity() {
+                index.reserve(index.capacity() * 3 / 2).unwrap();
+            }
+            let hash = b1x8::from_u8s(hash);
+            index.add(id as u64, hash)?;
+        }
         tx.commit().await?;
-        Ok(true)
+        Ok(id)
     }
 
     /// 检查图片是否存在
-    pub async fn check_hash(&self, hash: &[u8]) -> Result<bool> {
-        Ok(crud::check_image_hash(&self.db, hash).await?)
+    pub async fn check_hash(&self, hash: &[u8], distance: u32) -> Result<Option<i64>> {
+        if let Some(index) = &self.pindex {
+            let hash = b1x8::from_u8s(hash);
+            let result = index.search(hash, 1).unwrap();
+            if !result.distances.is_empty() && result.distances[0] <= distance as f32 {
+                return Ok(Some(result.keys[0] as i64));
+            }
+        }
+        if let Some(id) = crud::check_image_hash(&self.db, hash).await? {
+            return Ok(Some(id));
+        }
+        Ok(None)
     }
 
     /// 更新图片路径
-    pub async fn update_image_path(&self, hash: &[u8], path: &str) -> Result<()> {
-        Ok(crud::update_image_path(&self.db, hash, path).await?)
+    pub async fn update_image_path(&self, id: i64, path: &str) -> Result<()> {
+        Ok(crud::update_image_path(&self.db, id, path).await?)
     }
 
     /// 追加图片路径
-    pub async fn append_image_path(&self, hash: &[u8], path: &str) -> Result<()> {
-        Ok(crud::append_image_path(&self.db, hash, path).await?)
-    }
-
-    /// 猜测先前使用的哈希算法
-    pub async fn guess_hash(&self) -> Option<ImageHash> {
-        crud::guess_hash(&self.db).await.ok()
+    pub async fn append_image_path(&self, id: i64, path: &str) -> Result<()> {
+        Ok(crud::append_image_path(&self.db, id, path).await?)
     }
 
     /// 清除索引缓存
@@ -336,6 +403,14 @@ impl IMDB {
             block_in_place(|| self.index.merge_index_on_disk())
         } else {
             block_in_place(|| self.index.merge_index_on_memory())
+        }
+    }
+}
+
+impl Drop for IMDB {
+    fn drop(&mut self) {
+        if let Some(index) = self.pindex.as_mut() {
+            index.save(self.conf_dir.index_phash().to_str().unwrap()).unwrap();
         }
     }
 }

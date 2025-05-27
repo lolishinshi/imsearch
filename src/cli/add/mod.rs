@@ -1,7 +1,6 @@
 use std::path::PathBuf;
 use std::sync::Arc;
 
-use anyhow::anyhow;
 use clap::Parser;
 use indicatif::ProgressBar;
 use regex::Regex;
@@ -71,19 +70,20 @@ impl SubCommandExtend for AddCommand {
             Duplicate::Ignore
         };
 
-        let db = Arc::new(IMDBBuilder::new(opts.conf_dir.clone()).open().await?);
+        let db = Arc::new(IMDBBuilder::new(opts.conf_dir.clone()).hash(self.hash).open().await?);
 
         let pb = ProgressBar::no_length().with_style(pb_style());
 
-        if let Some(hash) = db.guess_hash().await {
-            if hash != self.hash {
-                return Err(anyhow!("哈希算法不一致"));
-            }
-        }
-
         let (t1, rx) = task_scan(self.path.clone(), pb.clone(), re_suf);
         let (t2, rx) = task_hash(rx, self.hash, pb.clone());
-        let (t3, rx) = task_filter(rx, pb.clone(), db.clone(), duplicate, replace.clone());
+        let (t3, rx) = task_filter(
+            rx,
+            pb.clone(),
+            db.clone(),
+            duplicate,
+            replace.clone(),
+            self.phash_distance,
+        );
         let (t4, rx) = task_calc(rx, pb.clone());
         let t5 = task_add(
             rx,
@@ -92,7 +92,6 @@ impl SubCommandExtend for AddCommand {
             self.min_keypoints as i32,
             duplicate,
             replace,
-            self.hash,
             self.phash_distance,
         );
 

@@ -8,7 +8,6 @@ use either::Either;
 use futures::StreamExt;
 use indicatif::{ProgressBar, ProgressIterator};
 use log::info;
-use ndarray::ArrayView2;
 use regex::Regex;
 use tokio::fs::File;
 use tokio::io::AsyncReadExt;
@@ -18,7 +17,6 @@ use walkdir::WalkDir;
 
 use super::types::*;
 use crate::IMDB;
-use crate::faiss::FaissIndex;
 use crate::orb::ORB;
 use crate::utils::{ImageHash, pb_style, pb_style_speed};
 
@@ -77,6 +75,7 @@ pub fn task_filter(
     db: Arc<IMDB>,
     duplicate: Duplicate,
     replace: Option<(Regex, String)>,
+    distance: u32,
 ) -> (JoinHandle<()>, Receiver<HashedImageData>) {
     let (tx, rx) = bounded(num_cpus::get());
     let t = tokio::spawn(async move {
@@ -87,8 +86,8 @@ pub fn task_filter(
         .await
         .unwrap()
         {
-            if db.check_hash(&data.hash).await.unwrap() {
-                handle_duplicate(Either::Left(data), duplicate, replace.as_ref(), &db, &pb)
+            if let Some(id) = db.check_hash(&data.hash, distance).await.unwrap() {
+                handle_duplicate(Either::Left(data), duplicate, id, replace.as_ref(), &db, &pb)
                     .await
                     .unwrap();
                 pb.inc(1);
@@ -140,11 +139,9 @@ pub fn task_add(
     min_keypoints: i32,
     duplicate: Duplicate,
     replace: Option<(Regex, String)>,
-    hash: ImageHash,
     phash_threshold: u32,
 ) -> JoinHandle<()> {
     tokio::spawn(async move {
-        let mut index = FaissIndex::new(64, "BHash8").unwrap();
         while let Ok(data) = spawn_blocking({
             let lrx = lrx.clone();
             move || lrx.recv()
@@ -163,28 +160,23 @@ pub fn task_add(
                 None => &*data.path,
             };
 
-            let mut is_duplicate = false;
-            if hash == ImageHash::Phash {
-                let array = ArrayView2::from_shape((1, 8), &data.hash).unwrap();
-                let result = index.search(array, 1, None);
-                if !result[0].is_empty() && result[0][0].distance <= phash_threshold as i32 {
-                    is_duplicate = true;
-                } else {
-                    index.add(array);
-                }
-            }
-            // 这里再检查一次，因为可能存在处理过程中新增的重复图片
-            if db.check_hash(&data.hash).await.unwrap() {
-                is_duplicate = true;
-            }
-
-            if is_duplicate {
-                handle_duplicate(Either::Right(data), duplicate, replace.as_ref(), &db, &pb)
+            match db.check_hash(&data.hash, phash_threshold).await.unwrap() {
+                Some(id) => {
+                    handle_duplicate(
+                        Either::Right(data),
+                        duplicate,
+                        id,
+                        replace.as_ref(),
+                        &db,
+                        &pb,
+                    )
                     .await
                     .unwrap();
-            } else {
-                db.add_image(path, &data.hash, data.descriptors.view()).await.unwrap();
-                pb.set_message(path.to_owned());
+                }
+                None => {
+                    db.add_image(path, &data.hash, data.descriptors.view()).await.unwrap();
+                    pb.set_message(path.to_owned());
+                }
             }
 
             pb.inc(1);
@@ -276,13 +268,14 @@ async fn scan_tar(
 async fn handle_duplicate(
     data: Either<HashedImageData, ProcessableImage>,
     duplicate: Duplicate,
+    duplicate_id: i64,
     replace: Option<&(Regex, String)>,
     db: &Arc<IMDB>,
     pb: &ProgressBar,
 ) -> Result<()> {
-    let (path, hash) = match data {
-        Either::Left(data) => (data.path, data.hash),
-        Either::Right(data) => (data.path, data.hash),
+    let path = match data {
+        Either::Left(data) => data.path,
+        Either::Right(data) => data.path,
     };
 
     match duplicate {
@@ -290,14 +283,14 @@ async fn handle_duplicate(
             let path = replace
                 .map(|(re, replace)| re.replace(&path, replace))
                 .unwrap_or(Cow::Borrowed(&path));
-            db.update_image_path(&hash, &path).await?;
+            db.update_image_path(duplicate_id, &path).await?;
             pb.set_message(format!("更新图片路径: {}", path));
         }
         Duplicate::Append => {
             let path = replace
                 .map(|(re, replace)| re.replace(&path, replace))
                 .unwrap_or(Cow::Borrowed(&path));
-            db.append_image_path(&hash, &path).await?;
+            db.append_image_path(duplicate_id, &path).await?;
             pb.set_message(format!("追加图片路径: {}", path));
         }
         Duplicate::Ignore => {

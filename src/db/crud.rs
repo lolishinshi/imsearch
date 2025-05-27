@@ -26,17 +26,17 @@ where
 }
 
 /// 检查图片哈希是否存在
-pub async fn check_image_hash(executor: &SqlitePool, hash: &[u8]) -> Result<bool> {
+pub async fn check_image_hash(executor: &SqlitePool, hash: &[u8]) -> Result<Option<i64>> {
     let result = sqlx::query!(
         r#"
-        SELECT COUNT(*) as count FROM image WHERE hash = ?
+        SELECT id FROM image WHERE hash = ?
         "#,
         hash
     )
-    .fetch_one(executor)
+    .fetch_optional(executor)
     .await?;
 
-    Ok(result.count > 0)
+    Ok(result.and_then(|r| r.id))
 }
 
 /// 获取图片路径
@@ -54,13 +54,13 @@ pub async fn get_image_path(executor: &SqlitePool, id: i64) -> Result<String> {
 }
 
 /// 根据哈希更新图片路径
-pub async fn update_image_path(executor: &SqlitePool, hash: &[u8], path: &str) -> Result<()> {
+pub async fn update_image_path(executor: &SqlitePool, id: i64, path: &str) -> Result<()> {
     sqlx::query!(
         r#"
-        UPDATE image SET path = ? WHERE hash = ?
+        UPDATE image SET path = ? WHERE id = ?
         "#,
         path,
-        hash
+        id
     )
     .execute(executor)
     .await?;
@@ -69,9 +69,8 @@ pub async fn update_image_path(executor: &SqlitePool, hash: &[u8], path: &str) -
 }
 
 /// 追加图片路径
-pub async fn append_image_path(executor: &SqlitePool, hash: &[u8], path: &str) -> Result<()> {
-    let r =
-        sqlx::query!(r"SELECT path FROM image WHERE hash = ?", hash).fetch_one(executor).await?;
+pub async fn append_image_path(executor: &SqlitePool, id: i64, path: &str) -> Result<()> {
+    let r = sqlx::query!(r"SELECT path FROM image WHERE id = ?", id).fetch_one(executor).await?;
     let mut paths = r.path.split(':').collect::<HashSet<&str>>();
     if paths.contains(path) {
         return Ok(());
@@ -81,10 +80,10 @@ pub async fn append_image_path(executor: &SqlitePool, hash: &[u8], path: &str) -
     let path = paths.into_iter().collect::<Vec<&str>>().join(":");
     sqlx::query!(
         r#"
-        UPDATE image SET path = ? WHERE hash = ?
+        UPDATE image SET path = ? WHERE id = ?
         "#,
         path,
-        hash
+        id
     )
     .execute(executor)
     .await?;
@@ -266,6 +265,18 @@ pub async fn get_count(executor: &SqlitePool) -> Result<(i64, i64)> {
     .await?;
 
     Ok((result.id, result.total_vector_count))
+}
+
+pub async fn get_all_hash(executor: &SqlitePool) -> Result<Vec<(i64, Vec<u8>)>> {
+    let result = sqlx::query!(
+        r#"
+        SELECT id, hash FROM image;
+        "#,
+    )
+    .fetch_all(executor)
+    .await?;
+
+    Ok(result.into_iter().map(|row| (row.id.unwrap(), row.hash)).collect())
 }
 
 /// 获取所有 total_vector_count 记录

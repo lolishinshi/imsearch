@@ -96,11 +96,12 @@ impl FaissIndex {
     /// # Arguments
     ///
     /// * `v` - 向量，大小为 (n, d)
-    pub fn add(&mut self, v: ArrayView2<u8>) {
+    pub fn add(&mut self, v: ArrayView2<u8>) -> Result<()> {
         assert_eq!(v.dim().1 * 8, self.d as usize);
         unsafe {
-            faiss_IndexBinary_add(self.index, v.dim().0 as i64, v.as_ptr());
+            faiss_try(faiss_IndexBinary_add(self.index, v.dim().0 as i64, v.as_ptr()))?;
         }
+        Ok(())
     }
 
     /// 使用自定义 ID 添加向量到索引中
