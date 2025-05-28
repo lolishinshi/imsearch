@@ -4,6 +4,7 @@ pub mod db;
 pub mod faiss;
 pub mod imdb;
 pub mod index;
+pub mod invlists;
 pub mod metrics;
 pub mod orb;
 pub mod server;

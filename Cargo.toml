@@ -14,12 +14,15 @@ axum-auth = { version = "0.8.1", default-features = false, features = [
 ] }
 axum_typed_multipart = { version = "0.16.2", default-features = false }
 blake3 = "1.8.2"
+bytemuck = "1.23.0"
+byteorder = "1.5.0"
 clap = { version = "4.5.38", features = ["derive"] }
 crossbeam-channel = "0.5.15"
 directories = "6.0.0"
 either = "1.15.0"
 env_logger = "0.11.8"
 futures = "0.3.31"
+heed = "0.22.0"
 indicatif = { version = "0.17.11", features = ["rayon"] }
 log = "0.4.27"
 ndarray = "0.16.1"
