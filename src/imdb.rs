@@ -31,18 +31,12 @@ pub struct IMDBBuilder {
     wal: bool,
     cache: bool,
     score_type: ScoreType,
-    hash: ImageHash,
+    hash: Option<ImageHash>,
 }
 
 impl IMDBBuilder {
     pub fn new(conf_dir: ConfDir) -> Self {
-        Self {
-            conf_dir,
-            wal: true,
-            cache: false,
-            score_type: ScoreType::Wilson,
-            hash: ImageHash::Blake3,
-        }
+        Self { conf_dir, wal: true, cache: false, score_type: ScoreType::Wilson, hash: None }
     }
 
     /// 数据库是否开启 WAL，开启会影响删除
@@ -63,7 +57,7 @@ impl IMDBBuilder {
     }
 
     pub fn hash(mut self, hash: ImageHash) -> Self {
-        self.hash = hash;
+        self.hash = Some(hash);
         self
     }
 
@@ -78,12 +72,13 @@ impl IMDBBuilder {
             info!("特征点数量：{}", vector_count);
         }
 
-        let hash = crud::guess_hash(&db).await.ok();
-        if hash.is_some() && hash.unwrap() != self.hash {
-            return Err(anyhow!("哈希算法不一致"));
+        if let Some(old_hash) = crud::guess_hash(&db).await.ok() {
+            if self.hash.is_some() && self.hash.unwrap() != old_hash {
+                return Err(anyhow!("哈希算法不一致"));
+            }
         }
 
-        let pindex = if self.hash == ImageHash::Phash {
+        let pindex = if self.hash == Some(ImageHash::Phash) {
             let options = IndexOptions {
                 dimensions: 64,
                 metric: MetricKind::Hamming,
