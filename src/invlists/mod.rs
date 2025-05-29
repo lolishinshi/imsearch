@@ -1,6 +1,8 @@
 mod array_invlists;
 mod lmdb_invlists;
 
+use std::borrow::Cow;
+
 use anyhow::Result;
 pub use array_invlists::*;
 pub use lmdb_invlists::*;
@@ -29,7 +31,7 @@ pub trait InvertedListsReader {
     fn list_len(&self, list_no: u32) -> usize;
 
     /// 返回指定倒排表中向量的 ID 列表和数据
-    fn get_list(&self, list_no: u32) -> (&[u64], &[u8]);
+    fn get_list(&self, list_no: u32) -> (Cow<[u64]>, Cow<[u8]>);
 }
 
 pub trait InvertedListsWriter: InvertedListsReader {
@@ -52,13 +54,15 @@ pub trait InvertedListsWriter: InvertedListsReader {
     ///
     /// 被合并的倒排列表会被清空
     fn merge_from(&mut self, other: &mut impl InvertedListsWriter, add_id: u64) {
+        assert_eq!(self.nlist(), other.nlist(), "nlist mismatch");
+        assert_eq!(self.code_size(), other.code_size(), "code_size mismatch");
         for i in 0..self.nlist() {
             let (ids, codes) = other.get_list(i);
             if add_id == 0 {
-                self.add_entries(i, ids, codes);
+                self.add_entries(i, &ids, &codes);
             } else {
                 let new_ids = ids.iter().map(|id| id + add_id).collect::<Vec<_>>();
-                self.add_entries(i, &new_ids, codes);
+                self.add_entries(i, &new_ids, &codes);
             }
             other.truncate(i, 0);
         }

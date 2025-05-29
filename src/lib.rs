@@ -2,6 +2,7 @@ pub mod cli;
 pub mod config;
 pub mod db;
 pub mod faiss;
+pub mod hamming;
 pub mod imdb;
 pub mod index;
 pub mod invlists;

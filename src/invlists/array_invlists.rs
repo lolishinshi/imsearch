@@ -1,3 +1,5 @@
+use std::borrow::Cow;
+
 use anyhow::Result;
 
 use super::{InvertedLists, InvertedListsReader, InvertedListsWriter};
@@ -56,9 +58,9 @@ impl InvertedListsReader for ArrayInvertedListsReader<'_> {
         self.0.ids[list_no as usize].len()
     }
 
-    fn get_list(&self, list_no: u32) -> (&[u64], &[u8]) {
+    fn get_list(&self, list_no: u32) -> (Cow<[u64]>, Cow<[u8]>) {
         let list_no = list_no as usize;
-        (&self.0.ids[list_no], &self.0.codes[list_no])
+        (Cow::Borrowed(&self.0.ids[list_no]), Cow::Borrowed(&self.0.codes[list_no]))
     }
 }
 
@@ -75,9 +77,9 @@ impl InvertedListsReader for ArrayInvertedListsWriter<'_> {
         self.0.codes[list_no as usize].len() / self.0.code_size as usize
     }
 
-    fn get_list(&self, list_no: u32) -> (&[u64], &[u8]) {
+    fn get_list(&self, list_no: u32) -> (Cow<[u64]>, Cow<[u8]>) {
         let list_no = list_no as usize;
-        (&self.0.ids[list_no], &self.0.codes[list_no])
+        (Cow::Borrowed(&self.0.ids[list_no]), Cow::Borrowed(&self.0.codes[list_no]))
     }
 }
 
