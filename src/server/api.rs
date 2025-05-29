@@ -72,7 +72,7 @@ pub async fn search_handler(
         deses.push(des.view());
     }
 
-    let lock = state.index.write().await;
+    let lock = state.index.read().await;
     let index = lock.clone().unwrap();
     let result = state
         .db
