@@ -6,6 +6,7 @@ pub mod hamming;
 pub mod imdb;
 pub mod index;
 pub mod invlists;
+pub mod kmeans;
 pub mod metrics;
 pub mod orb;
 pub mod server;
