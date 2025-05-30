@@ -4,35 +4,29 @@ use anyhow::Result;
 
 use super::{InvertedLists, InvertedListsReader, InvertedListsWriter};
 
-pub struct ArrayInvertedLists {
+pub struct ArrayInvertedLists<const N: usize> {
     pub nlist: u32,
-    pub code_size: u32,
     pub codes: Vec<Vec<u8>>,
     pub ids: Vec<Vec<u64>>,
 }
 
-pub struct ArrayInvertedListsReader<'a>(&'a ArrayInvertedLists);
+pub struct ArrayInvertedListsReader<'a, const N: usize>(&'a ArrayInvertedLists<N>);
 
-pub struct ArrayInvertedListsWriter<'a>(&'a mut ArrayInvertedLists);
+pub struct ArrayInvertedListsWriter<'a, const N: usize>(&'a mut ArrayInvertedLists<N>);
 
-impl ArrayInvertedLists {
-    pub fn new(nlist: u32, code_size: u32) -> Self {
-        Self {
-            nlist,
-            code_size,
-            codes: vec![vec![]; nlist as usize],
-            ids: vec![vec![]; nlist as usize],
-        }
+impl<const N: usize> ArrayInvertedLists<N> {
+    pub fn new(nlist: u32) -> Self {
+        Self { nlist, codes: vec![vec![]; nlist as usize], ids: vec![vec![]; nlist as usize] }
     }
 }
 
-impl InvertedLists for ArrayInvertedLists {
+impl<const N: usize> InvertedLists<N> for ArrayInvertedLists<N> {
     type Reader<'a>
-        = ArrayInvertedListsReader<'a>
+        = ArrayInvertedListsReader<'a, N>
     where
         Self: 'a;
     type Writer<'a>
-        = ArrayInvertedListsWriter<'a>
+        = ArrayInvertedListsWriter<'a, N>
     where
         Self: 'a;
 
@@ -45,13 +39,9 @@ impl InvertedLists for ArrayInvertedLists {
     }
 }
 
-impl InvertedListsReader for ArrayInvertedListsReader<'_> {
+impl<const N: usize> InvertedListsReader<N> for ArrayInvertedListsReader<'_, N> {
     fn nlist(&self) -> u32 {
         self.0.nlist
-    }
-
-    fn code_size(&self) -> u32 {
-        self.0.code_size
     }
 
     fn list_len(&self, list_no: u32) -> usize {
@@ -64,17 +54,13 @@ impl InvertedListsReader for ArrayInvertedListsReader<'_> {
     }
 }
 
-impl InvertedListsReader for ArrayInvertedListsWriter<'_> {
+impl<const N: usize> InvertedListsReader<N> for ArrayInvertedListsWriter<'_, N> {
     fn nlist(&self) -> u32 {
         self.0.nlist
     }
 
-    fn code_size(&self) -> u32 {
-        self.0.code_size
-    }
-
     fn list_len(&self, list_no: u32) -> usize {
-        self.0.codes[list_no as usize].len() / self.0.code_size as usize
+        self.0.codes[list_no as usize].len() / N
     }
 
     fn get_list(&self, list_no: u32) -> (Cow<[u64]>, Cow<[u8]>) {
@@ -83,8 +69,9 @@ impl InvertedListsReader for ArrayInvertedListsWriter<'_> {
     }
 }
 
-impl InvertedListsWriter for ArrayInvertedListsWriter<'_> {
+impl<const N: usize> InvertedListsWriter<N> for ArrayInvertedListsWriter<'_, N> {
     fn add_entries(&mut self, list_no: u32, ids: &[u64], codes: &[u8]) -> u64 {
+        assert_eq!(ids.len(), codes.len() / N, "ids and codes length mismatch");
         let list_no = list_no as usize;
         self.0.ids[list_no].extend_from_slice(ids);
         self.0.codes[list_no].extend_from_slice(codes);
@@ -94,6 +81,6 @@ impl InvertedListsWriter for ArrayInvertedListsWriter<'_> {
     fn truncate(&mut self, list_no: u32, new_size: usize) {
         let list_no = list_no as usize;
         self.0.ids[list_no].truncate(new_size);
-        self.0.codes[list_no].truncate(new_size * self.0.code_size as usize);
+        self.0.codes[list_no].truncate(new_size * N);
     }
 }

@@ -1,7 +1,9 @@
+use indicatif::{ProgressBar, ProgressIterator};
 use kmeans::{EuclideanDistance, KMeans, KMeansConfig, KMeansState};
 use log::info;
 
 use crate::hamming::batch_knn_hamming;
+use crate::utils::pb_style;
 
 fn binary_to_real(x_in: &[u8]) -> Vec<f32> {
     let d = x_in.len() * 8;
@@ -42,21 +44,19 @@ fn imbalance_factor(hist: &[usize]) -> f32 {
 /// 使用 kmeans 聚类，返回聚类结果
 ///
 /// 参数：
-/// - x: 输入向量，长度为 n * d
-/// - n: 向量数量
+/// - x: 输入向量，长度为 n * N
 /// - nc: 聚类中心数量
 /// - max_iter: 最大迭代次数
 /// - verbose: 是否打印详细信息
 pub fn binary_kmeans<const N: usize>(
     x: &[u8],
-    n: usize,
     nc: usize,
     max_iter: usize,
     verbose: bool,
 ) -> Vec<u8> {
-    assert_eq!(x.len(), n * N / 8);
+    let n = x.len() / N;
     let x = binary_to_real(x);
-    let km: KMeans<_, 16, _> = KMeans::new(&x, n, N, EuclideanDistance);
+    let km: KMeans<_, 16, _> = KMeans::new(&x, n, N * 8, EuclideanDistance);
     let conf = if verbose {
         KMeansConfig::build()
             .init_done(&|_s: &KMeansState<f32>| info!("KMeans 初始化完成"))
@@ -78,28 +78,24 @@ pub fn binary_kmeans<const N: usize>(
 }
 
 /// 使用 kmeans 进行二级聚类，损失少许精度大幅提高速度
-pub fn binary_kmeans_2level<const N: usize>(x: &[u8], n: usize, nc: usize) -> Vec<u8> {
+pub fn binary_kmeans_2level<const N: usize>(x: &[u8], nc: usize, max_iter: usize) -> Vec<u8> {
+    let n = x.len() / N;
     assert!(n >= 30 * nc, "n 必须大于 30 * nc");
     let nc1 = nc.isqrt();
 
     info!("对 {n} 组向量进行 1 级聚类，中心点数量 = {nc1}");
-    let c1 = binary_kmeans::<N>(x, n, nc1, 50, true);
-    //dbg!(&c1);
+    let c1 = binary_kmeans::<N>(x, nc1, max_iter, true);
 
-    info!("根据 1 级聚类结果计算划分训练集");
+    info!("根据 1 级聚类结果划分训练集");
     let (assign1, _) = batch_knn_hamming::<N>(x, &c1, 1);
     let assign1 = assign1.into_iter().map(|x| x[0]).collect::<Vec<_>>();
 
-    let d = N / 8;
     let mut bc = vec![0; nc1];
     let mut xc = vec![vec![]; nc1];
     assign1.iter().enumerate().for_each(|(i, &n)| {
         bc[n] += 1;
-        xc[n].extend_from_slice(&x[i * d..(i + 1) * d]);
+        xc[n].extend_from_slice(&x[i * N..(i + 1) * N]);
     });
-
-    //dbg!(&bc);
-    //dbg!(&xc);
 
     let bc_sum = bc
         .iter()
@@ -121,17 +117,18 @@ pub fn binary_kmeans_2level<const N: usize>(x: &[u8], n: usize, nc: usize) -> Ve
     info!("2 级聚类中心点数量：{min_nc2} ~ {max_nc2}");
 
     let mut c = vec![];
-    for i in 0..nc1 {
+    let pb = ProgressBar::new(nc1 as u64).with_style(pb_style());
+    for i in (0..nc1).progress_with(pb.clone()) {
         let x = &xc[i];
-        let len = x.len() / d;
-        info!("对 {} 组向量进行 {}/{nc1} 轮二级聚类，中心点数量 = {}", len, i + 1, nc2[i]);
+        let len = x.len() / N;
+        pb.set_message(format!("对 {} 组向量进行二级聚类，中心点数量 = {}", len, nc2[i]));
         if nc2[i] > 0 {
-            //dbg!(&x);
-            let c2 = binary_kmeans::<N>(x, len, nc2[i], 50, true);
-            //dbg!(&c2);
+            let c2 = binary_kmeans::<N>(x, nc2[i], max_iter, false);
             c.extend(c2);
         }
     }
+
+    assert_eq!(c.len(), nc * N);
 
     c
 }
@@ -187,7 +184,7 @@ mod tests {
             x[i * 4 + 1] = 0xFF;
         }
 
-        let centroids = binary_kmeans::<32>(&x, 16, 2, 50, false);
+        let centroids = binary_kmeans::<4>(&x, 2, 50, false);
 
         // 应该返回2个聚类中心，每个4字节
         assert_eq!(centroids.len(), 8); // 2个中心 × 4字节
@@ -215,7 +212,7 @@ mod tests {
             x.extend_from_slice(&[0xFF; 4]);
         }
 
-        let centroids = binary_kmeans_2level::<32>(&x, n, nc);
+        let centroids = binary_kmeans_2level::<4>(&x, nc, 50);
 
         // 应该返回nc个聚类中心
         assert_eq!(centroids.len(), nc * d);
@@ -233,7 +230,7 @@ mod tests {
     #[test]
     fn test_binary_kmeans_single_cluster() {
         let x = vec![66u8; 8 * 4];
-        let centroids = binary_kmeans::<32>(&x, 8, 1, 10, false);
+        let centroids = binary_kmeans::<4>(&x, 1, 10, false);
 
         assert_eq!(centroids.len(), 4);
         assert_eq!(centroids, vec![66u8; 4]);
@@ -243,6 +240,6 @@ mod tests {
     #[should_panic]
     fn test_binary_kmeans_invalid_length() {
         let x = vec![0u8; 8 * 4];
-        binary_kmeans_2level::<32>(&x, 8, 1);
+        binary_kmeans_2level::<4>(&x, 1, 50);
     }
 }

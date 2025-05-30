@@ -6,7 +6,7 @@ use rand::{Rng, SeedableRng};
 // 生成有聚类模式的测试数据：256bit 向量
 fn generate_clustered_data(n: usize, num_clusters: usize) -> Vec<u8> {
     let mut rng = StdRng::seed_from_u64(42); // 使用固定种子确保结果可重现
-    let d = 256 / 8; // 256bit = 32 bytes
+    let d = 32; // 256bit = 32 bytes
     let mut data = vec![0u8; n * d];
 
     // 生成聚类中心模板
@@ -41,11 +41,11 @@ fn bench_kmeans_comparison(c: &mut Criterion) {
         let data = black_box(generate_clustered_data(n, nc / 2));
 
         group.bench_function(format!("binary_kmeans_{n}_{nc}"), |b| {
-            b.iter(|| binary_kmeans::<256>(&data, n, nc, 50, false))
+            b.iter(|| binary_kmeans::<32>(&data, nc, 50, false))
         });
 
         group.bench_function(format!("binary_kmeans_2level_{n}_{nc}"), |b| {
-            b.iter(|| binary_kmeans_2level::<256>(&data, n, nc))
+            b.iter(|| binary_kmeans_2level::<32>(&data, nc, 50))
         });
     }
 

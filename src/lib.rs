@@ -1,15 +1,16 @@
 pub mod cli;
 pub mod config;
-pub mod db;
+mod db;
 pub mod faiss;
 pub mod hamming;
 pub mod imdb;
-pub mod index;
+mod index;
 pub mod invlists;
+pub mod ivf;
 pub mod kmeans;
-pub mod metrics;
+mod metrics;
 pub mod orb;
-pub mod server;
+mod server;
 pub mod utils;
 
 pub use config::Opts;
