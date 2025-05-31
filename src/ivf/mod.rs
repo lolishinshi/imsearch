@@ -1,12 +1,26 @@
 mod quantizer;
 
+use std::time::Duration;
+
 use anyhow::{Result, anyhow};
 pub use quantizer::*;
 use rayon::prelude::*;
+use tokio::time::Instant;
 
 use crate::hamming::knn_hamming;
 use crate::invlists::{InvertedLists, InvertedListsReader, InvertedListsWriter};
 use crate::kmeans::binary_kmeans_2level;
+
+pub struct SeachResult {
+    pub quantizer_time: Duration,
+    pub search_time: Duration,
+    pub neighbors: Vec<Vec<Neighbor>>,
+}
+
+pub struct Neighbor {
+    pub id: usize,
+    pub distance: u32,
+}
 
 pub struct IvfHnsw<const N: usize, Q: Quantizer<N>, I: InvertedLists<N>> {
     quantizer: Q,
@@ -39,25 +53,27 @@ impl<const N: usize, Q: Quantizer<N>, I: InvertedLists<N>> IvfHnsw<N, Q, I> {
         Ok(())
     }
 
-    pub fn search(
-        &self,
-        data: &[u8],
-        k: usize,
-        nprobe: usize,
-    ) -> Result<(Vec<Vec<usize>>, Vec<Vec<u32>>)> {
-        let mut vids = vec![];
-        let mut vdis = vec![];
+    pub fn search(&self, data: &[u8], k: usize, nprobe: usize) -> Result<SeachResult> {
+        let start = Instant::now();
+        let mut neighbors = vec![];
+
         let vlists = self.quantizer.search(data, nprobe)?;
+        let quantizer_time = start.elapsed();
+
         let reader = self.invlists.reader()?;
         for (xq, lists) in data.chunks_exact(N).zip(vlists) {
             for list_no in lists {
                 let (ids, codes) = reader.get_list(list_no as u32)?;
                 let (idx, dis) = knn_hamming::<N>(xq, &codes, k);
-                let ids = idx.into_iter().map(|i| ids[i] as usize).collect::<Vec<_>>();
-                vids.push(ids);
-                vdis.push(dis);
+                let n = idx
+                    .into_iter()
+                    .zip(dis)
+                    .map(|(i, d)| Neighbor { id: ids[i] as usize, distance: d })
+                    .collect::<Vec<_>>();
+                neighbors.push(n);
             }
         }
-        Ok((vids, vdis))
+        let search_time = start.elapsed();
+        Ok(SeachResult { quantizer_time, search_time, neighbors })
     }
 }
