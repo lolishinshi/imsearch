@@ -24,12 +24,11 @@ impl SubCommandExtend for TrainCommand {
         let db = IMDBBuilder::new(opts.conf_dir.clone()).open().await?;
         let data = db.export(Some(self.images)).await?;
 
-        let quantizer = USearchQuantizer::<32>::new()?;
+        let quantizer = USearchQuantizer::<32>::new("quantizer.bin")?;
         let invlists = ArrayInvertedLists::new(self.centers as u32);
         let mut ivf = IvfHnsw::new(quantizer, invlists, self.centers);
 
         ivf.train(data.as_slice().unwrap(), self.max_iter)?;
-        ivf.save("quantizer.bin")?;
         Ok(())
     }
 }

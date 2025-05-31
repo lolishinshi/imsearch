@@ -1,6 +1,7 @@
 use std::path::Path;
 
 use anyhow::Result;
+use rayon::prelude::*;
 use usearch::{Index, IndexOptions, MetricKind, ScalarKind, b1x8};
 
 /// 适用于 N 位二进制向量的量化器
@@ -15,16 +16,20 @@ pub trait Quantizer<const N: usize> {
     /// x 为展平的 n * N 的一维数组
     fn search(&self, x: &[u8], k: usize) -> Result<Vec<Vec<usize>>>;
 
-    /// 将量化器保存到文件
-    fn save<P: AsRef<Path>>(&self, path: P) -> Result<()>;
+    /// 保存量化器
+    fn save(&self) -> Result<()>;
+
+    /// 是否已经训练
+    fn is_trained(&self) -> bool;
 }
 
 pub struct USearchQuantizer<const N: usize> {
     index: Index,
+    path: String,
 }
 
 impl<const N: usize> USearchQuantizer<N> {
-    pub fn new() -> Result<Self> {
+    pub fn new<P: AsRef<Path>>(path: P) -> Result<Self> {
         let options = IndexOptions {
             dimensions: N * 8,
             metric: MetricKind::Hamming,
@@ -35,7 +40,12 @@ impl<const N: usize> USearchQuantizer<N> {
             ..Default::default()
         };
         let index = Index::new(&options)?;
-        Ok(Self { index })
+        let path = path.as_ref();
+        let path_str = path.to_str().unwrap().to_string();
+        if path.exists() {
+            index.load(&path_str)?;
+        }
+        Ok(Self { index, path: path_str })
     }
 }
 
@@ -52,6 +62,7 @@ impl<const N: usize> Quantizer<N> for USearchQuantizer<N> {
 
     fn search(&self, x: &[u8], k: usize) -> Result<Vec<Vec<usize>>> {
         x.chunks_exact(N)
+            .par_bridge()
             .map(|chunk| {
                 let q = b1x8::from_u8s(chunk);
                 let m = self.index.search(q, k)?;
@@ -60,9 +71,12 @@ impl<const N: usize> Quantizer<N> for USearchQuantizer<N> {
             .collect::<Result<Vec<_>>>()
     }
 
-    fn save<P: AsRef<Path>>(&self, path: P) -> Result<()> {
-        let path = path.as_ref().to_str().unwrap();
-        self.index.save(path)?;
+    fn save(&self) -> Result<()> {
+        self.index.save(&self.path)?;
         Ok(())
+    }
+
+    fn is_trained(&self) -> bool {
+        self.index.size() > 0
     }
 }

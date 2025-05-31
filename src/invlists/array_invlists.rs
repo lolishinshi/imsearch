@@ -48,9 +48,9 @@ impl<const N: usize> InvertedListsReader<N> for ArrayInvertedListsReader<'_, N> 
         self.0.ids[list_no as usize].len()
     }
 
-    fn get_list(&self, list_no: u32) -> (Cow<[u64]>, Cow<[u8]>) {
+    fn get_list(&self, list_no: u32) -> Result<(Cow<[u64]>, Cow<[u8]>)> {
         let list_no = list_no as usize;
-        (Cow::Borrowed(&self.0.ids[list_no]), Cow::Borrowed(&self.0.codes[list_no]))
+        Ok((Cow::Borrowed(&self.0.ids[list_no]), Cow::Borrowed(&self.0.codes[list_no])))
     }
 }
 
@@ -63,24 +63,25 @@ impl<const N: usize> InvertedListsReader<N> for ArrayInvertedListsWriter<'_, N> 
         self.0.codes[list_no as usize].len() / N
     }
 
-    fn get_list(&self, list_no: u32) -> (Cow<[u64]>, Cow<[u8]>) {
+    fn get_list(&self, list_no: u32) -> Result<(Cow<[u64]>, Cow<[u8]>)> {
         let list_no = list_no as usize;
-        (Cow::Borrowed(&self.0.ids[list_no]), Cow::Borrowed(&self.0.codes[list_no]))
+        Ok((Cow::Borrowed(&self.0.ids[list_no]), Cow::Borrowed(&self.0.codes[list_no])))
     }
 }
 
 impl<const N: usize> InvertedListsWriter<N> for ArrayInvertedListsWriter<'_, N> {
-    fn add_entries(&mut self, list_no: u32, ids: &[u64], codes: &[u8]) -> u64 {
+    fn add_entries(&mut self, list_no: u32, ids: &[u64], codes: &[u8]) -> Result<u64> {
         assert_eq!(ids.len(), codes.len() / N, "ids and codes length mismatch");
         let list_no = list_no as usize;
         self.0.ids[list_no].extend_from_slice(ids);
         self.0.codes[list_no].extend_from_slice(codes);
-        ids.len() as u64
+        Ok(ids.len() as u64)
     }
 
-    fn truncate(&mut self, list_no: u32, new_size: usize) {
+    fn truncate(&mut self, list_no: u32, new_size: usize) -> Result<()> {
         let list_no = list_no as usize;
         self.0.ids[list_no].truncate(new_size);
         self.0.codes[list_no].truncate(new_size * N);
+        Ok(())
     }
 }
