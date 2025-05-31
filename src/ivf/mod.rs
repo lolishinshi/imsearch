@@ -62,6 +62,7 @@ impl<const N: usize, Q: Quantizer<N>, I: InvertedLists<N>> IvfHnsw<N, Q, I> {
 
         let reader = self.invlists.reader()?;
         for (xq, lists) in data.chunks_exact(N).zip(vlists) {
+            let mut v = vec![];
             for list_no in lists {
                 let (ids, codes) = reader.get_list(list_no as u32)?;
                 let (idx, dis) = knn_hamming::<N>(xq, &codes, k);
@@ -70,8 +71,11 @@ impl<const N: usize, Q: Quantizer<N>, I: InvertedLists<N>> IvfHnsw<N, Q, I> {
                     .zip(dis)
                     .map(|(i, d)| Neighbor { id: ids[i] as usize, distance: d })
                     .collect::<Vec<_>>();
-                neighbors.push(n);
+                v.extend(n);
             }
+            v.sort_unstable_by_key(|n| n.distance);
+            v.truncate(k);
+            neighbors.push(v);
         }
         let search_time = start.elapsed();
         Ok(SeachResult { quantizer_time, search_time, neighbors })
