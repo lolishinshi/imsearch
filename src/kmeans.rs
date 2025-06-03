@@ -44,18 +44,20 @@ fn imbalance_factor(hist: &[usize]) -> f32 {
 /// 使用 kmeans 聚类，返回聚类结果
 ///
 /// 参数：
-/// - x: 输入向量，长度为 n * N
+/// - x: 输入向量
 /// - nc: 聚类中心数量
 /// - max_iter: 最大迭代次数
 /// - verbose: 是否打印详细信息
 pub fn binary_kmeans<const N: usize>(
-    x: &[u8],
+    x: &[[u8; N]],
     nc: usize,
     max_iter: usize,
     verbose: bool,
-) -> Vec<u8> {
-    let n = x.len() / N;
-    let x = binary_to_real(x);
+) -> Vec<[u8; N]> {
+    let n = x.len();
+    // KMeans 只能对浮点进行聚类，因此这里将二进制转成浮点向量
+    // TODO: 这里距离函数可以自定义，理论上可以直接对二进制进行聚类
+    let x = binary_to_real(x.as_flattened());
     let km: KMeans<_, 16, _> = KMeans::new(&x, n, N * 8, EuclideanDistance);
     let conf = if verbose {
         KMeansConfig::build()
@@ -74,38 +76,44 @@ pub fn binary_kmeans<const N: usize>(
     };
     // NOTE: init_kmeanplusplus 会 panic，不知道为啥
     let result = km.kmeans_lloyd(nc, max_iter, KMeans::init_random_partition, &conf);
-    real_to_binary(&result.centroids.to_vec())
+    let b = real_to_binary(&result.centroids.to_vec());
+    b.chunks_exact(N).map(|x| x.try_into().unwrap()).collect()
 }
 
 /// 使用 kmeans 进行二级聚类，损失少许精度大幅提高速度
-pub fn binary_kmeans_2level<const N: usize>(x: &[u8], nc: usize, max_iter: usize) -> Vec<u8> {
-    let n = x.len() / N;
-    assert!(n >= 30 * nc, "n 必须大于 30 * nc");
+pub fn binary_kmeans_2level<const N: usize>(
+    x: &[[u8; N]],
+    nc: usize,
+    max_iter: usize,
+) -> Vec<[u8; N]> {
+    let n = x.len();
+    assert!(n >= 30 * nc, "向量数量必须大于 30 * {nc}");
     let nc1 = nc.isqrt();
 
     info!("对 {n} 组向量进行 1 级聚类，中心点数量 = {nc1}");
     let c1 = binary_kmeans::<N>(x, nc1, max_iter, true);
 
     info!("根据 1 级聚类结果划分训练集");
-    let (assign1, _) = batch_knn_hamming::<N>(x, &c1, 1);
-    let assign1 = assign1.into_iter().map(|x| x[0]).collect::<Vec<_>>();
+    let r = batch_knn_hamming::<N>(x, &c1, 1);
 
-    let mut bc = vec![0; nc1];
+    // 一级聚类中，每个聚类中心分配到的向量列表
     let mut xc = vec![vec![]; nc1];
-    assign1.iter().enumerate().for_each(|(i, &n)| {
-        bc[n] += 1;
-        xc[n].extend_from_slice(&x[i * N..(i + 1) * N]);
+    r.iter().enumerate().for_each(|(i, r)| {
+        let n = r[0].0;
+        xc[n].push(x[i]);
     });
 
-    let bc_sum = bc
+    // 计算累加和，用于计算二级聚类中心点数量
+    let bc_sum = xc
         .iter()
         .scan(0, |acc, x| {
-            *acc += x;
+            *acc += x.len();
             Some(*acc)
         })
         .collect::<Vec<_>>();
 
     // TODO: 测试加权分配 nc2 和使用固定值，哪个更好
+    // 此处使用了累加和+错位相减来进行加权分配，这样可以保证 sum(nc2) = nc
     let mut nc2 = bc_sum.iter().map(|x| x * nc / bc_sum[bc_sum.len() - 1]).collect::<Vec<_>>();
     for i in (1..nc2.len()).rev() {
         nc2[i] -= nc2[i - 1];
@@ -120,15 +128,14 @@ pub fn binary_kmeans_2level<const N: usize>(x: &[u8], nc: usize, max_iter: usize
     let pb = ProgressBar::new(nc1 as u64).with_style(pb_style());
     for i in (0..nc1).progress_with(pb.clone()) {
         let x = &xc[i];
-        let len = x.len() / N;
-        pb.set_message(format!("对 {} 组向量进行二级聚类，中心点数量 = {}", len, nc2[i]));
+        pb.set_message(format!("对 {} 组向量进行二级聚类，中心点数量 = {}", x.len(), nc2[i]));
         if nc2[i] > 0 {
             let c2 = binary_kmeans::<N>(x, nc2[i], max_iter, false);
             c.extend(c2);
         }
     }
 
-    assert_eq!(c.len(), nc * N);
+    assert_eq!(c.len(), nc);
 
     c
 }
@@ -170,28 +177,27 @@ mod tests {
     #[test]
     fn test_binary_kmeans_basic() {
         // 创建一些简单的测试数据：两个明显不同的聚类
-        let mut x = vec![0u8; 16 * 4]; // 16个向量，每个4字节
+        let mut x = vec![[0u8; 4]; 16]; // 16个向量，每个4字节
 
         // 前8个向量设为模式1 (前半部分为0，后半部分为255)
         for i in 0..8 {
-            x[i * 4 + 2] = 0xFF;
-            x[i * 4 + 3] = 0xFF;
+            x[i][2] = 0xFF;
+            x[i][3] = 0xFF;
         }
 
         // 后8个向量设为模式2 (前半部分为255，后半部分为0)
         for i in 8..16 {
-            x[i * 4] = 0xFF;
-            x[i * 4 + 1] = 0xFF;
+            x[i][0] = 0xFF;
+            x[i][1] = 0xFF;
         }
 
         let centroids = binary_kmeans::<4>(&x, 2, 50, false);
 
-        // 应该返回2个聚类中心，每个4字节
-        assert_eq!(centroids.len(), 8); // 2个中心 × 4字节
+        // 应该返回2个聚类中心
+        assert_eq!(centroids.len(), 2);
 
-        // 验证聚类中心的数量
-        let c1 = &centroids[0..4];
-        let c2 = &centroids[4..8];
+        let c1 = &centroids[0];
+        let c2 = &centroids[1];
 
         assert_ne!(c1, c2); // 两个中心应该不同
     }
@@ -200,46 +206,43 @@ mod tests {
     fn test_binary_kmeans_2level() {
         let nc = 4;
         let n = 32 * nc;
-        let d = 4;
 
         // 创建有4个明显聚类的数据
         let mut x = vec![];
 
         for _ in 0..(n / 4) {
-            x.extend_from_slice(&[0x00; 4]);
-            x.extend_from_slice(&[0x77; 4]);
-            x.extend_from_slice(&[0xAA; 4]);
-            x.extend_from_slice(&[0xFF; 4]);
+            x.push([0x00; 4]);
+            x.push([0x77; 4]);
+            x.push([0xAA; 4]);
+            x.push([0xFF; 4]);
         }
 
-        let centroids = binary_kmeans_2level::<4>(&x, nc, 50);
+        let mut centroids = binary_kmeans_2level::<4>(&x, nc, 50);
+        centroids.sort_by_key(|x| x[0]);
 
         // 应该返回nc个聚类中心
-        assert_eq!(centroids.len(), nc * d);
+        assert_eq!(centroids.len(), nc);
 
         // 验证返回的中心数量是正确的
-        let mut centers: Vec<&[u8]> = centroids.chunks(d).collect();
-        centers.sort_by_key(|x| x[0]);
-        assert_eq!(centers.len(), nc);
-        assert_eq!(centers[0], &[0x00; 4]);
-        assert_eq!(centers[1], &[0x77; 4]);
-        assert_eq!(centers[2], &[0xAA; 4]);
-        assert_eq!(centers[3], &[0xFF; 4]);
+
+        assert_eq!(&centroids[0], &[0x00; 4]);
+        assert_eq!(&centroids[1], &[0x77; 4]);
+        assert_eq!(&centroids[2], &[0xAA; 4]);
+        assert_eq!(&centroids[3], &[0xFF; 4]);
     }
 
     #[test]
     fn test_binary_kmeans_single_cluster() {
-        let x = vec![66u8; 8 * 4];
+        let x = vec![[66u8; 4]; 8];
         let centroids = binary_kmeans::<4>(&x, 1, 10, false);
-
-        assert_eq!(centroids.len(), 4);
-        assert_eq!(centroids, vec![66u8; 4]);
+        assert_eq!(centroids.len(), 1);
+        assert_eq!(&centroids[0], &[66u8; 4]);
     }
 
     #[test]
     #[should_panic]
     fn test_binary_kmeans_invalid_length() {
-        let x = vec![0u8; 8 * 4];
+        let x = vec![[0u8; 4]; 8];
         binary_kmeans_2level::<4>(&x, 1, 50);
     }
 }

@@ -38,11 +38,11 @@ impl<const N: usize> USearchQuantizer<N> {
 
 impl<const N: usize> Quantizer<N> for USearchQuantizer<N> {
     /// 为量化器填充训练好的聚类中心
-    fn add(&mut self, x: &[u8]) -> Result<()> {
+    fn add(&mut self, x: &[[u8; N]]) -> Result<()> {
         assert_eq!(self.index.size(), 0, "quantizer has been trained");
         // NOTE: 注意这里因为假设了初始大小为 0，所以只需要预留新增空间
         self.index.reserve(x.len() / N)?;
-        x.chunks_exact(N).enumerate().par_bridge().for_each(|(i, chunk)| {
+        x.par_iter().enumerate().for_each(|(i, chunk)| {
             let v = b1x8::from_u8s(chunk);
             self.index.add(i as u64, v).unwrap();
         });
@@ -50,9 +50,8 @@ impl<const N: usize> Quantizer<N> for USearchQuantizer<N> {
     }
 
     /// 搜索一组向量，返回最接近的 k 个聚类中心
-    fn search(&self, x: &[u8], k: usize) -> Result<Vec<Vec<usize>>> {
-        x.chunks_exact(N)
-            .par_bridge()
+    fn search(&self, x: &[[u8; N]], k: usize) -> Result<Vec<Vec<usize>>> {
+        x.par_iter()
             .map(|chunk| {
                 let q = b1x8::from_u8s(chunk);
                 let m = self.index.search(q, k)?;

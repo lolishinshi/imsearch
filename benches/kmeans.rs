@@ -4,13 +4,12 @@ use rand::rngs::StdRng;
 use rand::{Rng, SeedableRng};
 
 // 生成有聚类模式的测试数据：256bit 向量
-fn generate_clustered_data(n: usize, num_clusters: usize) -> Vec<u8> {
+fn generate_clustered_data<const N: usize>(n: usize, num_clusters: usize) -> Vec<[u8; N]> {
     let mut rng = StdRng::seed_from_u64(42); // 使用固定种子确保结果可重现
-    let d = 32; // 256bit = 32 bytes
-    let mut data = vec![0u8; n * d];
+    let mut data = vec![[0u8; N]; n];
 
     // 生成聚类中心模板
-    let mut cluster_centers = vec![vec![0u8; d]; num_clusters];
+    let mut cluster_centers = vec![[0u8; N]; num_clusters];
     for center in &mut cluster_centers {
         rng.fill(&mut center[..]);
     }
@@ -21,9 +20,9 @@ fn generate_clustered_data(n: usize, num_clusters: usize) -> Vec<u8> {
         let base_center = &cluster_centers[cluster_id];
 
         // 在聚类中心附近生成数据（添加少量噪声）
-        for j in 0..d {
+        for j in 0..N {
             let noise_bits = rng.random::<u8>() & 0x0F; // 只改变低4位作为噪声
-            data[i * d + j] = base_center[j] ^ noise_bits;
+            data[i][j] = base_center[j] ^ noise_bits;
         }
     }
 

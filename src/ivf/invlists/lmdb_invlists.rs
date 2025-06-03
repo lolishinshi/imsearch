@@ -6,31 +6,51 @@ use byteorder::NativeEndian;
 use heed::types::{Bytes, SerdeBincode, Str, U32};
 use heed::{Database, Env, EnvOpenOptions, RoTxn, RwTxn, WithTls};
 use serde::{Deserialize, Serialize};
+use serde_with::serde_as;
 
 use super::{InvertedLists, InvertedListsReader, InvertedListsWriter};
 
+/// 存储在 lmdb 中的倒排列表元数据
 #[derive(Serialize, Deserialize)]
 struct Meta {
+    /// 倒排列表数量
     nlist: u32,
+    /// 每个向量的大小，用于校验
     code_size: u32,
+    /// 每个倒排列表的元素数量，用于快速统计
     list_len: Vec<usize>,
 }
 
+/// 存储在 lmdb 中的倒排列表数据
+/// 由于 lmdb 不保证读取到的数据是对齐的，因此想零拷贝序列化很麻烦，干脆直接使用 serde
+#[serde_as]
+#[derive(Serialize, Deserialize)]
+struct Entry<const N: usize> {
+    ids: Vec<u64>,
+    #[serde_as(as = "Vec<[_; N]>")]
+    codes: Vec<[u8; N]>,
+}
+
 pub struct LmdbInvertedLists<const N: usize> {
+    /// lmdb env，此处使用了 Thread Local Storage 提升速度
     env: Env<WithTls>,
+    /// 元数据
     meta: Meta,
+    /// 元数据数据库
     db_meta: Database<Str, SerdeBincode<Meta>>,
+    /// 倒排列表数据库
     db_list: Database<U32<NativeEndian>, Bytes>,
 }
 
 impl<const N: usize> LmdbInvertedLists<N> {
+    /// 创建一个新的倒排列表
     pub fn new<P>(path: P, nlist: u32) -> heed::Result<Self>
     where
         P: AsRef<Path>,
     {
         let env = unsafe {
             EnvOpenOptions::new()
-                .map_size(1 << 40) // 1TiB
+                .map_size(1 << 40) // 此处直接分配 1TiB 大小，后续可以考虑动态增长
                 .max_dbs(3)
                 .open(path)?
         };
@@ -86,23 +106,22 @@ impl<const N: usize> InvertedListsReader<N> for LmdbInvertedListsReader<'_, N> {
     }
 
     fn list_len(&self, list_no: u32) -> usize {
-        let list_no = list_no as usize;
-        self.meta.list_len[list_no]
+        self.meta.list_len[list_no as usize]
     }
 
-    fn get_list(&self, list_no: u32) -> Result<(Cow<[u64]>, Cow<[u8]>)> {
+    fn get_list(&self, list_no: u32) -> Result<(Cow<[u64]>, Cow<[[u8; N]]>)> {
         let len = self.list_len(list_no);
         if len == 0 {
             return Ok((Cow::Borrowed(&[]), Cow::Borrowed(&[])));
         }
         let data = self.db_list.get(&self.txn, &list_no)?.unwrap();
-        // NOTE: 由于 LMDB 不保证数据是对齐的，这里使用 bincode 来反序列化，而不是直接 cast_slice
-        let (ids, codes) = bincode::deserialize(data)?;
-        Ok((ids, codes))
+        let entry = bincode::deserialize::<Entry<N>>(data)?;
+        Ok((Cow::Owned(entry.ids), Cow::Owned(entry.codes)))
     }
 }
 
 pub struct LmdbInvertedListsWriter<'a, const N: usize> {
+    // 由于 txn.commit 需要消耗所有权，这里用 Option 包裹，确保 drop 中能调用 commit
     txn: Option<RwTxn<'a>>,
     meta: &'a mut Meta,
     db_meta: Database<Str, SerdeBincode<Meta>>,
@@ -127,27 +146,28 @@ impl<const N: usize> InvertedListsReader<N> for LmdbInvertedListsWriter<'_, N> {
         self.meta.list_len[list_no as usize]
     }
 
-    fn get_list(&self, list_no: u32) -> Result<(Cow<[u64]>, Cow<[u8]>)> {
+    fn get_list(&self, list_no: u32) -> Result<(Cow<[u64]>, Cow<[[u8; N]]>)> {
         let len = self.list_len(list_no);
         if len == 0 {
             return Ok((Cow::Borrowed(&[]), Cow::Borrowed(&[])));
         }
         let txn = self.txn.as_ref().unwrap();
         let data = self.db_list.get(txn, &list_no)?.unwrap();
-        let (ids, codes) = bincode::deserialize(data)?;
-        Ok((ids, codes))
+        let entry = bincode::deserialize::<Entry<N>>(data)?;
+        Ok((Cow::Owned(entry.ids), Cow::Owned(entry.codes)))
     }
 }
 
 impl<const N: usize> InvertedListsWriter<N> for LmdbInvertedListsWriter<'_, N> {
-    fn add_entries(&mut self, list_no: u32, ids: &[u64], codes: &[u8]) -> Result<u64> {
-        assert_eq!(ids.len(), codes.len() / N, "ids and codes length mismatch");
+    fn add_entries(&mut self, list_no: u32, ids: &[u64], codes: &[[u8; N]]) -> Result<u64> {
+        assert_eq!(ids.len(), codes.len(), "ids and codes length mismatch");
         let (oids, ocodes) = self.get_list(list_no)?;
         let added = ids.len();
 
-        let ids = [&*oids, ids].concat();
-        let codes = [&*ocodes, codes].concat();
-        let data = bincode::serialize(&(&ids, &codes))?;
+        let data = bincode::serialize(&Entry {
+            ids: [&*oids, ids].concat(),
+            codes: [&*ocodes, codes].concat(),
+        })?;
 
         let txn = self.txn.as_mut().unwrap();
         self.db_list.put(txn, &list_no, &data)?;
@@ -156,12 +176,11 @@ impl<const N: usize> InvertedListsWriter<N> for LmdbInvertedListsWriter<'_, N> {
         Ok(added as u64)
     }
 
-    fn truncate(&mut self, list_no: u32, new_size: usize) -> Result<()> {
-        let (ids, codes) = self.get_list(list_no)?;
-        let data = bincode::serialize(&(&ids[..new_size], &codes[..new_size * N as usize]))?;
+    fn clear(&mut self, list_no: u32) -> Result<()> {
+        let data = bincode::serialize(&Entry::<N> { ids: vec![], codes: vec![] })?;
         let txn = self.txn.as_mut().unwrap();
         self.db_list.put(txn, &list_no, &data)?;
-        self.meta.list_len[list_no as usize] = new_size;
+        self.meta.list_len[list_no as usize] = 0;
         Ok(())
     }
 }
@@ -173,9 +192,9 @@ mod tests {
     use super::*;
 
     // 创建辅助函数，减少重复代码
-    fn create_test_data(count: usize, code_size: usize) -> (Vec<u64>, Vec<u8>) {
+    fn create_test_data<const N: usize>(count: usize) -> (Vec<u64>, Vec<[u8; N]>) {
         let ids: Vec<u64> = (1..=count as u64).collect();
-        let codes = vec![42u8; count * code_size];
+        let codes = vec![[42u8; N]; count];
         (ids, codes)
     }
 
@@ -196,8 +215,8 @@ mod tests {
         }
 
         // 测试添加条目和多次添加
-        let (ids1, codes1) = create_test_data(2, 64);
-        let (ids2, codes2) = create_test_data(3, 64);
+        let (ids1, codes1) = create_test_data(2);
+        let (ids2, codes2) = create_test_data(3);
         let ids2: Vec<u64> = ids2.into_iter().map(|x| x + 10).collect(); // 避免重复ID
 
         {
@@ -220,38 +239,9 @@ mod tests {
     }
 
     #[test]
-    fn test_truncate_and_different_lists() {
-        let temp_dir = tempdir().unwrap();
-        let mut invlists = LmdbInvertedLists::<32>::new(temp_dir.path(), 3).unwrap();
-
-        let (ids, codes) = create_test_data(5, 32);
-
-        {
-            let mut writer = invlists.writer().unwrap();
-            // 在不同列表中添加数据
-            writer.add_entries(0, &ids, &codes).unwrap();
-            writer.add_entries(1, &ids[..2], &codes[..2 * 32]).unwrap();
-
-            // 测试截断
-            writer.truncate(0, 3).unwrap();
-        }
-
-        let reader = invlists.reader().unwrap();
-        // 验证截断结果
-        assert_eq!(reader.list_len(0), 3);
-        let (retrieved_ids, retrieved_codes) = reader.get_list(0).unwrap();
-        assert_eq!(retrieved_ids.as_ref(), &ids[..3]);
-        assert_eq!(retrieved_codes.as_ref(), &codes[..3 * 32]);
-
-        // 验证不同列表的独立性
-        assert_eq!(reader.list_len(1), 2);
-        assert_eq!(reader.list_len(2), 0);
-    }
-
-    #[test]
     fn test_persistence() {
         let temp_dir = tempdir().unwrap();
-        let (ids, codes) = create_test_data(3, 64);
+        let (ids, codes) = create_test_data(3);
 
         // 创建并添加数据
         {
@@ -279,7 +269,7 @@ mod tests {
         {
             let mut writer = invlists.writer().unwrap();
             for i in 0..3 {
-                let (ids, codes) = create_test_data(2, 32);
+                let (ids, codes) = create_test_data(2);
                 writer.add_entries(i, &ids, &codes).unwrap();
             }
         }
@@ -287,7 +277,9 @@ mod tests {
         // 清空并验证
         {
             let mut writer = invlists.writer().unwrap();
-            writer.clear().unwrap();
+            for i in 0..3 {
+                writer.clear(i).unwrap();
+            }
         }
 
         let reader = invlists.reader().unwrap();
@@ -328,8 +320,8 @@ mod tests {
         let mut invlists2 = LmdbInvertedLists::<64>::new(temp_dir2.path(), 3).unwrap();
 
         // 准备测试数据
-        let (ids1, codes1) = create_test_data(2, 64);
-        let (ids2, codes2) = create_test_data(2, 64);
+        let (ids1, codes1) = create_test_data(2);
+        let (ids2, codes2) = create_test_data(2);
         let ids2: Vec<u64> = ids2.into_iter().map(|x| x + 10).collect();
 
         // 在两个索引中添加数据
@@ -339,25 +331,25 @@ mod tests {
 
             let mut writer2 = invlists2.writer().unwrap();
             writer2.add_entries(0, &ids2, &codes2).unwrap();
-            writer2.add_entries(2, &[100], &vec![99u8; 64]).unwrap();
+            writer2.add_entries(2, &[100], &vec![[99u8; 64]; 1]).unwrap();
         }
 
         // 执行合并
         {
             let mut writer1 = invlists1.writer().unwrap();
             let mut writer2 = invlists2.writer().unwrap();
-            writer1.merge_from(&mut writer2, 1000).unwrap();
+            writer1.merge_from(&mut writer2).unwrap();
         }
 
         // 验证合并结果
         let reader1 = invlists1.reader().unwrap();
         assert_eq!(reader1.list_len(0), 4); // 原有2个 + 合并2个
         let (merged_ids, _) = reader1.get_list(0).unwrap();
-        assert_eq!(merged_ids.as_ref(), &[1, 2, 1011, 1012]); // ids2 + 1000偏移
+        assert_eq!(merged_ids.as_ref(), &[1, 2, 11, 12]);
 
         assert_eq!(reader1.list_len(2), 1);
         let (ids_list2, _) = reader1.get_list(2).unwrap();
-        assert_eq!(ids_list2.as_ref(), &[1100]); // 100 + 1000偏移
+        assert_eq!(ids_list2.as_ref(), &[100]);
 
         // 验证源索引被清空
         let reader2 = invlists2.reader().unwrap();

@@ -27,7 +27,10 @@ impl SubCommandExtend for TrainCommand {
         let invlists = ArrayInvertedLists::new(self.centers as u32);
         let mut ivf = IvfHnsw::new(quantizer, invlists, self.centers);
 
-        ivf.train(data.as_slice().unwrap(), self.max_iter)?;
+        let data = data.as_slice().unwrap();
+        let (data, _) = data.as_chunks();
+
+        ivf.train(data, self.max_iter)?;
         Ok(())
     }
 }

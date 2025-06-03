@@ -51,7 +51,7 @@ fn bench_hamming(c: &mut Criterion) {
 fn bench_hamming_knn(c: &mut Criterion) {
     let mut group = c.benchmark_group("Hamming KNN");
     let mut rng = rand::rng();
-    let mut src = vec![0u8; 32];
+    let mut src = [0u8; 32];
     let mut dst = vec![0u8; 8 << 20];
     let k = black_box(3);
     rng.fill_bytes(&mut src);
@@ -59,9 +59,10 @@ fn bench_hamming_knn(c: &mut Criterion) {
 
     group.throughput(Throughput::Bytes(dst.len() as u64));
     group.bench_function("BinaryHeap", |b| {
+        let (dst, _) = dst.as_chunks::<32>();
         b.iter(|| {
             let mut heap = BinaryHeap::new();
-            for (i, chunk) in dst.chunks_exact(32).enumerate() {
+            for (i, chunk) in dst.iter().enumerate() {
                 let d = hamming::<32>(&src, chunk);
                 if heap.len() < k {
                     heap.push(Reverse((d as u64) << 32 | i as u64));
@@ -80,7 +81,10 @@ fn bench_hamming_knn(c: &mut Criterion) {
         });
     });
     group.bench_function("Array", |b| {
-        b.iter(|| knn_hamming::<32>(&src, &dst, k));
+        // NOTE: 这行代码如果移到 bench_function 外面会导致性能急剧下降
+        // 原因暂不明确，在将 &[u8] 转为 &[[u8; N]] 之前没有观察到这个问题
+        let (dst, _) = dst.as_chunks::<32>();
+        b.iter(|| knn_hamming::<32>(&src, dst, k));
     });
     group.finish();
 }

@@ -49,7 +49,7 @@ where
         Ok(())
     }
 
-    pub fn train(&mut self, data: &[u8], max_iter: usize) -> Result<()> {
+    pub fn train(&mut self, data: &[[u8; N]], max_iter: usize) -> Result<()> {
         if self.quantizer.is_trained() {
             return Err(anyhow!("quantizer has been trained"));
         }
@@ -59,23 +59,24 @@ where
         Ok(())
     }
 
-    pub fn add(&mut self, data: &[u8], ids: &[u64]) -> Result<()> {
+    pub fn add(&mut self, data: &[[u8; N]], ids: &[u64]) -> Result<()> {
         let vlists = self.quantizer.search(data, 1)?;
         let mut writer = self.invlists.writer()?;
-        for ((xq, id), lists) in data.chunks_exact(N).zip(ids).zip(vlists) {
+        for ((xq, id), lists) in data.iter().zip(ids).zip(vlists) {
             let list_no = lists[0] as u32;
-            writer.add_entries(list_no, &[*id], xq)?;
+            let (xq, _) = xq.as_chunks();
+            writer.add_entries(list_no, &[*id], &xq)?;
         }
         Ok(())
     }
 
-    pub fn search(&'a self, data: &[u8], k: usize, nprobe: usize) -> Result<SeachResult> {
+    pub fn search(&'a self, data: &[[u8; N]], k: usize, nprobe: usize) -> Result<SeachResult> {
         let start = Instant::now();
         let vlists = self.quantizer.search(data, nprobe)?;
         let quantizer_time = start.elapsed();
 
         let neighbors = data
-            .chunks_exact(N)
+            .iter()
             .zip(vlists)
             .par_bridge()
             .map_init(
@@ -84,10 +85,9 @@ where
                     let mut v = vec![];
                     for list_no in lists {
                         let (ids, codes) = reader.get_list(list_no as u32)?;
-                        let (idx, dis) = knn_hamming::<N>(xq, &codes, k);
-                        let n = idx
+                        let r = knn_hamming::<N>(xq, &codes, k);
+                        let n = r
                             .into_iter()
-                            .zip(dis)
                             .map(|(i, d)| Neighbor { id: ids[i] as usize, distance: d })
                             .collect::<Vec<_>>();
                         v.extend(n);

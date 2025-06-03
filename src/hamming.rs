@@ -30,24 +30,18 @@ pub fn hamming_32(va: &[u8], vb: &[u8]) -> u32 {
         + (va[3] ^ vb[3]).count_ones()
 }
 
-// TODO: 使用 ndarray
-
 /// 计算向量 va 和 vb 的汉明距离，并返回距离最小的 k 个索引和距离
-///
-/// 参数：
-/// - va: N 位的向量 va
-/// - vb: 若干组 N 位的向量 vb
-/// - k: 返回的最近邻居数量
-pub fn knn_hamming<const N: usize>(va: &[u8], vb: &[u8], k: usize) -> (Vec<usize>, Vec<u32>) {
+pub fn knn_hamming<const N: usize>(va: &[u8; N], vb: &[[u8; N]], k: usize) -> Vec<(usize, u32)> {
+    // 考虑到 k 通常很小，为了最大化性能，此处开辟一个栈上的固定数组来存储 KNN 结果
     assert!(k <= 8, "k must be less than 8");
     let mut dis = [u32::MAX; 8];
     let mut idx = [0; 8];
-    for (i, chunk) in vb.chunks_exact(N).enumerate() {
+    for (i, chunk) in vb.iter().enumerate() {
         let d = hamming::<N>(va, chunk);
         if d > dis[0] {
             continue;
         }
-        // 此处维护一个长度为 K 的单调递减数组
+        // 维护一个长度为 K 的单调递减数组
         // 寻找插入点时，从后往前遍历
         // 插入时，将前面的元素向左移动，保证最大的元素在前面
         for j in (0..k).rev() {
@@ -60,24 +54,23 @@ pub fn knn_hamming<const N: usize>(va: &[u8], vb: &[u8], k: usize) -> (Vec<usize
             }
         }
     }
-    idx.into_iter().zip(dis.into_iter()).filter(|(_, d)| *d != u32::MAX).rev().take(k).unzip()
+    // 由于需要过滤掉未初始化元素，加上 reverse
+    // 此处的拷贝不可避免，因此直接返回 tuple，省的后面高级 API 再拷贝一次
+    idx.into_iter().zip(dis).filter(|(_, d)| *d != u32::MAX).rev().take(k).collect()
 }
 
 /// 批量计算 va 和 vb 的汉明距离，返回每个向量的 k 个最近邻居
 pub fn batch_knn_hamming<const N: usize>(
-    va: &[u8],
-    vb: &[u8],
+    va: &[[u8; N]],
+    vb: &[[u8; N]],
     k: usize,
-) -> (Vec<Vec<usize>>, Vec<Vec<u32>>) {
-    // TODO: 这里可以使用 Vec<[usize; N]> 或者 tinyvec 吗？
-    let mut ids = Vec::with_capacity(va.len() / N);
-    let mut dis = Vec::with_capacity(va.len() / N);
-    for chunk in va.chunks_exact(N) {
-        let (ids1, dis1) = knn_hamming::<N>(chunk, vb, k);
-        ids.push(ids1);
-        dis.push(dis1);
+) -> Vec<Vec<(usize, u32)>> {
+    let mut r = Vec::with_capacity(va.len());
+    for chunk in va.iter() {
+        let t = knn_hamming::<N>(chunk, vb, k);
+        r.push(t);
     }
-    (ids, dis)
+    r
 }
 
 #[cfg(test)]
@@ -110,35 +103,34 @@ mod tests {
     fn test_knn_hamming_single_vector() {
         let va = [0u8; 32];
         let vb = [255u8; 32];
-        let (ids, dis) = knn_hamming::<32>(&va, &vb, 1);
-        assert_eq!(ids.len(), 1);
-        assert_eq!(ids[0], 0); // 索引为0
-        assert_eq!(dis[0], 256); // 距离为256
+        let r = knn_hamming::<32>(&va, &[vb], 1);
+        assert_eq!(r.len(), 1);
+        assert_eq!(r[0].0, 0); // 索引为0
+        assert_eq!(r[0].1, 256); // 距离为256
     }
 
     #[test]
     fn test_knn_hamming_multiple_vectors() {
         let va = [0u8; 32];
         // 创建3个向量：距离分别为0, 2, 1
-        let mut vb = vec![0u8; 96];
-        vb[32] = 3;
-        vb[64] = 1;
+        let mut vb = [[0u8; 32]; 3];
+        vb[1][0] = 3;
+        vb[2][0] = 1;
 
-        let (ids, dis) = knn_hamming::<32>(&va, &vb, 3);
-        assert_eq!(ids.len(), 3);
+        let r = knn_hamming::<32>(&va, &vb, 3);
+        assert_eq!(r.len(), 3);
 
         // 结果应该按距离排序
-        assert_eq!(ids, &[0, 2, 1]);
-        assert_eq!(dis, &[0, 1, 2]);
+        assert_eq!(r, &[(0, 0), (2, 1), (1, 2)]);
     }
 
     #[test]
     fn test_knn_hamming_k_limit() {
         let va = [0u8; 32];
-        let vb = [255u8; 64]; // 2个向量
-        let (ids, _) = knn_hamming::<32>(&va, &vb, 5); // 请求5个，但只有2个向量
-        assert_eq!(ids.len(), 2);
-        assert_eq!(ids, &[0, 1]);
+        let vb = [[255u8; 32]; 2]; // 2个向量
+        let r = knn_hamming::<32>(&va, &vb, 5); // 请求5个，但只有2个向量
+        assert_eq!(r.len(), 2);
+        assert_eq!(r, &[(0, 256), (1, 256)]);
     }
 
     #[test]
@@ -146,6 +138,6 @@ mod tests {
     fn test_knn_hamming_k_too_large() {
         let va = [0u8; 32];
         let vb = [0u8; 32];
-        knn_hamming::<32>(&va, &vb, 11); // 应该panic
+        knn_hamming::<32>(&va, &[vb], 11); // 应该panic
     }
 }
