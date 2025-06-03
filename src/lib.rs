@@ -5,7 +5,6 @@ pub mod faiss;
 pub mod hamming;
 pub mod imdb;
 mod index;
-pub mod invlists;
 pub mod ivf;
 pub mod kmeans;
 mod metrics;

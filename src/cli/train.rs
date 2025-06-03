@@ -2,8 +2,7 @@ use anyhow::Result;
 use clap::Parser;
 
 use crate::cli::SubCommandExtend;
-use crate::invlists::ArrayInvertedLists;
-use crate::ivf::{IvfHnsw, USearchQuantizer};
+use crate::ivf::{ArrayInvertedLists, IvfHnsw, USearchQuantizer};
 use crate::{IMDBBuilder, Opts};
 
 #[derive(Parser, Debug, Clone)]

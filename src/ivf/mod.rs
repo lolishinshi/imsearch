@@ -1,15 +1,23 @@
-mod quantizer;
+pub mod invlists;
+pub mod quantizer;
 
 use std::time::Duration;
 
 use anyhow::{Result, anyhow};
+pub use invlists::*;
 pub use quantizer::*;
 use rayon::prelude::*;
 use tokio::time::Instant;
 
 use crate::hamming::knn_hamming;
-use crate::invlists::{InvertedLists, InvertedListsReader, InvertedListsWriter};
 use crate::kmeans::binary_kmeans_2level;
+
+pub trait FromFile {
+    /// 从文件中加载
+    fn from_file(path: &str) -> Result<Self>
+    where
+        Self: Sized;
+}
 
 pub struct SeachResult {
     pub quantizer_time: Duration,
@@ -28,9 +36,17 @@ pub struct IvfHnsw<const N: usize, Q: Quantizer<N>, I: InvertedLists<N>> {
     nlist: usize,
 }
 
-impl<const N: usize, Q: Quantizer<N>, I: InvertedLists<N>> IvfHnsw<N, Q, I> {
+impl<'a, const N: usize, Q: Quantizer<N>, I: InvertedLists<N>> IvfHnsw<N, Q, I>
+where
+    I: 'a + Sync,
+    Q: Sync,
+{
     pub fn new(quantizer: Q, invlists: I, nlist: usize) -> Self {
         Self { quantizer, invlists, nlist }
+    }
+
+    pub fn from_file() -> Result<()> {
+        Ok(())
     }
 
     pub fn train(&mut self, data: &[u8], max_iter: usize) -> Result<()> {
@@ -53,30 +69,35 @@ impl<const N: usize, Q: Quantizer<N>, I: InvertedLists<N>> IvfHnsw<N, Q, I> {
         Ok(())
     }
 
-    pub fn search(&self, data: &[u8], k: usize, nprobe: usize) -> Result<SeachResult> {
+    pub fn search(&'a self, data: &[u8], k: usize, nprobe: usize) -> Result<SeachResult> {
         let start = Instant::now();
-        let mut neighbors = vec![];
-
         let vlists = self.quantizer.search(data, nprobe)?;
         let quantizer_time = start.elapsed();
 
-        let reader = self.invlists.reader()?;
-        for (xq, lists) in data.chunks_exact(N).zip(vlists) {
-            let mut v = vec![];
-            for list_no in lists {
-                let (ids, codes) = reader.get_list(list_no as u32)?;
-                let (idx, dis) = knn_hamming::<N>(xq, &codes, k);
-                let n = idx
-                    .into_iter()
-                    .zip(dis)
-                    .map(|(i, d)| Neighbor { id: ids[i] as usize, distance: d })
-                    .collect::<Vec<_>>();
-                v.extend(n);
-            }
-            v.sort_unstable_by_key(|n| n.distance);
-            v.truncate(k);
-            neighbors.push(v);
-        }
+        let neighbors = data
+            .chunks_exact(N)
+            .zip(vlists)
+            .par_bridge()
+            .map_init(
+                || self.invlists.reader().unwrap(),
+                |reader, (xq, lists)| {
+                    let mut v = vec![];
+                    for list_no in lists {
+                        let (ids, codes) = reader.get_list(list_no as u32)?;
+                        let (idx, dis) = knn_hamming::<N>(xq, &codes, k);
+                        let n = idx
+                            .into_iter()
+                            .zip(dis)
+                            .map(|(i, d)| Neighbor { id: ids[i] as usize, distance: d })
+                            .collect::<Vec<_>>();
+                        v.extend(n);
+                    }
+                    v.sort_unstable_by_key(|n| n.distance);
+                    v.truncate(k);
+                    Ok(v)
+                },
+            )
+            .collect::<Result<Vec<_>>>()?;
         let search_time = start.elapsed();
         Ok(SeachResult { quantizer_time, search_time, neighbors })
     }
