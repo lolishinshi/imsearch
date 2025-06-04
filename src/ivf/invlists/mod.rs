@@ -1,5 +1,6 @@
 mod array_invlists;
 mod lmdb_invlists;
+mod ondisk_invlists;
 
 use std::borrow::Cow;
 

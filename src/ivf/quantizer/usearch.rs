@@ -56,7 +56,7 @@ impl<const N: usize> Quantizer<N> for USearchQuantizer<N> {
             .map(|chunk| {
                 let q = b1x8::from_u8s(chunk);
                 let m = self.index.search(q, k)?;
-                Ok(m.keys.iter().map(|&key| key as usize).collect())
+                Ok(m.keys.into_iter().map(|key| key as usize).collect())
             })
             .collect::<Result<Vec<_>>>()
     }

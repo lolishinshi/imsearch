@@ -31,7 +31,7 @@ fn real_to_binary(x_in: &[f32]) -> Vec<u8> {
     v
 }
 
-fn imbalance_factor(hist: &[usize]) -> f32 {
+pub fn imbalance_factor(hist: &[usize]) -> f32 {
     let (mut tot, mut uf) = (0.0, 0.0);
     for h in hist {
         let h = *h as f32;

@@ -1,6 +1,7 @@
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, RwLock};
+use std::time::Instant;
 
 use anyhow::{Result, anyhow};
 use futures::prelude::*;
@@ -232,11 +233,19 @@ impl IMDB {
 
         info!("对 {} 条向量搜索 {knn} 个最近邻, nprobe = {nprobe}", descriptors.len());
 
+        let start = Instant::now();
         let result = block_in_place(move || index.search(descriptors, knn, nprobe))?;
-        debug!("量化耗时：{}ms", result.quantizer_time.as_millis());
-        debug!("搜索耗时：{}ms", result.search_time.as_millis());
+        debug!("总搜索耗时：{}ms", start.elapsed().as_millis());
+        debug!(" 量化耗时：{}ms", result.quantizer_time.as_millis());
+        debug!(" 搜索耗时：{}ms", result.search_time.as_millis());
+        debug!("  （线程和）IO 耗时：{}ms", result.io_time.as_millis());
+        debug!("  （线程和）计算耗时：{}ms", result.thread_time.as_millis());
 
-        self.process_neighbor_group(&result.neighbors, max_distance, max_result).await
+        let start = Instant::now();
+        let result = self.process_neighbor_group(&result.neighbors, max_distance, max_result).await;
+        debug!("处理结果耗时：{}ms", start.elapsed().as_millis());
+
+        result
     }
 
     /// 处理一个搜索结果分组

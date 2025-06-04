@@ -14,8 +14,15 @@ use crate::hamming::knn_hamming;
 use crate::kmeans::binary_kmeans_2level;
 
 pub struct SeachResult {
+    /// 量化耗时
     pub quantizer_time: Duration,
+    /// 每个线程的总 IO 耗时
+    pub io_time: Duration,
+    /// 每个线程的总耗时
+    pub thread_time: Duration,
+    /// 总搜索耗时
     pub search_time: Duration,
+    /// 搜索结果
     pub neighbors: Vec<Vec<Neighbor>>,
 }
 
@@ -75,31 +82,42 @@ where
         let vlists = self.quantizer.search(data, nprobe)?;
         let quantizer_time = start.elapsed();
 
-        let neighbors = data
+        let (time, neighbors): (Vec<_>, Vec<_>) = data
             .iter()
             .zip(vlists)
             .par_bridge()
             .map_init(
                 || self.invlists.reader().unwrap(),
                 |reader, (xq, lists)| {
-                    let mut v = vec![];
+                    let mut v = Vec::with_capacity(k * lists.len());
+                    let mut t_io = Duration::ZERO;
+                    let mut t_calc = Duration::ZERO;
                     for list_no in lists {
-                        let (ids, codes) = reader.get_list(list_no as u32)?;
+                        let t = Instant::now();
+                        let (ids, codes) = reader.get_list(list_no as u32).unwrap();
+                        t_io += t.elapsed();
                         let r = knn_hamming::<N>(xq, &codes, k);
                         let n = r
                             .into_iter()
                             .map(|(i, d)| Neighbor { id: ids[i] as usize, distance: d })
                             .collect::<Vec<_>>();
                         v.extend(n);
+                        t_calc += t.elapsed();
                     }
                     v.sort_unstable_by_key(|n| n.distance);
                     v.truncate(k);
-                    Ok(v)
+                    ((t_io, t_calc - t_io), v)
                 },
             )
-            .collect::<Result<Vec<_>>>()?;
-        let search_time = start.elapsed();
-        Ok(SeachResult { quantizer_time, search_time, neighbors })
+            .unzip();
+        let (io_time, thread_time) = time.iter().fold(
+            (Duration::ZERO, Duration::ZERO),
+            |(sum_io_time, sum_thread_time), (io_time, thread_time)| {
+                (sum_io_time + *io_time, sum_thread_time + *thread_time)
+            },
+        );
+        let search_time = start.elapsed() - quantizer_time;
+        Ok(SeachResult { quantizer_time, io_time, thread_time, search_time, neighbors })
     }
 }
 
