@@ -11,8 +11,8 @@ pub use model::*;
 
 pub type Database = SqlitePool;
 
-pub async fn init_db(filename: impl AsRef<Path>, wal: bool) -> Result<Database, sqlx::Error> {
-    let filename = filename.as_ref();
+pub async fn init_db(dirname: impl AsRef<Path>, wal: bool) -> Result<Database, sqlx::Error> {
+    let filename = dirname.as_ref().join("imsearch.db");
     info!("初始化数据库连接: {}", filename.display());
 
     let options = SqliteConnectOptions::new()

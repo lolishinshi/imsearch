@@ -4,13 +4,12 @@ use std::sync::Arc;
 
 use anyhow::Result;
 use clap::{Parser, ValueEnum};
-use log::debug;
 use tokio::task::block_in_place;
 
 use crate::IMDBBuilder;
 use crate::cli::SubCommandExtend;
 use crate::config::{Opts, OrbOptions, SearchOptions};
-use crate::faiss::{FaissSearchParams, get_faiss_stats};
+use crate::ivf::IvfHnsw;
 use crate::orb::ORBDetector;
 
 #[derive(Parser, Debug, Clone)]
@@ -34,34 +33,17 @@ impl SubCommandExtend for SearchCommand {
         let mut orb = ORBDetector::create(self.orb.clone());
         let (_, _, des) = block_in_place(|| orb.detect_file(&self.image))?;
 
-        let mut conf_dir = opts.conf_dir.clone();
-        conf_dir.set_default(self.index_name.clone());
-
-        let db = IMDBBuilder::new(conf_dir).score_type(self.search.score_type).open().await?;
-        let index = Arc::new(db.get_index(!self.search.no_mmap)?);
-        let params =
-            FaissSearchParams { nprobe: self.search.nprobe, ef_search: self.search.ef_search };
-
-        let result = db
-            .search(
-                index,
-                &[des.view()],
-                self.search.k,
-                self.search.distance,
-                self.search.count,
-                params,
-            )
+        let db = IMDBBuilder::new(opts.conf_dir.clone())
+            .score_type(self.search.score_type)
+            .open()
             .await?;
 
-        let stats = get_faiss_stats();
+        let index = Arc::new(IvfHnsw::open_lmdb(&opts.conf_dir)?);
 
-        debug!("ndis             : {}", stats.nq);
-        debug!("nprobe           : {}", stats.nlist);
-        debug!("nheap_updates    : {}", stats.nheap_updates);
-        debug!("quantization_time: {:.2}ms", stats.quantization_time);
-        debug!("search_time      : {:.2}ms", stats.search_time);
+        let SearchOptions { k, distance, count, nprobe, .. } = self.search;
+        let result = db.search(index, &des, k, distance, count, nprobe).await?;
 
-        print_result(&result[0], self)
+        print_result(&result, self)
     }
 }
 

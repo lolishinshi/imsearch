@@ -2,7 +2,7 @@ use anyhow::Result;
 use clap::Parser;
 
 use crate::cli::SubCommandExtend;
-use crate::ivf::{ArrayInvertedLists, IvfHnsw, USearchQuantizer};
+use crate::ivf::IvfHnsw;
 use crate::{IMDBBuilder, Opts};
 
 #[derive(Parser, Debug, Clone)]
@@ -22,15 +22,8 @@ impl SubCommandExtend for TrainCommand {
     async fn run(&self, opts: &Opts) -> Result<()> {
         let db = IMDBBuilder::new(opts.conf_dir.clone()).open().await?;
         let data = db.export(Some(self.images)).await?;
-
-        let quantizer = USearchQuantizer::<32>::new("quantizer.bin")?;
-        let invlists = ArrayInvertedLists::new(self.centers as u32);
-        let mut ivf = IvfHnsw::new(quantizer, invlists, self.centers);
-
-        let data = data.as_slice().unwrap();
-        let (data, _) = data.as_chunks();
-
-        ivf.train(data, self.max_iter)?;
+        let mut ivf = IvfHnsw::<32, _, _>::open_array(&opts.conf_dir)?;
+        ivf.train(&data, self.max_iter)?;
         Ok(())
     }
 }

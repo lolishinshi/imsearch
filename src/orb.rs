@@ -3,7 +3,6 @@ use std::collections::HashMap;
 use std::ffi::c_void;
 use std::sync::OnceLock;
 
-use ndarray::Array2;
 use opencv::Result;
 use opencv::core::*;
 use opencv::imgproc::InterpolationFlags;
@@ -162,21 +161,21 @@ impl ORBDetector {
         })
     }
 
-    pub fn detect_file(&mut self, path: &str) -> Result<(Mat, Vec<KeyPoint>, Array2<u8>)> {
+    pub fn detect_file(&mut self, path: &str) -> Result<(Mat, Vec<KeyPoint>, Vec<[u8; 32]>)> {
         let image = utils::imread(path, self.opts.max_size)?;
         let orb = self.get_orb(&image);
         let (keypoints, descriptors) = utils::detect_and_compute(orb, &image)?;
         Ok((image, keypoints, descriptors))
     }
 
-    pub fn detect_bytes(&mut self, bytes: &[u8]) -> Result<(Vec<KeyPoint>, Array2<u8>)> {
+    pub fn detect_bytes(&mut self, bytes: &[u8]) -> Result<(Vec<KeyPoint>, Vec<[u8; 32]>)> {
         let image = utils::imdecode(bytes, self.opts.max_size)?;
         let orb = self.get_orb(&image);
         let (keypoints, descriptors) = utils::detect_and_compute(orb, &image)?;
         Ok((keypoints, descriptors))
     }
 
-    pub fn detect_image(&mut self, image: Mat) -> Result<(Vec<KeyPoint>, Array2<u8>)> {
+    pub fn detect_image(&mut self, image: Mat) -> Result<(Vec<KeyPoint>, Vec<[u8; 32]>)> {
         let image = utils::adjust_image_size(image, self.opts.max_size)?;
         let orb = self.get_orb(&image);
         let (keypoints, descriptors) = utils::detect_and_compute(orb, &image)?;

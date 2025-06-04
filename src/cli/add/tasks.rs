@@ -149,7 +149,7 @@ pub fn task_add(
         .await
         .unwrap()
         {
-            if data.descriptors.dim().0 <= min_keypoints as usize {
+            if data.descriptors.len() <= min_keypoints as usize {
                 pb.set_message(format!("特征点少于 {}: {}", min_keypoints, data.path));
                 pb.inc(1);
                 continue;
@@ -174,7 +174,7 @@ pub fn task_add(
                     .unwrap();
                 }
                 None => {
-                    db.add_image(path, &data.hash, data.descriptors.view()).await.unwrap();
+                    db.add_image(path, &data.hash, &data.descriptors).await.unwrap();
                     pb.set_message(path.to_owned());
                 }
             }

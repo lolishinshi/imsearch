@@ -21,6 +21,7 @@ impl<const N: usize> USearchQuantizer<N> {
             metric: MetricKind::Hamming,
             quantization: ScalarKind::B1,
             // 此处为 usearch 默认参数
+            // faiss 默认为 32 - 40 - 16
             connectivity: 32,
             expansion_add: 128,
             expansion_search: 64,
@@ -41,7 +42,7 @@ impl<const N: usize> Quantizer<N> for USearchQuantizer<N> {
     fn add(&mut self, x: &[[u8; N]]) -> Result<()> {
         assert_eq!(self.index.size(), 0, "quantizer has been trained");
         // NOTE: 注意这里因为假设了初始大小为 0，所以只需要预留新增空间
-        self.index.reserve(x.len() / N)?;
+        self.index.reserve(x.len())?;
         x.par_iter().enumerate().for_each(|(i, chunk)| {
             let v = b1x8::from_u8s(chunk);
             self.index.add(i as u64, v).unwrap();

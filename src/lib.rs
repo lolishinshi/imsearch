@@ -1,10 +1,8 @@
 pub mod cli;
 pub mod config;
 mod db;
-pub mod faiss;
 pub mod hamming;
 pub mod imdb;
-mod index;
 pub mod ivf;
 pub mod kmeans;
 mod metrics;

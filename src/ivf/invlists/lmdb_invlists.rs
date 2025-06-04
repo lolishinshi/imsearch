@@ -48,6 +48,10 @@ impl<const N: usize> LmdbInvertedLists<N> {
     where
         P: AsRef<Path>,
     {
+        let path = path.as_ref();
+        if !path.exists() {
+            std::fs::create_dir_all(path)?;
+        }
         let env = unsafe {
             EnvOpenOptions::new()
                 .map_size(1 << 40) // 此处直接分配 1TiB 大小，后续可以考虑动态增长

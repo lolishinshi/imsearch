@@ -1,6 +1,6 @@
 [package]
 name = "imsearch"
-version = "2.3.0-alpha.1"
+version = "3.0.0-alpha.1"
 edition = "2024"
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
@@ -27,7 +27,6 @@ heed = "0.22.0"
 indicatif = { version = "0.17.11", features = ["rayon"] }
 kmeans = "2.0.0"
 log = "0.4.27"
-ndarray = "0.16.1"
 num_cpus = "1.16.0"
 prometheus = { version = "0.14.0", features = ["process", "push"] }
 rand = "0.9.1"
@@ -50,12 +49,6 @@ walkdir = "2.5.0"
 [dependencies.orb-slam3-sys]
 version = "0.1.0"
 path = "orb-slam3-sys"
-
-[dependencies.faiss-sys]
-version = "0.6.3-alpha.0"
-git = "https://github.com/Aloxaf/faiss-rs"
-branch = "imsearch"
-features = ["static", "avx2"]
 
 [dependencies.opencv]
 version = "=0.94.4"
