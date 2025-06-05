@@ -8,7 +8,7 @@ use futures::prelude::*;
 use indicatif::ProgressBar;
 use log::{debug, info, warn};
 use tokio::sync::Mutex;
-use tokio::task::block_in_place;
+use tokio::task::{block_in_place, spawn_blocking};
 use usearch::{Index, IndexOptions, MetricKind, ScalarKind, b1x8};
 
 use crate::config::ScoreType;
@@ -234,12 +234,12 @@ impl IMDB {
         info!("对 {} 条向量搜索 {knn} 个最近邻, nprobe = {nprobe}", descriptors.len());
 
         let start = Instant::now();
-        let result = block_in_place(move || index.search(descriptors, knn, nprobe))?;
+        let result = index.search(descriptors, knn, nprobe)?;
         debug!("总搜索耗时：{}ms", start.elapsed().as_millis());
         debug!(" 量化耗时：{}ms", result.quantizer_time.as_millis());
         debug!(" 搜索耗时：{}ms", result.search_time.as_millis());
-        debug!("  （线程和）IO 耗时：{}ms", result.io_time.as_millis());
-        debug!("  （线程和）计算耗时：{}ms", result.thread_time.as_millis());
+        debug!("  （所有线程）IO 耗时：{}ms", result.io_time.as_millis());
+        debug!("  （所有线程）计算耗时：{}ms", result.thread_time.as_millis());
 
         let start = Instant::now();
         let result = self.process_neighbor_group(&result.neighbors, max_distance, max_result).await;

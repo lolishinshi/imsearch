@@ -3,15 +3,15 @@ use std::path::Path;
 
 use anyhow::Result;
 use byteorder::NativeEndian;
-use heed::types::{Bytes, SerdeBincode, Str, U32};
-use heed::{Database, Env, EnvOpenOptions, RoTxn, RwTxn, WithTls};
-use serde::{Deserialize, Serialize};
-use serde_with::serde_as;
+use heed::types::{Bytes, Str, U64};
+use heed::{Database, Env, EnvOpenOptions, IntegerComparator, RoTxn, RwTxn, WithTls};
+use rkyv::rancor::Error as rkyvError;
+use rkyv::{Archive, Deserialize, Serialize};
 
 use super::{InvertedLists, InvertedListsReader, InvertedListsWriter};
 
 /// 存储在 lmdb 中的倒排列表元数据
-#[derive(Serialize, Deserialize)]
+#[derive(Archive, Deserialize, Serialize)]
 struct Meta {
     /// 倒排列表数量
     nlist: u32,
@@ -21,13 +21,9 @@ struct Meta {
     list_len: Vec<usize>,
 }
 
-/// 存储在 lmdb 中的倒排列表数据
-/// 由于 lmdb 不保证读取到的数据是对齐的，因此想零拷贝序列化很麻烦，干脆直接使用 serde
-#[serde_as]
-#[derive(Serialize, Deserialize)]
+#[derive(Archive, Deserialize, Serialize)]
 struct Entry<const N: usize> {
     ids: Vec<u64>,
-    #[serde_as(as = "Vec<[_; N]>")]
     codes: Vec<[u8; N]>,
 }
 
@@ -37,14 +33,14 @@ pub struct LmdbInvertedLists<const N: usize> {
     /// 元数据
     meta: Meta,
     /// 元数据数据库
-    db_meta: Database<Str, SerdeBincode<Meta>>,
+    db_meta: Database<Str, Bytes>,
     /// 倒排列表数据库
-    db_list: Database<U32<NativeEndian>, Bytes>,
+    db_list: Database<U64<NativeEndian>, Bytes, IntegerComparator>,
 }
 
 impl<const N: usize> LmdbInvertedLists<N> {
     /// 创建一个新的倒排列表
-    pub fn new<P>(path: P, nlist: u32) -> heed::Result<Self>
+    pub fn new<P>(path: P, nlist: u32) -> Result<Self>
     where
         P: AsRef<Path>,
     {
@@ -59,10 +55,17 @@ impl<const N: usize> LmdbInvertedLists<N> {
                 .open(path)?
         };
         let mut txn = env.write_txn()?;
-        let db_meta = env.create_database::<Str, SerdeBincode<Meta>>(&mut txn, Some("meta"))?;
-        let db_list = env.create_database::<U32<NativeEndian>, Bytes>(&mut txn, Some("list"))?;
-        let meta = match db_meta.get(&mut txn, &"meta")? {
-            Some(meta) => meta,
+        // NOTE: 注意，为了保证 LMDB 数据对齐，必须保证 K+V 是 8 字节对齐！
+        // 详细信息参考 https://github.com/erthink/libmdbx/issues/75
+        let db_meta = env.create_database::<Str, Bytes>(&mut txn, Some("meta"))?;
+        let db_list = env
+            .database_options()
+            .types::<U64<NativeEndian>, Bytes>()
+            .key_comparator::<IntegerComparator>()
+            .name("list")
+            .create(&mut txn)?;
+        let meta = match db_meta.get(&mut txn, &"metadata")? {
+            Some(meta) => rkyv::from_bytes::<Meta, rkyvError>(meta)?,
             None => Meta { nlist, code_size: N as u32, list_len: vec![0; nlist as usize] },
         };
         assert_eq!(meta.nlist, nlist, "nlist mismatch");
@@ -101,7 +104,7 @@ impl<const N: usize> InvertedLists<N> for LmdbInvertedLists<N> {
 pub struct LmdbInvertedListsReader<'a, const N: usize> {
     txn: RoTxn<'a, WithTls>,
     meta: &'a Meta,
-    db_list: Database<U32<NativeEndian>, Bytes>,
+    db_list: Database<U64<NativeEndian>, Bytes, IntegerComparator>,
 }
 
 impl<const N: usize> InvertedListsReader<N> for LmdbInvertedListsReader<'_, N> {
@@ -118,9 +121,10 @@ impl<const N: usize> InvertedListsReader<N> for LmdbInvertedListsReader<'_, N> {
         if len == 0 {
             return Ok((Cow::Borrowed(&[]), Cow::Borrowed(&[])));
         }
-        let data = self.db_list.get(&self.txn, &list_no)?.unwrap();
-        let entry = bincode::deserialize::<Entry<N>>(data)?;
-        Ok((Cow::Owned(entry.ids), Cow::Owned(entry.codes)))
+        let data = self.db_list.get(&self.txn, &(list_no as u64))?.unwrap();
+        let entry = rkyv::access::<ArchivedEntry<N>, rkyvError>(data)?;
+        let ids = entry.ids.iter().map(|x| x.to_native()).collect();
+        Ok((Cow::Owned(ids), Cow::Borrowed(entry.codes.as_slice())))
     }
 }
 
@@ -128,15 +132,16 @@ pub struct LmdbInvertedListsWriter<'a, const N: usize> {
     // 由于 txn.commit 需要消耗所有权，这里用 Option 包裹，确保 drop 中能调用 commit
     txn: Option<RwTxn<'a>>,
     meta: &'a mut Meta,
-    db_meta: Database<Str, SerdeBincode<Meta>>,
-    db_list: Database<U32<NativeEndian>, Bytes>,
+    db_meta: Database<Str, Bytes>,
+    db_list: Database<U64<NativeEndian>, Bytes, IntegerComparator>,
 }
 
 impl<const N: usize> Drop for LmdbInvertedListsWriter<'_, N> {
     fn drop(&mut self) {
         // TODO: 由于在 drop 中清理，这里没办法处理错误
         let mut txn = self.txn.take().unwrap();
-        self.db_meta.put(&mut txn, &"meta", &self.meta).unwrap();
+        let meta = rkyv::to_bytes::<rkyvError>(self.meta).unwrap();
+        self.db_meta.put(&mut txn, &"metadata", meta.as_slice()).unwrap();
         txn.commit().unwrap();
     }
 }
@@ -156,9 +161,10 @@ impl<const N: usize> InvertedListsReader<N> for LmdbInvertedListsWriter<'_, N> {
             return Ok((Cow::Borrowed(&[]), Cow::Borrowed(&[])));
         }
         let txn = self.txn.as_ref().unwrap();
-        let data = self.db_list.get(txn, &list_no)?.unwrap();
-        let entry = bincode::deserialize::<Entry<N>>(data)?;
-        Ok((Cow::Owned(entry.ids), Cow::Owned(entry.codes)))
+        let data = self.db_list.get(txn, &(list_no as u64))?.unwrap();
+        let entry = rkyv::access::<ArchivedEntry<N>, rkyvError>(data)?;
+        let ids = entry.ids.iter().map(|x| x.to_native()).collect();
+        Ok((Cow::Owned(ids), Cow::Borrowed(entry.codes.as_slice())))
     }
 }
 
@@ -168,22 +174,22 @@ impl<const N: usize> InvertedListsWriter<N> for LmdbInvertedListsWriter<'_, N> {
         let (oids, ocodes) = self.get_list(list_no)?;
         let added = ids.len();
 
-        let data = bincode::serialize(&Entry {
+        let data = rkyv::to_bytes::<rkyvError>(&Entry {
             ids: [&*oids, ids].concat(),
             codes: [&*ocodes, codes].concat(),
         })?;
 
         let txn = self.txn.as_mut().unwrap();
-        self.db_list.put(txn, &list_no, &data)?;
+        self.db_list.put(txn, &(list_no as u64), &data)?;
         self.meta.list_len[list_no as usize] += added;
 
         Ok(added as u64)
     }
 
     fn clear(&mut self, list_no: u32) -> Result<()> {
-        let data = bincode::serialize(&Entry::<N> { ids: vec![], codes: vec![] })?;
+        let data = rkyv::to_bytes::<rkyvError>(&Entry::<N> { ids: vec![], codes: vec![] })?;
         let txn = self.txn.as_mut().unwrap();
-        self.db_list.put(txn, &list_no, &data)?;
+        self.db_list.put(txn, &(list_no as u64), &data)?;
         self.meta.list_len[list_no as usize] = 0;
         Ok(())
     }
