@@ -41,7 +41,7 @@ impl SubCommandExtend for SearchCommand {
         let index = Arc::new(IvfHnsw::open_lmdb(&opts.conf_dir)?);
 
         let SearchOptions { k, distance, count, nprobe, .. } = self.search;
-        let result = db.search(index, &des, k, distance, count, nprobe).await?;
+        let result = db.search(index, des, k, distance, count, nprobe).await?;
 
         print_result(&result, self)
     }

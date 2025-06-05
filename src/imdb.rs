@@ -217,15 +217,15 @@ impl IMDB {
     pub async fn search<'a, I, Q>(
         &self,
         index: Arc<IvfHnsw<32, Q, I>>,
-        descriptors: &[[u8; 32]],
+        descriptors: Vec<[u8; 32]>,
         knn: usize,
         max_distance: u32,
         max_result: usize,
         nprobe: usize,
     ) -> Result<Vec<(f32, String)>>
     where
-        I: InvertedLists<32> + Sync,
-        Q: Quantizer<32> + Sync,
+        I: InvertedLists<32> + Sync + Send + 'static,
+        Q: Quantizer<32> + Sync + Send + 'static,
     {
         if descriptors.is_empty() {
             return Ok(vec![]);
@@ -234,7 +234,7 @@ impl IMDB {
         info!("对 {} 条向量搜索 {knn} 个最近邻, nprobe = {nprobe}", descriptors.len());
 
         let start = Instant::now();
-        let result = index.search(descriptors, knn, nprobe)?;
+        let result = spawn_blocking(move || index.search(&descriptors, knn, nprobe)).await??;
         debug!("总搜索耗时：{}ms", start.elapsed().as_millis());
         debug!(" 量化耗时：{}ms", result.quantizer_time.as_millis());
         debug!(" 搜索耗时：{}ms", result.search_time.as_millis());

@@ -54,7 +54,7 @@ pub async fn search_handler(
     })
     .await??;
 
-    let result = { state.db.search(state.index.clone(), &des, k, distance, count, nprobe).await? };
+    let result = { state.db.search(state.index.clone(), des, k, distance, count, nprobe).await? };
 
     inc_image_count(size, nprobe, orb.orb_scale_factor);
     inc_search_duration(size, nprobe, orb.orb_scale_factor, start.elapsed().as_secs_f32());
