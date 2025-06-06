@@ -1,4 +1,5 @@
 use std::collections::HashMap;
+use std::fs;
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, RwLock};
 use std::time::Instant;
@@ -13,7 +14,7 @@ use usearch::{Index, IndexOptions, MetricKind, ScalarKind, b1x8};
 
 use crate::config::ScoreType;
 use crate::db::*;
-use crate::ivf::{InvertedLists, IvfHnsw, Neighbor, Quantizer};
+use crate::ivf::{InvertedLists, IvfHnsw, Neighbor, OnDiskInvlists, Quantizer, merge_invlists};
 use crate::utils::{self, ImageHash, pb_style};
 
 #[derive(Debug, Clone)]
@@ -240,7 +241,6 @@ impl IMDB {
         debug!(" 搜索耗时：{}ms", result.search_time.as_millis());
         debug!("  （所有线程）IO 耗时：{}ms", result.io_time.as_millis());
         debug!("  （所有线程）计算耗时：{}ms", result.thread_time.as_millis());
-
         let start = Instant::now();
         let result = self.process_neighbor_group(&result.neighbors, max_distance, max_result).await;
         debug!("处理结果耗时：{}ms", start.elapsed().as_millis());
@@ -328,17 +328,15 @@ impl IMDB {
         let pb = ProgressBar::new(image_unindexed as u64).with_style(pb_style());
         pb.set_message("正在构建索引...");
 
-        let mut index = IvfHnsw::open_lmdb(&self.conf_dir)?;
-
         let mut processed = 0;
         while let Ok(chunk) = crud::get_vectors_unindexed(&self.db, options.batch_size, 0).await {
             if chunk.is_empty() {
                 break;
             }
-            let mut ti = IvfHnsw::open_array(&self.conf_dir)?;
+            let mut index = IvfHnsw::open_array(&self.conf_dir)?;
 
-            let mut images = vec![];
-            let mut ids = vec![];
+            let mut images = Vec::with_capacity(chunk.len());
+            let mut ids = Vec::with_capacity(chunk.len() * 500);
             let mut features: Vec<[u8; 32]> = Vec::with_capacity(chunk.len() * 500);
 
             for record in chunk {
@@ -353,8 +351,8 @@ impl IMDB {
             }
 
             block_in_place(|| {
-                ti.add(&features, &ids)?;
-                index.merge(&mut ti)
+                index.add(&features, &ids)?;
+                index.save(self.next_index_path())
             })?;
 
             crud::set_indexed_batch(&self.db, &images).await?;
@@ -365,7 +363,56 @@ impl IMDB {
 
         pb.finish_with_message("索引构建完成");
 
+        info!("正在合并索引……");
+        self.merge_index()?;
+
         Ok(())
+    }
+
+    fn merge_index(&self) -> Result<()> {
+        let paths = self.sub_index_paths();
+        let index_path = self.conf_dir.join("invlists.bin");
+
+        if paths.len() == 1 {
+            fs::rename(&paths[0], &index_path)?;
+            return Ok(());
+        }
+
+        let mut ivfs = vec![];
+        for path in &paths {
+            let index = OnDiskInvlists::<32>::load(path)?;
+            ivfs.push(index);
+        }
+
+        merge_invlists(&ivfs, ivfs[0].nlist(), &index_path)?;
+
+        for path in paths {
+            fs::remove_file(path)?;
+        }
+
+        Ok(())
+    }
+
+    fn sub_index_paths(&self) -> Vec<PathBuf> {
+        let mut paths = vec![];
+        for i in 1.. {
+            let path = self.conf_dir.join(format!("invlists.{i}"));
+            if !path.exists() {
+                break;
+            }
+            paths.push(path);
+        }
+        paths
+    }
+
+    fn next_index_path(&self) -> PathBuf {
+        for i in 1.. {
+            let path = self.conf_dir.join(format!("invlists.{i}"));
+            if !path.exists() {
+                return path;
+            }
+        }
+        unreachable!()
     }
 }
 

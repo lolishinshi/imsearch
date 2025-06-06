@@ -22,16 +22,15 @@ directories = "6.0.0"
 either = "1.15.0"
 env_logger = "0.11.8"
 futures = "0.3.31"
-heed = "0.22.0"
 indicatif = { version = "0.17.11", features = ["rayon"] }
 kmeans = "2.0.0"
 log = "0.4.27"
+memmap2 = "0.9.5"
 num_cpus = "1.16.0"
 prometheus = { version = "0.14.0", features = ["process", "push"] }
 rand = "0.9.1"
 rayon = "1.10.0"
 regex = "1.11.1"
-rkyv = { version = "0.8.10", features = ["pointer_width_64"] }
 serde = { version = "1.0.219", features = ["derive"] }
 serde_json = "1.0.140"
 sqlx = { version = "0.8.5", features = ["sqlite", "runtime-tokio"] }

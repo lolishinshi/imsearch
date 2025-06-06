@@ -1,55 +1,81 @@
 mod array_invlists;
-mod lmdb_invlists;
 mod ondisk_invlists;
 
 use std::borrow::Cow;
+use std::fs::File;
+use std::io::{BufWriter, Cursor, Read, Write};
+use std::path::Path;
 
 use anyhow::Result;
 pub use array_invlists::*;
-pub use lmdb_invlists::*;
+use bytemuck::{cast_slice, cast_slice_mut};
+use byteorder::{NativeEndian, ReadBytesExt, WriteBytesExt};
+pub use ondisk_invlists::*;
+
+use crate::kmeans::imbalance_factor;
 
 pub trait InvertedLists<const N: usize> {
-    type Reader<'a>: InvertedListsReader<N>
-    where
-        Self: 'a;
-    type Writer<'a>: InvertedListsWriter<N>
-    where
-        Self: 'a;
-
-    fn reader(&self) -> Result<Self::Reader<'_>>;
-
-    fn writer(&mut self) -> Result<Self::Writer<'_>>;
-}
-
-pub trait InvertedListsReader<const N: usize> {
     /// 返回倒排表的列表数量
-    fn nlist(&self) -> u32;
+    fn nlist(&self) -> usize;
 
     /// 返回指定倒排表的元素数量
-    fn list_len(&self, list_no: u32) -> usize;
+    fn list_len(&self, list_no: usize) -> usize;
 
     /// 返回指定倒排表中向量的 ID 列表和数据
-    fn get_list(&self, list_no: u32) -> Result<(Cow<[u64]>, Cow<[[u8; N]]>)>;
+    fn get_list(&self, list_no: usize) -> Result<(Cow<[u64]>, Cow<[[u8; N]]>)>;
+
+    /// 往指定倒排表中添加元素
+    fn add_entries(&mut self, list_no: usize, ids: &[u64], codes: &[[u8; N]]) -> Result<u64>;
+
+    /// 计算不平衡度
+    fn imbalance(&self) -> f32 {
+        let mut hist = Vec::with_capacity(self.nlist() as usize);
+        for i in 0..self.nlist() {
+            hist.push(self.list_len(i));
+        }
+        imbalance_factor(&hist)
+    }
 }
 
-pub trait InvertedListsWriter<const N: usize>: InvertedListsReader<N> {
-    /// 往指定倒排表中添加元素
-    ///
-    /// 返回添加的元素数量
-    fn add_entries(&mut self, list_no: u32, ids: &[u64], codes: &[[u8; N]]) -> Result<u64>;
-
-    /// 清空指定倒排表
-    fn clear(&mut self, list_no: u32) -> Result<()>;
-
-    /// 合并另一个倒排列表，被合并的倒排列表会被清空
-    fn merge_from(&mut self, other: &mut impl InvertedListsWriter<N>) -> Result<()> {
-        assert_eq!(self.nlist(), other.nlist(), "nlist mismatch");
-        for i in 0..self.nlist() {
-            let (ids, codes) = other.get_list(i)?;
-            self.add_entries(i, &ids, &codes)?;
-            // 一边合并一边清空，保证内存及时释放
-            other.clear(i)?;
+/// 合并多个倒排列表，并保存到指定文件
+pub fn merge_invlists<const N: usize, T, P>(invlists: &[T], nlist: usize, path: P) -> Result<()>
+where
+    T: InvertedLists<N>,
+    P: AsRef<Path>,
+{
+    let file = File::create(path)?;
+    let mut writer = BufWriter::new(file);
+    let mut list_len = vec![0; nlist];
+    for i in 0..nlist {
+        for invlist in invlists {
+            list_len[i] += invlist.list_len(i);
         }
-        Ok(())
     }
+    writer.write_u64::<NativeEndian>(nlist as u64)?;
+    writer.write_u64::<NativeEndian>(N as u64)?;
+    writer.write_all(cast_slice(&list_len))?;
+
+    for i in 0..nlist {
+        let mut ids = Vec::new();
+        let mut codes = Vec::new();
+        for invlist in invlists {
+            let (other_ids, other_codes) = invlist.get_list(i)?;
+            ids.extend_from_slice(&other_ids);
+            codes.extend_from_slice(&other_codes);
+        }
+        writer.write_all(cast_slice(&ids))?;
+        writer.write_all(codes.as_flattened())?;
+    }
+
+    Ok(())
+}
+
+/// 从文件头读取 nlist, code_size, list_len
+fn read_metadata(buf: &[u8]) -> Result<(usize, usize, Vec<usize>)> {
+    let mut cursor = Cursor::new(buf);
+    let nlist = cursor.read_u64::<NativeEndian>()?;
+    let code_size = cursor.read_u64::<NativeEndian>()?;
+    let mut list_len = vec![0usize; nlist as usize];
+    cursor.read_exact(cast_slice_mut(&mut list_len))?;
+    Ok((nlist as usize, code_size as usize, list_len))
 }

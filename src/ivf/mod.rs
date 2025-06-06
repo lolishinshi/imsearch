@@ -13,6 +13,9 @@ use tokio::time::Instant;
 use crate::hamming::knn_hamming;
 use crate::kmeans::binary_kmeans_2level;
 
+pub type IvfHnswDisk = IvfHnsw<32, USearchQuantizer<32>, OnDiskInvlists<32>>;
+
+#[derive(Debug)]
 pub struct SeachResult {
     /// 量化耗时
     pub quantizer_time: Duration,
@@ -26,6 +29,7 @@ pub struct SeachResult {
     pub neighbors: Vec<Vec<Neighbor>>,
 }
 
+#[derive(Debug)]
 pub struct Neighbor {
     pub id: usize,
     pub distance: u32,
@@ -58,22 +62,11 @@ where
     // TODO: 这里的 API 能不能改成接受 IntoIterator ？
     pub fn add(&mut self, data: &[[u8; N]], ids: &[u64]) -> Result<()> {
         let vlists = self.quantizer.search(data, 1)?;
-        let mut writer = self.invlists.writer()?;
         for ((xq, id), lists) in data.iter().zip(ids).zip(vlists) {
-            let list_no = lists[0] as u32;
+            let list_no = lists[0];
             let (xq, _) = xq.as_chunks();
-            writer.add_entries(list_no, &[*id], &xq)?;
+            self.invlists.add_entries(list_no, &[*id], &xq)?;
         }
-        Ok(())
-    }
-
-    pub fn merge<R, J>(&mut self, other: &mut IvfHnsw<N, R, J>) -> Result<()>
-    where
-        R: Quantizer<N>,
-        J: InvertedLists<N>,
-    {
-        let mut writer = self.invlists.writer()?;
-        writer.merge_from(&mut other.invlists.writer()?)?;
         Ok(())
     }
 
@@ -86,36 +79,31 @@ where
             .iter()
             .zip(vlists)
             .par_bridge()
-            .map_init(
-                || self.invlists.reader().unwrap(),
-                |reader, (xq, lists)| {
-                    let mut v = Vec::with_capacity(k * lists.len());
-                    let mut t_io = Duration::ZERO;
-                    let mut t_calc = Duration::ZERO;
-                    for list_no in lists {
-                        let t = Instant::now();
-                        let (ids, codes) = reader.get_list(list_no as u32).unwrap();
-                        t_io += t.elapsed();
-                        let r = knn_hamming::<N>(xq, &codes, k);
-                        let n = r
-                            .into_iter()
-                            .map(|(i, d)| Neighbor { id: ids[i] as usize, distance: d })
-                            .collect::<Vec<_>>();
-                        v.extend(n);
-                        t_calc += t.elapsed();
-                    }
-                    v.sort_unstable_by_key(|n| n.distance);
-                    v.truncate(k);
-                    ((t_io, t_calc - t_io), v)
-                },
-            )
+            .map(|(xq, lists)| {
+                let mut v = Vec::with_capacity(k * lists.len());
+                let mut t_io = Duration::ZERO;
+                let mut t_calc = Duration::ZERO;
+                for list_no in lists {
+                    let t = Instant::now();
+                    // NOTE: 此处统计的 IO 时间并不准确，因为 mmap 的实际 IO 发生在访问时
+                    let (ids, codes) = self.invlists.get_list(list_no).unwrap();
+                    t_io += t.elapsed();
+                    let r = knn_hamming::<N>(xq, &codes, k);
+                    let n =
+                        r.into_iter().map(|(i, d)| Neighbor { id: ids[i] as usize, distance: d });
+                    v.extend(n);
+                    t_calc += t.elapsed();
+                }
+                v.sort_unstable_by_key(|n| n.distance);
+                v.truncate(k);
+                ((t_io, t_calc - t_io), v)
+            })
             .unzip();
-        let (io_time, thread_time) = time.iter().fold(
-            (Duration::ZERO, Duration::ZERO),
-            |(sum_io_time, sum_thread_time), (io_time, thread_time)| {
-                (sum_io_time + *io_time, sum_thread_time + *thread_time)
-            },
-        );
+        let (io_time, thread_time) = time
+            .iter()
+            .fold((Duration::ZERO, Duration::ZERO), |(st_io, st_calc), (t_io, t_calc)| {
+                (st_io + *t_io, st_calc + *t_calc)
+            });
         let search_time = start.elapsed() - quantizer_time;
         Ok(SeachResult { quantizer_time, io_time, thread_time, search_time, neighbors })
     }
@@ -129,20 +117,25 @@ impl<const N: usize> IvfHnsw<N, USearchQuantizer<N>, ArrayInvertedLists<N>> {
         assert!(quantizer.is_trained(), "quantizer must be trained");
 
         let nlist = quantizer.nlist();
-        let invlists = ArrayInvertedLists::<N>::new(nlist as u32);
+        let invlists = ArrayInvertedLists::<N>::new(nlist);
         Ok(Self { quantizer, invlists, nlist })
+    }
+
+    pub fn save(&self, path: impl AsRef<Path>) -> Result<()> {
+        self.invlists.save(path)
     }
 }
 
-impl<const N: usize> IvfHnsw<N, USearchQuantizer<N>, LmdbInvertedLists<N>> {
-    pub fn open_lmdb<P: AsRef<Path>>(path: P) -> Result<Self> {
+impl<const N: usize> IvfHnsw<N, USearchQuantizer<N>, OnDiskInvlists<N>> {
+    pub fn open_disk<P: AsRef<Path>>(path: P) -> Result<Self> {
         let path = path.as_ref();
 
         let quantizer = USearchQuantizer::new(path.join("quantizer.bin"))?;
         assert!(quantizer.is_trained(), "quantizer must be trained");
 
         let nlist = quantizer.nlist();
-        let invlists = LmdbInvertedLists::<N>::new(path.join("invlists.bin"), nlist as u32)?;
+        let invlists = OnDiskInvlists::<N>::load(path.join("invlists.bin"))?;
+        assert_eq!(nlist, invlists.nlist(), "nlist mismatch");
         Ok(Self { quantizer, invlists, nlist })
     }
 }

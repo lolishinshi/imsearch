@@ -1,92 +1,62 @@
 use std::borrow::Cow;
-use std::mem;
+use std::fs::File;
+use std::io::{BufWriter, Write};
+use std::path::Path;
 
 use anyhow::Result;
+use bytemuck::cast_slice;
+use byteorder::{NativeEndian, WriteBytesExt};
 
-use super::{InvertedLists, InvertedListsReader, InvertedListsWriter};
+use super::InvertedLists;
 
 pub struct ArrayInvertedLists<const N: usize> {
-    pub nlist: u32,
+    pub nlist: usize,
     pub codes: Vec<Vec<[u8; N]>>,
     pub ids: Vec<Vec<u64>>,
 }
 
-pub struct ArrayInvertedListsReader<'a, const N: usize>(&'a ArrayInvertedLists<N>);
-
-pub struct ArrayInvertedListsWriter<'a, const N: usize>(&'a mut ArrayInvertedLists<N>);
-
 impl<const N: usize> ArrayInvertedLists<N> {
-    pub fn new(nlist: u32) -> Self {
-        Self { nlist, codes: vec![vec![]; nlist as usize], ids: vec![vec![]; nlist as usize] }
+    pub fn new(nlist: usize) -> Self {
+        Self { nlist, codes: vec![vec![]; nlist], ids: vec![vec![]; nlist] }
+    }
+
+    pub fn save(&self, path: impl AsRef<Path>) -> Result<()> {
+        let file = File::create(path)?;
+        let mut writer = BufWriter::new(file);
+        // 写入 nlist 和 code_size
+        writer.write_u64::<NativeEndian>(self.nlist() as u64)?;
+        writer.write_u64::<NativeEndian>(N as u64)?;
+        // 写入每个倒排列表大小
+        let list_len = self.ids.iter().map(|n| n.len()).collect::<Vec<_>>();
+        writer.write_all(cast_slice(&list_len))?;
+        // 写入每个倒排列表
+        for i in 0..self.nlist() {
+            let (ids, codes) = self.get_list(i)?;
+            writer.write_all(cast_slice(&ids))?;
+            writer.write_all(codes.as_flattened())?;
+        }
+        writer.flush()?;
+        Ok(())
     }
 }
 
 impl<const N: usize> InvertedLists<N> for ArrayInvertedLists<N> {
-    type Reader<'a>
-        = ArrayInvertedListsReader<'a, N>
-    where
-        Self: 'a;
-    type Writer<'a>
-        = ArrayInvertedListsWriter<'a, N>
-    where
-        Self: 'a;
-
-    fn reader(&self) -> Result<Self::Reader<'_>> {
-        Ok(ArrayInvertedListsReader(self))
+    fn nlist(&self) -> usize {
+        self.nlist
     }
 
-    fn writer(&mut self) -> Result<Self::Writer<'_>> {
-        Ok(ArrayInvertedListsWriter(self))
-    }
-}
-
-impl<const N: usize> InvertedListsReader<N> for ArrayInvertedListsReader<'_, N> {
-    fn nlist(&self) -> u32 {
-        self.0.nlist
+    fn list_len(&self, list_no: usize) -> usize {
+        self.ids[list_no].len()
     }
 
-    fn list_len(&self, list_no: u32) -> usize {
-        self.0.ids[list_no as usize].len()
+    fn get_list(&self, list_no: usize) -> Result<(Cow<[u64]>, Cow<[[u8; N]]>)> {
+        Ok((Cow::Borrowed(&self.ids[list_no]), Cow::Borrowed(&self.codes[list_no])))
     }
 
-    fn get_list(&self, list_no: u32) -> Result<(Cow<[u64]>, Cow<[[u8; N]]>)> {
-        let list_no = list_no as usize;
-        Ok((Cow::Borrowed(&self.0.ids[list_no]), Cow::Borrowed(&self.0.codes[list_no])))
-    }
-}
-
-impl<const N: usize> InvertedListsReader<N> for ArrayInvertedListsWriter<'_, N> {
-    fn nlist(&self) -> u32 {
-        ArrayInvertedListsReader(self.0).nlist()
-    }
-
-    fn list_len(&self, list_no: u32) -> usize {
-        ArrayInvertedListsReader(self.0).list_len(list_no)
-    }
-
-    fn get_list(&self, list_no: u32) -> Result<(Cow<[u64]>, Cow<[[u8; N]]>)> {
-        // 这个写法无法通过生命周期检查
-        // ArrayInvertedListsReader(self.0).get_list(list_no)
-        let list_no = list_no as usize;
-        Ok((Cow::Borrowed(&self.0.ids[list_no]), Cow::Borrowed(&self.0.codes[list_no])))
-    }
-}
-
-impl<const N: usize> InvertedListsWriter<N> for ArrayInvertedListsWriter<'_, N> {
-    fn add_entries(&mut self, list_no: u32, ids: &[u64], codes: &[[u8; N]]) -> Result<u64> {
+    fn add_entries(&mut self, list_no: usize, ids: &[u64], codes: &[[u8; N]]) -> Result<u64> {
         assert_eq!(ids.len(), codes.len(), "ids and codes length mismatch");
-        let list_no = list_no as usize;
-        self.0.ids[list_no].extend_from_slice(ids);
-        self.0.codes[list_no].extend_from_slice(codes);
+        self.ids[list_no].extend_from_slice(ids);
+        self.codes[list_no].extend_from_slice(codes);
         Ok(ids.len() as u64)
-    }
-
-    fn clear(&mut self, list_no: u32) -> Result<()> {
-        let list_no = list_no as usize;
-        // 代替 clear + shrink_to_fit
-        // clear 不会释放内存，shrink_to_fit 可能会发生拷贝
-        let _ = mem::replace(&mut self.0.ids[list_no], vec![]);
-        let _ = mem::replace(&mut self.0.codes[list_no], vec![]);
-        Ok(())
     }
 }
