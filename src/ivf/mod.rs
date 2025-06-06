@@ -47,11 +47,6 @@ where
     I: 'a + Sync,
     Q: Sync,
 {
-    pub fn new(quantizer: Q, invlists: I, nlist: usize) -> Self {
-        assert!(!quantizer.is_trained(), "quantizer has been trained");
-        Self { quantizer, invlists, nlist }
-    }
-
     pub fn train(&mut self, data: &[[u8; N]], max_iter: usize) -> Result<()> {
         assert!(!self.quantizer.is_trained(), "quantizer has been trained");
         let centroids = binary_kmeans_2level::<N>(data, self.nlist, max_iter);
@@ -120,6 +115,13 @@ impl<const N: usize> IvfHnsw<N, USearchQuantizer<N>, ArrayInvertedLists<N>> {
         assert!(quantizer.is_trained(), "quantizer must be trained");
 
         let nlist = quantizer.nlist();
+        let invlists = ArrayInvertedLists::<N>::new(nlist);
+        Ok(Self { quantizer, invlists, nlist })
+    }
+
+    pub fn open_train<P: AsRef<Path>>(path: P, nlist: usize) -> Result<Self> {
+        let path = path.as_ref();
+        let quantizer = USearchQuantizer::new(path.join("quantizer.bin"))?;
         let invlists = ArrayInvertedLists::<N>::new(nlist);
         Ok(Self { quantizer, invlists, nlist })
     }

@@ -90,8 +90,9 @@ pub fn binary_kmeans_2level<const N: usize>(
     assert!(n >= 30 * nc, "向量数量必须大于 30 * {nc}");
     let nc1 = nc.isqrt();
 
-    info!("对 {n} 组向量进行 1 级聚类，中心点数量 = {nc1}");
-    let c1 = binary_kmeans::<N>(x, nc1, max_iter, true);
+    let n1 = (nc1 * 1024).min(n);
+    info!("对 {n1} 组向量进行 1 级聚类，中心点数量 = {nc1}");
+    let c1 = binary_kmeans::<N>(&x[..n1], nc1, max_iter, true);
 
     info!("根据 1 级聚类结果划分训练集");
     let r = batch_knn_hamming::<N>(x, &c1, 1);
@@ -134,6 +135,7 @@ pub fn binary_kmeans_2level<const N: usize>(
             c.extend(c2);
         }
     }
+    pb.finish_with_message("二级聚类完成");
 
     assert_eq!(c.len(), nc);
 

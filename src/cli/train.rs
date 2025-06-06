@@ -22,7 +22,7 @@ impl SubCommandExtend for TrainCommand {
     async fn run(&self, opts: &Opts) -> Result<()> {
         let db = IMDBBuilder::new(opts.conf_dir.clone()).open().await?;
         let data = db.export(Some(self.images)).await?;
-        let mut ivf = IvfHnsw::<32, _, _>::open_array(&opts.conf_dir)?;
+        let mut ivf = IvfHnsw::<32, _, _>::open_train(&opts.conf_dir, self.centers)?;
         ivf.train(&data, self.max_iter)?;
         Ok(())
     }
