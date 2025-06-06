@@ -90,6 +90,7 @@ pub fn binary_kmeans_2level<const N: usize>(
     assert!(n >= 30 * nc, "向量数量必须大于 30 * {nc}");
     let nc1 = nc.isqrt();
 
+    // 没有必要用全部向量进行一级聚类，这里取 nc1 的 1024 倍来训练，平衡精度和耗时
     let n1 = (nc1 * 1024).min(n);
     info!("对 {n1} 组向量进行 1 级聚类，中心点数量 = {nc1}");
     let c1 = binary_kmeans::<N>(&x[..n1], nc1, max_iter, true);

@@ -387,7 +387,9 @@ impl IMDB {
             ivfs.push(index);
         }
 
-        merge_invlists(&ivfs, ivfs[0].nlist(), &index_path)?;
+        if !ivfs.is_empty() {
+            merge_invlists(&ivfs, ivfs[0].nlist(), &index_path)?;
+        }
 
         for path in paths {
             fs::remove_file(path)?;
