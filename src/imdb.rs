@@ -165,7 +165,9 @@ impl IMDB {
 
     /// 检查图片是否存在
     pub async fn check_hash(&self, hash: &[u8], distance: u32) -> Result<Option<i64>> {
-        if let Some(index) = &self.pindex {
+        if distance > 0
+            && let Some(index) = &self.pindex
+        {
             let hash = b1x8::from_u8s(hash);
             let result = index.search(hash, 1).unwrap();
             if !result.distances.is_empty() && result.distances[0] <= distance as f32 {
