@@ -7,6 +7,7 @@ use futures::prelude::*;
 use indicatif::ProgressBar;
 use log::{debug, info, warn};
 use ndarray::prelude::*;
+use rayon::prelude::*;
 use tokio::sync::Mutex;
 use tokio::task::{block_in_place, spawn_blocking};
 use usearch::{Index, IndexOptions, MetricKind, ScalarKind, b1x8};
@@ -97,10 +98,10 @@ impl IMDBBuilder {
                     index.reset().unwrap();
                     let vectors = crud::get_all_hash(&db).await?;
                     index.reserve(vectors.len()).unwrap();
-                    for (id, hash) in vectors {
+                    vectors.into_par_iter().for_each(|(id, hash)| {
                         let hash = b1x8::from_u8s(&hash);
                         index.add(id as u64, hash).unwrap();
-                    }
+                    });
                 }
             }
             Some(index)
