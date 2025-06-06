@@ -24,6 +24,7 @@ impl<const N: usize> OnDiskInvlists<N> {
     pub fn load(path: impl AsRef<Path>) -> Result<Self> {
         let file = File::options().read(true).write(true).open(path)?;
         let mmap = unsafe { MmapMut::map_mut(&file)? };
+        // TODO: 是否有必要使用 MAP_POPULATE ？
         mmap.advise(Advice::Random)?;
         let (nlist, code_size, list_len) = read_metadata(&mmap)?;
         assert_eq!(code_size, N, "code_size mismatch");
