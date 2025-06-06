@@ -2,6 +2,7 @@ pub mod invlists;
 pub mod quantizer;
 
 use std::path::Path;
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::Duration;
 
 use anyhow::Result;
@@ -65,7 +66,7 @@ where
         for ((xq, id), lists) in data.iter().zip(ids).zip(vlists) {
             let list_no = lists[0];
             let (xq, _) = xq.as_chunks();
-            self.invlists.add_entries(list_no, &[*id], &xq)?;
+            self.invlists.add_entries(list_no, &[*id], xq)?;
         }
         Ok(())
     }
@@ -75,37 +76,39 @@ where
         let vlists = self.quantizer.search(data, nprobe)?;
         let quantizer_time = start.elapsed();
 
-        let (time, neighbors): (Vec<_>, Vec<_>) = data
+        let io_time = AtomicU64::new(0);
+        let calc_time = AtomicU64::new(0);
+
+        let neighbors = data
             .iter()
             .zip(vlists)
             .par_bridge()
             .map(|(xq, lists)| {
                 let mut v = Vec::with_capacity(k * lists.len());
-                let mut t_io = Duration::ZERO;
-                let mut t_calc = Duration::ZERO;
                 for list_no in lists {
                     let t = Instant::now();
                     // NOTE: 此处统计的 IO 时间并不准确，因为 mmap 的实际 IO 发生在访问时
                     let (ids, codes) = self.invlists.get_list(list_no).unwrap();
-                    t_io += t.elapsed();
+                    io_time.fetch_add(t.elapsed().as_nanos() as u64, Ordering::Relaxed);
                     let r = knn_hamming::<N>(xq, &codes, k);
                     let n =
                         r.into_iter().map(|(i, d)| Neighbor { id: ids[i] as usize, distance: d });
                     v.extend(n);
-                    t_calc += t.elapsed();
+                    calc_time.fetch_add(t.elapsed().as_nanos() as u64, Ordering::Relaxed);
                 }
-                v.sort_unstable_by_key(|n| n.distance);
+                v.select_nth_unstable_by_key(k, |n| n.distance);
                 v.truncate(k);
-                ((t_io, t_calc - t_io), v)
+                v
             })
-            .unzip();
-        let (io_time, thread_time) = time
-            .iter()
-            .fold((Duration::ZERO, Duration::ZERO), |(st_io, st_calc), (t_io, t_calc)| {
-                (st_io + *t_io, st_calc + *t_calc)
-            });
+            .collect::<Vec<_>>();
         let search_time = start.elapsed() - quantizer_time;
-        Ok(SeachResult { quantizer_time, io_time, thread_time, search_time, neighbors })
+        Ok(SeachResult {
+            quantizer_time,
+            io_time: Duration::from_nanos(io_time.load(Ordering::Relaxed)),
+            thread_time: Duration::from_nanos(calc_time.load(Ordering::Relaxed)),
+            search_time,
+            neighbors,
+        })
     }
 }
 

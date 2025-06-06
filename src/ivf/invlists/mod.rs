@@ -29,7 +29,7 @@ pub trait InvertedLists<const N: usize> {
 
     /// 计算不平衡度
     fn imbalance(&self) -> f32 {
-        let mut hist = Vec::with_capacity(self.nlist() as usize);
+        let mut hist = Vec::with_capacity(self.nlist());
         for i in 0..self.nlist() {
             hist.push(self.list_len(i));
         }

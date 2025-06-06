@@ -342,7 +342,7 @@ impl IMDB {
             for record in chunk {
                 let (vector, _) = record.vector.as_chunks();
                 for (i, feature) in vector.iter().enumerate() {
-                    features.push(feature.clone());
+                    features.push(*feature);
                     // total_vector_count 记录了截止到这张图片的特征点数量累加和
                     // 因此使用它减去特征点本身的序号，就可以得到一个唯一的特征点 ID
                     ids.push(record.total_vector_count as u64 - i as u64);
