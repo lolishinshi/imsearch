@@ -72,6 +72,9 @@ where
             .map(|(xq, lists)| {
                 let mut v = Vec::with_capacity(k * lists.len());
                 for list_no in lists {
+                    if list_no == usize::MAX {
+                        continue;
+                    }
                     let t = Instant::now();
                     // NOTE: 此处统计的 IO 时间并不准确，因为 mmap 的实际 IO 发生在访问时
                     let (ids, codes) = self.invlists.get_list(list_no).unwrap();
@@ -102,7 +105,7 @@ impl<const N: usize> IvfHnsw<N, HnswQuantizer<N>, ArrayInvertedLists<N>> {
     pub fn open_array<P: AsRef<Path>>(path: P) -> Result<Self> {
         let path = path.as_ref();
 
-        let quantizer = HnswQuantizer::open(path)?;
+        let quantizer = HnswQuantizer::open(path.join("quantizer.bin"))?;
 
         let nlist = quantizer.nlist();
         let invlists = ArrayInvertedLists::<N>::new(nlist);
@@ -119,7 +122,7 @@ impl<const N: usize> IvfHnsw<N, HnswQuantizer<N>, OnDiskInvlists<N>> {
     pub fn open_disk<P: AsRef<Path>>(path: P) -> Result<Self> {
         let path = path.as_ref();
 
-        let quantizer = HnswQuantizer::open(path)?;
+        let quantizer = HnswQuantizer::open(path.join("quantizer.bin"))?;
 
         let nlist = quantizer.nlist();
         let invlists = OnDiskInvlists::<N>::load(path.join("invlists.bin"))?;

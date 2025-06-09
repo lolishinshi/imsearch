@@ -1,11 +1,13 @@
+mod faiss;
 mod hnsw;
 mod usearch;
 
 use std::path::Path;
 
 use anyhow::Result;
-pub use hnsw::HnswQuantizer;
+//pub use hnsw::HnswQuantizer;
 //pub use usearch::USearchQuantizer;
+pub use faiss::FaissHNSWQuantizer as HnswQuantizer;
 
 /// 适用于 N 位二进制向量的量化器
 pub trait Quantizer<const N: usize> {
