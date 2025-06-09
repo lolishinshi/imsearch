@@ -2,7 +2,8 @@ use anyhow::Result;
 use clap::Parser;
 
 use crate::cli::SubCommandExtend;
-use crate::ivf::IvfHnsw;
+use crate::ivf::{HnswQuantizer, Quantizer};
+use crate::kmeans::binary_kmeans_2level;
 use crate::{IMDBBuilder, Opts};
 
 #[derive(Parser, Debug, Clone)]
@@ -22,8 +23,9 @@ impl SubCommandExtend for TrainCommand {
     async fn run(&self, opts: &Opts) -> Result<()> {
         let db = IMDBBuilder::new(opts.conf_dir.clone()).open().await?;
         let data = db.export(Some(self.images)).await?;
-        let mut ivf = IvfHnsw::<32, _, _>::open_train(&opts.conf_dir, self.centers)?;
-        ivf.train(&data, self.max_iter)?;
+        let centroids = binary_kmeans_2level::<32>(&data, self.centers, self.max_iter);
+        let quantizer = HnswQuantizer::init(&centroids)?;
+        quantizer.save(&opts.conf_dir)?;
         Ok(())
     }
 }

@@ -1,6 +1,6 @@
 use indicatif::{ProgressBar, ProgressIterator};
 use kmeans::{EuclideanDistance, KMeans, KMeansConfig, KMeansState};
-use log::info;
+use log::{debug, info};
 
 use crate::hamming::batch_knn_hamming;
 use crate::utils::pb_style;
@@ -53,7 +53,7 @@ pub fn binary_kmeans<const N: usize>(
     nc: usize,
     max_iter: usize,
     verbose: bool,
-) -> Vec<[u8; N]> {
+) -> (Vec<[u8; N]>, f32) {
     let n = x.len();
     // KMeans 只能对浮点进行聚类，因此这里将二进制转成浮点向量
     // TODO: 这里距离函数可以自定义，理论上可以直接对二进制进行聚类
@@ -61,9 +61,8 @@ pub fn binary_kmeans<const N: usize>(
     let km: KMeans<_, 16, _> = KMeans::new(&x, n, N * 8, EuclideanDistance);
     let conf = if verbose {
         KMeansConfig::build()
-            .init_done(&|_s: &KMeansState<f32>| info!("KMeans 初始化完成"))
             .iteration_done(&|s: &KMeansState<f32>, nr: usize, new_distsum: f32| {
-                info!(
+                debug!(
                     "第 {} 轮 - 不平衡度：{:.2} | 距离和变化：{:+.2}",
                     nr,
                     imbalance_factor(&s.centroid_frequency),
@@ -76,8 +75,10 @@ pub fn binary_kmeans<const N: usize>(
     };
     // NOTE: init_kmeanplusplus 会 panic，不知道为啥
     let result = km.kmeans_lloyd(nc, max_iter, KMeans::init_random_partition, &conf);
+    let factor = imbalance_factor(&result.centroid_frequency);
     let b = real_to_binary(&result.centroids.to_vec());
-    b.chunks_exact(N).map(|x| x.try_into().unwrap()).collect()
+    let centroids = b.chunks_exact(N).map(|x| x.try_into().unwrap()).collect();
+    (centroids, factor)
 }
 
 /// 使用 kmeans 进行二级聚类，损失少许精度大幅提高速度
@@ -93,7 +94,8 @@ pub fn binary_kmeans_2level<const N: usize>(
     // 没有必要用全部向量进行一级聚类，这里取 nc1 的 1024 倍来训练，平衡精度和耗时
     let n1 = (nc1 * 1024).min(n);
     info!("对 {n1} 组向量进行 1 级聚类，中心点数量 = {nc1}");
-    let c1 = binary_kmeans::<N>(&x[..n1], nc1, max_iter, true);
+    let (c1, factor) = binary_kmeans::<N>(&x[..n1], nc1, max_iter, true);
+    info!("1 级聚类完成，不平衡度：{:.2}", factor);
 
     info!("根据 1 级聚类结果划分训练集");
     let r = batch_knn_hamming::<N>(x, &c1, 1);
@@ -130,9 +132,13 @@ pub fn binary_kmeans_2level<const N: usize>(
     let pb = ProgressBar::new(nc1 as u64).with_style(pb_style());
     for i in (0..nc1).progress_with(pb.clone()) {
         let x = &xc[i];
-        pb.set_message(format!("对 {} 组向量进行二级聚类，中心点数量 = {}", x.len(), nc2[i]));
         if nc2[i] > 0 {
-            let c2 = binary_kmeans::<N>(x, nc2[i], max_iter, false);
+            let (c2, factor) = binary_kmeans::<N>(x, nc2[i], max_iter, false);
+            pb.set_message(format!(
+                "对 {} 组向量进行二级聚类，中心点数量 = {}, 不平衡度 = {factor:.2}",
+                x.len(),
+                nc2[i]
+            ));
             c.extend(c2);
         }
     }
@@ -194,7 +200,7 @@ mod tests {
             x[i][1] = 0xFF;
         }
 
-        let centroids = binary_kmeans::<4>(&x, 2, 50, false);
+        let (centroids, _) = binary_kmeans::<4>(&x, 2, 50, false);
 
         // 应该返回2个聚类中心
         assert_eq!(centroids.len(), 2);
@@ -237,7 +243,7 @@ mod tests {
     #[test]
     fn test_binary_kmeans_single_cluster() {
         let x = vec![[66u8; 4]; 8];
-        let centroids = binary_kmeans::<4>(&x, 1, 10, false);
+        let (centroids, _) = binary_kmeans::<4>(&x, 1, 10, false);
         assert_eq!(centroids.len(), 1);
         assert_eq!(&centroids[0], &[66u8; 4]);
     }

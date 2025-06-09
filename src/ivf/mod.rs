@@ -12,9 +12,8 @@ use rayon::prelude::*;
 use tokio::time::Instant;
 
 use crate::hamming::knn_hamming;
-use crate::kmeans::binary_kmeans_2level;
 
-pub type IvfHnswDisk = IvfHnsw<32, USearchQuantizer<32>, OnDiskInvlists<32>>;
+pub type IvfHnswDisk = IvfHnsw<32, HnswQuantizer<32>, OnDiskInvlists<32>>;
 
 #[derive(Debug)]
 pub struct SeachResult {
@@ -47,14 +46,6 @@ where
     I: 'a + Sync,
     Q: Sync,
 {
-    pub fn train(&mut self, data: &[[u8; N]], max_iter: usize) -> Result<()> {
-        assert!(!self.quantizer.is_trained(), "quantizer has been trained");
-        let centroids = binary_kmeans_2level::<N>(data, self.nlist, max_iter);
-        self.quantizer.add(&centroids)?;
-        self.quantizer.save()?;
-        Ok(())
-    }
-
     // TODO: 这里的 API 能不能改成接受 IntoIterator ？
     pub fn add(&mut self, data: &[[u8; N]], ids: &[u64]) -> Result<()> {
         let vlists = self.quantizer.search(data, 1)?;
@@ -107,36 +98,28 @@ where
     }
 }
 
-impl<const N: usize> IvfHnsw<N, USearchQuantizer<N>, ArrayInvertedLists<N>> {
+impl<const N: usize> IvfHnsw<N, HnswQuantizer<N>, ArrayInvertedLists<N>> {
     pub fn open_array<P: AsRef<Path>>(path: P) -> Result<Self> {
         let path = path.as_ref();
 
-        let quantizer = USearchQuantizer::new(path.join("quantizer.bin"))?;
-        assert!(quantizer.is_trained(), "quantizer must be trained");
+        let quantizer = HnswQuantizer::open(path)?;
 
         let nlist = quantizer.nlist();
         let invlists = ArrayInvertedLists::<N>::new(nlist);
         Ok(Self { quantizer, invlists, nlist })
     }
 
-    pub fn open_train<P: AsRef<Path>>(path: P, nlist: usize) -> Result<Self> {
-        let path = path.as_ref();
-        let quantizer = USearchQuantizer::new(path.join("quantizer.bin"))?;
-        let invlists = ArrayInvertedLists::<N>::new(nlist);
-        Ok(Self { quantizer, invlists, nlist })
-    }
-
     pub fn save(&self, path: impl AsRef<Path>) -> Result<()> {
-        self.invlists.save(path)
+        self.invlists.save(path)?;
+        Ok(())
     }
 }
 
-impl<const N: usize> IvfHnsw<N, USearchQuantizer<N>, OnDiskInvlists<N>> {
+impl<const N: usize> IvfHnsw<N, HnswQuantizer<N>, OnDiskInvlists<N>> {
     pub fn open_disk<P: AsRef<Path>>(path: P) -> Result<Self> {
         let path = path.as_ref();
 
-        let quantizer = USearchQuantizer::new(path.join("quantizer.bin"))?;
-        assert!(quantizer.is_trained(), "quantizer must be trained");
+        let quantizer = HnswQuantizer::open(path)?;
 
         let nlist = quantizer.nlist();
         let invlists = OnDiskInvlists::<N>::load(path.join("invlists.bin"))?;
