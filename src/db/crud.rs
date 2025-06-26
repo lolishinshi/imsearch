@@ -1,5 +1,6 @@
 use std::collections::HashSet;
 
+use ndarray::{Array2, ArrayView};
 use sqlx::{Executor, Result, Sqlite, SqlitePool};
 
 use super::VectorIdxRecord;
@@ -267,7 +268,7 @@ pub async fn get_count(executor: &SqlitePool) -> Result<(i64, i64)> {
     Ok((result.id, result.total_vector_count))
 }
 
-pub async fn get_all_hash(executor: &SqlitePool) -> Result<Vec<(i64, Vec<u8>)>> {
+pub async fn get_all_hash(executor: &SqlitePool) -> Result<(Vec<i64>, Array2<u8>)> {
     let result = sqlx::query!(
         r#"
         SELECT id, hash FROM image;
@@ -276,7 +277,13 @@ pub async fn get_all_hash(executor: &SqlitePool) -> Result<Vec<(i64, Vec<u8>)>> 
     .fetch_all(executor)
     .await?;
 
-    Ok(result.into_iter().map(|row| (row.id.unwrap(), row.hash)).collect())
+    let ids = result.iter().map(|row| row.id.unwrap()).collect::<Vec<_>>();
+    let mut hashes = Array2::<u8>::zeros((ids.len(), 8));
+    for row in result {
+        hashes.push_row(ArrayView::from(&row.hash)).unwrap();
+    }
+
+    Ok((ids, hashes))
 }
 
 /// 获取所有 total_vector_count 记录

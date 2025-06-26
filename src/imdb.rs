@@ -7,10 +7,8 @@ use futures::prelude::*;
 use indicatif::ProgressBar;
 use log::{debug, info, warn};
 use ndarray::prelude::*;
-use rayon::prelude::*;
 use tokio::sync::Mutex;
 use tokio::task::{block_in_place, spawn_blocking};
-use usearch::{Index, IndexOptions, MetricKind, ScalarKind, b1x8};
 
 use crate::config::{ConfDir, ScoreType};
 use crate::db::*;
@@ -80,28 +78,18 @@ impl IMDBBuilder {
         }
 
         let pindex = if self.hash == Some(ImageHash::Phash) {
-            let options = IndexOptions {
-                dimensions: 64,
-                metric: MetricKind::Hamming,
-                quantization: ScalarKind::B1,
-                ..Default::default()
+            let index = if self.conf_dir.index_phash().exists() {
+                FaissIndex::from_file(self.conf_dir.index_phash(), false).unwrap()
+            } else {
+                FaissIndex::new(64, "BHNSW32").unwrap()
             };
-            let index = Index::new(&options).unwrap();
-            index.reserve(32).unwrap();
-            if self.conf_dir.index_phash().exists() {
-                index.load(self.conf_dir.index_phash().to_str().unwrap()).unwrap();
-            }
 
             if let Ok((count, _)) = crud::get_count(&db).await {
-                if count as usize != index.size() {
+                if count != index.ntotal() {
                     warn!("phash 索引大小不一致，正在重新构建……");
-                    index.reset().unwrap();
-                    let vectors = crud::get_all_hash(&db).await?;
-                    index.reserve(vectors.len()).unwrap();
-                    vectors.into_par_iter().for_each(|(id, hash)| {
-                        let hash = b1x8::from_u8s(&hash);
-                        index.add(id as u64, hash).unwrap();
-                    });
+                    let mut index = FaissIndex::new(64, "BHNSW32").unwrap();
+                    let (_, hashes) = crud::get_all_hash(&db).await?;
+                    index.add(hashes.view())?;
                 }
             }
             Some(index)
@@ -116,7 +104,7 @@ impl IMDBBuilder {
             cache: self.cache,
             index: IndexManager::new(self.conf_dir),
             score_type: self.score_type,
-            pindex,
+            pindex: pindex.map(|index| RwLock::new(index)),
         };
 
         imdb.load_total_vector_count().await?;
@@ -134,7 +122,7 @@ pub struct IMDB {
     /// 特征点索引
     index: IndexManager,
     /// phash 索引
-    pindex: Option<Index>,
+    pindex: Option<RwLock<FaissIndex>>,
     /// 评分方式
     score_type: ScoreType,
 }
@@ -152,11 +140,9 @@ impl IMDB {
         crud::add_vector(&mut *tx, id, descriptors.as_slice().unwrap()).await?;
         crud::add_vector_stats(&mut *tx, id, descriptors.dim().0 as i64).await?;
         if let Some(index) = &self.pindex {
-            if index.size() >= index.capacity() {
-                index.reserve(index.capacity() * 3 / 2).unwrap();
-            }
-            let hash = b1x8::from_u8s(hash);
-            index.add(id as u64, hash)?;
+            let mut index = index.write().unwrap();
+            let hashes = ArrayView2::from_shape((1, 8), hash)?;
+            index.add(hashes.view())?;
         }
         tx.commit().await?;
         Ok(id)
@@ -165,11 +151,13 @@ impl IMDB {
     /// 检查图片是否存在
     pub async fn check_hash(&self, hash: &[u8], distance: u32) -> Result<Option<i64>> {
         if let Some(index) = &self.pindex {
+            let index = index.read().unwrap();
             if distance > 0 {
-                let hash = b1x8::from_u8s(hash);
-                let result = index.search(hash, 1).unwrap();
-                if !result.distances.is_empty() && result.distances[0] <= distance as f32 {
-                    return Ok(Some(result.keys[0] as i64));
+                let hash = ArrayView2::from_shape((1, 8), hash)?;
+                let result = index.search(hash, 1, None);
+                if !result[0].is_empty() && result[0][0].distance <= distance as i32 {
+                    // NOTE: 因为 phash 索引中从 0 号 ID 开始，所以需要加 1
+                    return Ok(Some(result[0][0].index + 1 as i64));
                 }
             }
         }
@@ -407,8 +395,9 @@ impl IMDB {
 
 impl Drop for IMDB {
     fn drop(&mut self) {
-        if let Some(index) = self.pindex.as_mut() {
-            index.save(self.conf_dir.index_phash().to_str().unwrap()).unwrap();
+        if let Some(index) = &self.pindex {
+            let index = index.read().unwrap();
+            index.write_file(self.conf_dir.index_phash()).unwrap();
         }
     }
 }
