@@ -21,7 +21,7 @@ pub async fn init_db(filename: impl AsRef<Path>, wal: bool) -> Result<Database, 
         .filename(filename)
         .create_if_missing(true);
 
-    let pool = SqlitePool::connect_with(options).await?;
+    let pool = SqlitePoolOptions::new().max_connections(20).connect_with(options).await?;
 
     info!("检查数据库迁移");
     sqlx::migrate!().run(&pool).await?;
