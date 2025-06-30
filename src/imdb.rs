@@ -145,12 +145,13 @@ impl IMDB {
         let id = crud::add_image(&mut *tx, hash, filename.as_ref()).await?;
         crud::add_vector(&mut *tx, id, descriptors.as_slice().unwrap()).await?;
         crud::add_vector_stats(&mut *tx, id, descriptors.dim().0 as i64).await?;
+        // 尽快提交事务，避免锁住数据库
+        tx.commit().await?;
         if let Some(index) = &self.pindex {
             let mut index = index.write().unwrap();
             let hashes = ArrayView2::from_shape((1, 8), hash)?;
             index.add(hashes.view())?;
         }
-        tx.commit().await?;
         Ok(id)
     }
 
