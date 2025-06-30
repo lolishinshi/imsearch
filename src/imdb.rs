@@ -78,7 +78,7 @@ impl IMDBBuilder {
         }
 
         let pindex = if self.hash == Some(ImageHash::Phash) {
-            let index = if self.conf_dir.index_phash().exists() {
+            let mut index = if self.conf_dir.index_phash().exists() {
                 FaissIndex::from_file(self.conf_dir.index_phash(), false).unwrap()
             } else {
                 FaissIndex::new(64, "BHNSW32").unwrap()
@@ -91,7 +91,7 @@ impl IMDBBuilder {
                         count,
                         index.ntotal()
                     );
-                    let mut index = FaissIndex::new(64, "BHNSW32").unwrap();
+                    index = FaissIndex::new(64, "BHNSW32").unwrap();
                     let (_, hashes) = crud::get_all_hash(&db).await?;
                     debug!("正在添加 {} 条向量到 phash 索引……", hashes.dim().0);
                     index.add(hashes.view())?;
