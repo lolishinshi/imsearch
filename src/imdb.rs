@@ -86,10 +86,16 @@ impl IMDBBuilder {
 
             if let Ok((count, _)) = crud::get_count(&db).await {
                 if count != index.ntotal() {
-                    warn!("phash 索引大小不一致，正在重新构建……");
+                    warn!(
+                        "phash 索引大小不一致（{} != {}），正在重新构建……",
+                        count,
+                        index.ntotal()
+                    );
                     let mut index = FaissIndex::new(64, "BHNSW32").unwrap();
                     let (_, hashes) = crud::get_all_hash(&db).await?;
+                    debug!("正在添加 {} 条向量到 phash 索引……", hashes.dim().0);
                     index.add(hashes.view())?;
+                    debug!("phash 索引添加完成，大小：{}", index.ntotal());
                 }
             }
             Some(index)
@@ -391,13 +397,13 @@ impl IMDB {
             block_in_place(|| self.index.merge_index_on_memory())
         }
     }
-}
 
-impl Drop for IMDB {
-    fn drop(&mut self) {
+    pub fn save_phash_index(&self) -> Result<()> {
         if let Some(index) = &self.pindex {
             let index = index.read().unwrap();
+            debug!("正在保存 phash 索引，大小：{}……", index.ntotal());
             index.write_file(self.conf_dir.index_phash()).unwrap();
         }
+        Ok(())
     }
 }

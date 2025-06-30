@@ -1,5 +1,3 @@
-use std::collections::HashSet;
-
 use ndarray::{Array2, ArrayView};
 use sqlx::{Executor, Result, Sqlite, SqlitePool};
 
@@ -72,13 +70,11 @@ pub async fn update_image_path(executor: &SqlitePool, id: i64, path: &str) -> Re
 /// 追加图片路径
 pub async fn append_image_path(executor: &SqlitePool, id: i64, path: &str) -> Result<()> {
     let r = sqlx::query!(r"SELECT path FROM image WHERE id = ?", id).fetch_one(executor).await?;
-    let mut paths = r.path.split(':').collect::<HashSet<&str>>();
-    if paths.contains(path) {
+    if r.path.split(':').any(|p| p == path) {
         return Ok(());
     }
 
-    paths.insert(path);
-    let path = paths.into_iter().collect::<Vec<&str>>().join(":");
+    let path = format!("{}:{}", r.path, path);
     sqlx::query!(
         r#"
         UPDATE image SET path = ? WHERE id = ?
@@ -278,7 +274,8 @@ pub async fn get_all_hash(executor: &SqlitePool) -> Result<(Vec<i64>, Array2<u8>
     .await?;
 
     let ids = result.iter().map(|row| row.id.unwrap()).collect::<Vec<_>>();
-    let mut hashes = Array2::<u8>::zeros((ids.len(), 8));
+    let mut hashes = Array2::<u8>::zeros((0, 8));
+    hashes.reserve_rows(ids.len()).unwrap();
     for row in result {
         hashes.push_row(ArrayView::from(&row.hash)).unwrap();
     }

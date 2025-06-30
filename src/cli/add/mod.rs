@@ -88,7 +88,7 @@ impl SubCommandExtend for AddCommand {
         let t5 = task_add(
             rx,
             pb.clone(),
-            db,
+            db.clone(),
             self.min_keypoints as i32,
             duplicate,
             replace,
@@ -97,6 +97,8 @@ impl SubCommandExtend for AddCommand {
 
         // 等待所有任务完成
         let _ = tokio::try_join!(t1, t2, t3, t4, t5);
+
+        db.save_phash_index()?;
 
         pb.finish_with_message("图片添加完成");
 
