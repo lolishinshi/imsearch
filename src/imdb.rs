@@ -7,12 +7,14 @@ use futures::prelude::*;
 use indicatif::ProgressBar;
 use log::{debug, info, warn};
 use ndarray::prelude::*;
+use rayon::prelude::*;
 use tokio::sync::Mutex;
 use tokio::task::{block_in_place, spawn_blocking};
 
 use crate::config::{ConfDir, ScoreType};
 use crate::db::*;
 use crate::faiss::{FaissIndex, FaissSearchParams, Neighbor};
+use crate::hnsw::HNSW;
 use crate::index::IndexManager;
 use crate::utils::{self, ImageHash, pb_style};
 
@@ -78,23 +80,25 @@ impl IMDBBuilder {
         }
 
         let pindex = if self.hash == Some(ImageHash::Phash) {
-            let mut index = if self.conf_dir.index_phash().exists() {
-                FaissIndex::from_file(self.conf_dir.index_phash(), false).unwrap()
+            let mut index = if self.conf_dir.path().join("phash.hnsw.graph").exists() {
+                HNSW::load(self.conf_dir.path())?
             } else {
-                FaissIndex::new(64, "BHNSW32").unwrap()
+                HNSW::new()
             };
 
             if let Ok((count, _)) = crud::get_count(&db).await {
-                if count != index.ntotal() {
+                if count != index.ntotal() as i64 {
                     warn!(
                         "phash 索引大小不一致（{} != {}），正在重新构建……",
                         count,
                         index.ntotal()
                     );
-                    index = FaissIndex::new(64, "BHNSW32").unwrap();
-                    let (_, hashes) = crud::get_all_hash(&db).await?;
-                    debug!("正在添加 {} 条向量到 phash 索引……", hashes.dim().0);
-                    index.add(hashes.view())?;
+                    index = HNSW::new();
+                    let hashes = crud::get_all_hash(&db).await?;
+                    debug!("正在添加 {} 条向量到 phash 索引……", hashes.len());
+                    hashes.into_par_iter().for_each(|(id, hash)| {
+                        index.add(&hash, id as usize);
+                    });
                     debug!("phash 索引添加完成，大小：{}", index.ntotal());
                 }
             }
@@ -110,7 +114,7 @@ impl IMDBBuilder {
             cache: self.cache,
             index: IndexManager::new(self.conf_dir),
             score_type: self.score_type,
-            pindex: pindex.map(|index| RwLock::new(index)),
+            pindex,
         };
 
         imdb.load_total_vector_count().await?;
@@ -128,7 +132,7 @@ pub struct IMDB {
     /// 特征点索引
     index: IndexManager,
     /// phash 索引
-    pindex: Option<RwLock<FaissIndex>>,
+    pindex: Option<HNSW>,
     /// 评分方式
     score_type: ScoreType,
 }
@@ -148,9 +152,8 @@ impl IMDB {
         // 尽快提交事务，避免锁住数据库
         tx.commit().await?;
         if let Some(index) = &self.pindex {
-            let mut index = index.write().unwrap();
-            let hashes = ArrayView2::from_shape((1, 8), hash)?;
-            index.add(hashes.view())?;
+            // TODO: 这些地方是否需要 spawn_blocking 呢？
+            index.add(hash, id as usize);
         }
         Ok(id)
     }
@@ -158,13 +161,10 @@ impl IMDB {
     /// 检查图片是否存在
     pub async fn check_hash(&self, hash: &[u8], distance: u32) -> Result<Option<i64>> {
         if let Some(index) = &self.pindex {
-            let index = index.read().unwrap();
             if distance > 0 {
-                let hash = ArrayView2::from_shape((1, 8), hash)?;
-                let result = index.search(hash, 1, None);
-                if !result[0].is_empty() && result[0][0].distance <= distance as i32 {
-                    // NOTE: 因为 phash 索引中从 0 号 ID 开始，所以需要加 1
-                    return Ok(Some(result[0][0].index + 1 as i64));
+                let result = index.search(hash, 1);
+                if !result.is_empty() && result[0].distance <= distance as f32 {
+                    return Ok(Some(result[0].d_id as i64));
                 }
             }
         }
@@ -401,9 +401,8 @@ impl IMDB {
 
     pub fn save_phash_index(&self) -> Result<()> {
         if let Some(index) = &self.pindex {
-            let index = index.read().unwrap();
             debug!("正在保存 phash 索引，大小：{}……", index.ntotal());
-            index.write_file(self.conf_dir.index_phash()).unwrap();
+            index.write(self.conf_dir.path())?;
         }
         Ok(())
     }
