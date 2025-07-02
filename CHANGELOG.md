@@ -2,6 +2,7 @@
 
 ## 未发布
 
+- `add` 支持包含 tar 的文件夹（需要使用 `--suffix` 包含 tar 文件）
 - `add` 增加 `--append` 参数
 - 允许根据 phash 相似度过滤
 - 移除 show 和 match 命令

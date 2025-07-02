@@ -14,7 +14,7 @@ use crate::IMDBBuilder;
 use crate::cli::SubCommandExtend;
 use crate::config::{Opts, OrbOptions};
 use crate::orb::*;
-use crate::utils::{ImageHash, pb_style};
+use crate::utils::{ImageHash, pb_style_speed};
 
 #[derive(Parser, Debug, Clone)]
 pub struct AddCommand {
@@ -72,9 +72,9 @@ impl SubCommandExtend for AddCommand {
 
         let db = Arc::new(IMDBBuilder::new(opts.conf_dir.clone()).hash(self.hash).open().await?);
 
-        let pb = ProgressBar::no_length().with_style(pb_style());
+        let pb = ProgressBar::no_length().with_style(pb_style_speed());
 
-        let (t1, rx) = task_scan(self.path.clone(), pb.clone(), re_suf);
+        let (t1, rx) = task_scan(self.path.clone(), re_suf);
         let (t2, rx) = task_hash(rx, self.hash, pb.clone());
         let (t3, rx) = task_filter(
             rx,

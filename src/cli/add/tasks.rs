@@ -1,12 +1,12 @@
 use std::borrow::Cow;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
 use anyhow::Result;
 use crossbeam_channel::{Receiver, Sender, bounded, unbounded};
 use either::Either;
 use futures::StreamExt;
-use indicatif::{ProgressBar, ProgressIterator};
+use indicatif::ProgressBar;
 use log::info;
 use regex::Regex;
 use tokio::fs::File;
@@ -18,21 +18,17 @@ use walkdir::WalkDir;
 use super::types::*;
 use crate::IMDB;
 use crate::orb::ORB;
-use crate::utils::{ImageHash, pb_style, pb_style_speed};
+use crate::utils::ImageHash;
 
-pub fn task_scan(
-    path: PathBuf,
-    pb: ProgressBar,
-    regex_suf: Regex,
-) -> (JoinHandle<()>, Receiver<ImageData>) {
+pub fn task_scan(path: PathBuf, regex_suf: Regex) -> (JoinHandle<()>, Receiver<ImageData>) {
     let (tx, rx) = bounded(num_cpus::get());
     let t = tokio::spawn(async move {
         // NOTE: 这里刻意不使用 `?` 而是 unwrap，这是为了确保出错时正常崩溃
         // 如果上抛的话，上层就需要正确打印错误，太过麻烦，不如直接 panic
         if path.is_file() {
-            scan_tar(path, tx, regex_suf, pb).await.unwrap();
+            scan_tar(path, tx, regex_suf).await.unwrap();
         } else {
-            scan_directory(path, tx, regex_suf, pb).await.unwrap();
+            scan_directory(path, tx, regex_suf).await.unwrap();
         }
     });
     (t, rx)
@@ -184,42 +180,40 @@ pub fn task_add(
     })
 }
 
-async fn scan_directory(
-    path: PathBuf,
-    tx: Sender<ImageData>,
-    regex_suf: Regex,
-    pb: ProgressBar,
-) -> Result<()> {
+async fn scan_directory(path: PathBuf, tx: Sender<ImageData>, regex_suf: Regex) -> Result<()> {
     info!("开始扫描目录: {}", path.display());
-    let pb2 = ProgressBar::no_length().with_style(pb_style());
-    let entries = WalkDir::new(path)
-        .into_iter()
-        .progress_with(pb2)
-        .filter_map(|entry| {
+
+    futures::stream::iter(WalkDir::new(path))
+        .filter_map(|entry| async {
             entry.ok().and_then(|entry| {
                 let path = entry.path();
                 if path.is_file() {
                     if let Some(ext) = path.extension() {
                         if regex_suf.is_match(&ext.to_string_lossy()) {
-                            return Some(path.to_string_lossy().to_string());
+                            return Some(entry);
                         }
                     }
                 }
                 None
             })
         })
-        .collect::<Vec<_>>();
-    info!("扫描完成，共 {} 张图片", entries.len());
-
-    pb.set_length(entries.len() as u64);
-
-    futures::stream::iter(entries)
-        .for_each_concurrent(32, |entry| async {
-            if let Ok(data) = tokio::fs::read(&entry).await {
-                let tx = tx.clone();
-                spawn_blocking(move || tx.send(ImageData { path: entry, data }).unwrap())
-                    .await
-                    .unwrap();
+        .for_each_concurrent(32, |entry| {
+            let tx = tx.clone();
+            let path = entry.path().to_path_buf();
+            async {
+                let path_str = path.to_string_lossy().to_string();
+                match path.extension().and_then(|ext| ext.to_str()) {
+                    Some("tar") => scan_tar(path, tx, regex_suf.clone()).await.unwrap(),
+                    _ => {
+                        if let Ok(data) = tokio::fs::read(path).await {
+                            spawn_blocking(move || {
+                                tx.send(ImageData { path: path_str, data }).unwrap()
+                            })
+                            .await
+                            .unwrap();
+                        }
+                    }
+                }
             }
         })
         .await;
@@ -227,17 +221,10 @@ async fn scan_directory(
     Ok(())
 }
 
-async fn scan_tar(
-    path: PathBuf,
-    tx: Sender<ImageData>,
-    re_suf: Regex,
-    pb: ProgressBar,
-) -> Result<()> {
+async fn scan_tar(path: impl AsRef<Path>, tx: Sender<ImageData>, re_suf: Regex) -> Result<()> {
     let file = File::open(path).await?;
     let mut archive = Archive::new(file);
     let mut entries = archive.entries()?;
-
-    pb.set_style(pb_style_speed());
 
     // NOTE: tar 的 entries 必须按顺序读取，不能乱序并发
     while let Some(entry) = entries.next().await {
