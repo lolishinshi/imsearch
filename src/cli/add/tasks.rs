@@ -151,6 +151,7 @@ pub fn task_add(
 ) -> JoinHandle<()> {
     tokio::spawn(async move {
         futures::stream::iter(lrx)
+            // TODO: 将向量划分为批次，对每一批的向量先进行内部的并行去重，然后再并行插入
             .for_each(|data| async {
                 let path = match &replace {
                     Some((re, replace)) => &*re.replace(&data.path, replace),
@@ -279,8 +280,11 @@ async fn handle_duplicate(
             let path = replace
                 .map(|(re, replace)| re.replace(&path, replace))
                 .unwrap_or(Cow::Borrowed(&path));
-            db.append_image_path(duplicate_id, &path).await?;
-            pb.set_message(format!("追加图片路径: {}", path));
+            if db.append_image_path(duplicate_id, &path).await? {
+                pb.set_message(format!("追加图片路径: {}", path));
+            } else {
+                pb.set_message(format!("跳过已添加图片: {}", path));
+            }
         }
         Duplicate::Ignore => {
             pb.set_message(format!("跳过已添加图片: {}", path));

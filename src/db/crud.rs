@@ -67,10 +67,10 @@ pub async fn update_image_path(executor: &SqlitePool, id: i64, path: &str) -> Re
 }
 
 /// 追加图片路径
-pub async fn append_image_path(executor: &SqlitePool, id: i64, path: &str) -> Result<()> {
+pub async fn append_image_path(executor: &SqlitePool, id: i64, path: &str) -> Result<bool> {
     let r = sqlx::query!(r"SELECT path FROM image WHERE id = ?", id).fetch_one(executor).await?;
     if r.path.split('\x1E').any(|p| p == path) {
-        return Ok(());
+        return Ok(false);
     }
 
     let path = format!("{}\x1E{}", r.path, path);
@@ -84,7 +84,7 @@ pub async fn append_image_path(executor: &SqlitePool, id: i64, path: &str) -> Re
     .execute(executor)
     .await?;
 
-    Ok(())
+    Ok(true)
 }
 
 /// 批量设置图片为已索引

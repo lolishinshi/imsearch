@@ -182,7 +182,7 @@ impl IMDB {
     }
 
     /// 追加图片路径
-    pub async fn append_image_path(&self, id: i64, path: &str) -> Result<()> {
+    pub async fn append_image_path(&self, id: i64, path: &str) -> Result<bool> {
         Ok(crud::append_image_path(&self.db, id, path).await?)
     }
 
