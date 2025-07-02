@@ -84,16 +84,8 @@ impl SubCommandExtend for AddCommand {
             replace.clone(),
             self.phash_distance,
         );
-        let (t4, rx) = task_calc(rx, pb.clone());
-        let t5 = task_add(
-            rx,
-            pb.clone(),
-            db.clone(),
-            self.min_keypoints as i32,
-            duplicate,
-            replace,
-            self.phash_distance,
-        );
+        let (t4, rx) = task_calc(rx, self.min_keypoints, pb.clone());
+        let t5 = task_add(rx, pb.clone(), db.clone(), duplicate, replace, self.phash_distance);
 
         // 等待所有任务完成
         let _ = tokio::try_join!(t1, t2, t3, t4, t5);

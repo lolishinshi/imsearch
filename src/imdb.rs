@@ -73,7 +73,7 @@ impl IMDBBuilder {
             info!("特征点数量：{}", vector_count);
         }
 
-        if let Some(old_hash) = crud::guess_hash(&db).await.ok() {
+        if let Ok(old_hash) = crud::guess_hash(&db).await {
             if self.hash.is_some() && self.hash.unwrap() != old_hash {
                 return Err(anyhow!("哈希算法不一致"));
             }
@@ -114,7 +114,7 @@ impl IMDBBuilder {
             cache: self.cache,
             index: IndexManager::new(self.conf_dir),
             score_type: self.score_type,
-            pindex,
+            pindex: pindex.map(Arc::new),
         };
 
         imdb.load_total_vector_count().await?;
@@ -132,7 +132,7 @@ pub struct IMDB {
     /// 特征点索引
     index: IndexManager,
     /// phash 索引
-    pindex: Option<HNSW>,
+    pindex: Option<Arc<HNSW>>,
     /// 评分方式
     score_type: ScoreType,
 }
@@ -151,25 +151,27 @@ impl IMDB {
         crud::add_vector_stats(&mut *tx, id, descriptors.dim().0 as i64).await?;
         // 尽快提交事务，避免锁住数据库
         tx.commit().await?;
-        if let Some(index) = &self.pindex {
-            // TODO: 这些地方是否需要 spawn_blocking 呢？
-            index.add(hash, id as usize);
+        if let Some(index) = self.pindex.clone() {
+            let hash = hash.to_vec();
+            spawn_blocking(move || index.add(&hash, id as usize)).await?;
         }
         Ok(id)
     }
 
     /// 检查图片是否存在
     pub async fn check_hash(&self, hash: &[u8], distance: u32) -> Result<Option<i64>> {
-        if let Some(index) = &self.pindex {
+        if let Some(id) = crud::check_image_hash(&self.db, hash).await? {
+            return Ok(Some(id));
+        }
+        // 由于 phash 检查较慢，因此放到后面检查
+        if let Some(index) = self.pindex.clone() {
             if distance > 0 {
-                let result = index.search(hash, 1);
+                let hash = hash.to_vec();
+                let result = spawn_blocking(move || index.search(&hash, 1)).await?;
                 if !result.is_empty() && result[0].distance <= distance as f32 {
                     return Ok(Some(result[0].d_id as i64));
                 }
             }
-        }
-        if let Some(id) = crud::check_image_hash(&self.db, hash).await? {
-            return Ok(Some(id));
         }
         Ok(None)
     }

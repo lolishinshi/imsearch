@@ -75,29 +75,34 @@ pub fn task_filter(
 ) -> (JoinHandle<()>, Receiver<HashedImageData>) {
     let (tx, rx) = bounded(num_cpus::get());
     let t = tokio::spawn(async move {
-        while let Ok(data) = spawn_blocking({
-            let lrx = lrx.clone();
-            move || lrx.recv()
-        })
-        .await
-        .unwrap()
-        {
-            if let Some(id) = db.check_hash(&data.hash, distance).await.unwrap() {
-                handle_duplicate(Either::Left(data), duplicate, id, replace.as_ref(), &db, &pb)
-                    .await
-                    .unwrap();
-                pb.inc(1);
-            } else {
-                let tx = tx.clone();
-                spawn_blocking(move || tx.send(data).unwrap()).await.unwrap();
-            }
-        }
+        futures::stream::iter(lrx)
+            // 由于 check_hash 可能需要进行比较耗时的 KNN 查询
+            // 因此这里使用 buffer_unordered 来并发处理
+            // 但写入时需要使用 for_each 顺序写入，避免 sqlite3 的锁竞争
+            .map(|data| async {
+                let dup_id = db.check_hash(&data.hash, distance).await;
+                (data, dup_id)
+            })
+            .buffer_unordered(8)
+            .for_each(|(data, dup_id)| async {
+                if let Some(id) = dup_id.unwrap() {
+                    handle_duplicate(Either::Left(data), duplicate, id, replace.as_ref(), &db, &pb)
+                        .await
+                        .unwrap();
+                    pb.inc(1);
+                } else {
+                    let tx = tx.clone();
+                    spawn_blocking(move || tx.send(data).unwrap()).await.unwrap();
+                }
+            })
+            .await;
     });
     (t, rx)
 }
 
 pub fn task_calc(
     lrx: Receiver<HashedImageData>,
+    min_keypoints: u32,
     pb: ProgressBar,
 ) -> (JoinHandle<()>, Receiver<ProcessableImage>) {
     let (tx, rx) = unbounded();
@@ -110,12 +115,20 @@ pub fn task_calc(
                             Either::Left(img) => orb.borrow_mut().detect_image(img),
                             Either::Right(bytes) => orb.borrow_mut().detect_bytes(&bytes),
                         }) {
-                            tx.send(ProcessableImage {
-                                path: data.path,
-                                hash: data.hash,
-                                descriptors: des,
-                            })
-                            .unwrap();
+                            if des.dim().0 <= min_keypoints as usize {
+                                pb.set_message(format!(
+                                    "特征点少于 {}: {}",
+                                    min_keypoints, data.path
+                                ));
+                                pb.inc(1);
+                            } else {
+                                tx.send(ProcessableImage {
+                                    path: data.path,
+                                    hash: data.hash,
+                                    descriptors: des,
+                                })
+                                .unwrap();
+                            }
                         } else {
                             pb.set_message(format!("计算特征点失败: {}", data.path));
                             pb.inc(1);
@@ -132,51 +145,40 @@ pub fn task_add(
     lrx: Receiver<ProcessableImage>,
     pb: ProgressBar,
     db: Arc<IMDB>,
-    min_keypoints: i32,
     duplicate: Duplicate,
     replace: Option<(Regex, String)>,
     phash_threshold: u32,
 ) -> JoinHandle<()> {
     tokio::spawn(async move {
-        while let Ok(data) = spawn_blocking({
-            let lrx = lrx.clone();
-            move || lrx.recv()
-        })
-        .await
-        .unwrap()
-        {
-            if data.descriptors.dim().0 <= min_keypoints as usize {
-                pb.set_message(format!("特征点少于 {}: {}", min_keypoints, data.path));
+        futures::stream::iter(lrx)
+            .for_each(|data| async {
+                let path = match &replace {
+                    Some((re, replace)) => &*re.replace(&data.path, replace),
+                    None => &*data.path,
+                };
+
+                match db.check_hash(&data.hash, phash_threshold).await.unwrap() {
+                    Some(id) => {
+                        handle_duplicate(
+                            Either::Right(data),
+                            duplicate,
+                            id,
+                            replace.as_ref(),
+                            &db,
+                            &pb,
+                        )
+                        .await
+                        .unwrap();
+                    }
+                    None => {
+                        db.add_image(path, &data.hash, data.descriptors.view()).await.unwrap();
+                        pb.set_message(path.to_owned());
+                    }
+                }
+
                 pb.inc(1);
-                continue;
-            }
-
-            let path = match &replace {
-                Some((re, replace)) => &*re.replace(&data.path, replace),
-                None => &*data.path,
-            };
-
-            match db.check_hash(&data.hash, phash_threshold).await.unwrap() {
-                Some(id) => {
-                    handle_duplicate(
-                        Either::Right(data),
-                        duplicate,
-                        id,
-                        replace.as_ref(),
-                        &db,
-                        &pb,
-                    )
-                    .await
-                    .unwrap();
-                }
-                None => {
-                    db.add_image(path, &data.hash, data.descriptors.view()).await.unwrap();
-                    pb.set_message(path.to_owned());
-                }
-            }
-
-            pb.inc(1);
-        }
+            })
+            .await;
     })
 }
 
