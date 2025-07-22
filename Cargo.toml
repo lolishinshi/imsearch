@@ -55,14 +55,7 @@ features = ["static", "avx2"]
 [dependencies.opencv]
 version = "=0.94.4"
 default-features = false
-features = [
-    "clang-runtime",
-    "features2d",
-    "flann",
-    "imgcodecs",
-    "imgproc",
-    "img_hash",
-]
+features = ["clang-runtime", "features2d", "flann", "imgcodecs", "imgproc"]
 
 [features]
 default = []

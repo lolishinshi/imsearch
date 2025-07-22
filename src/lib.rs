@@ -1,6 +1,7 @@
 pub mod cli;
 pub mod config;
 pub mod db;
+pub mod dhash;
 pub mod faiss;
 pub mod hnsw;
 pub mod imdb;

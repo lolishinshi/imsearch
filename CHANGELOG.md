@@ -4,7 +4,7 @@
 
 - `add` 支持包含 tar 的文件夹（需要使用 `--suffix` 包含 tar 文件）
 - `add` 增加 `--append` 参数
-- 允许根据 phash 相似度过滤
+- 允许根据 dhash 相似度过滤
 - 移除 show 和 match 命令
 - 允许直接使用匹配数量作为评分
 - 测试显示不管是 hnsw -> flat 还是 flat -> hnsw 都会降低精度，已移除动态 `--hnsw` 转换，改为提供转换脚本

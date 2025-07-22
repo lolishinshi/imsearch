@@ -7,10 +7,11 @@ use clap::ValueEnum;
 use indicatif::ProgressStyle;
 use ndarray::{Array2, ArrayView2};
 use opencv::core::*;
-use opencv::img_hash::p_hash;
 use opencv::{imgcodecs, imgproc};
+use serde::{Deserialize, Serialize};
 use utoipa::ToSchema;
 
+use crate::dhash::d_hash;
 use crate::orb::Slam3ORB;
 
 pub fn detect_and_compute(
@@ -95,12 +96,16 @@ pub fn pb_style_speed() -> ProgressStyle {
         .progress_chars("#>-")
 }
 
-#[derive(Debug, Clone, Copy, Eq, PartialEq, ValueEnum, ToSchema, TryFromField)]
+#[derive(
+    Debug, Clone, Copy, Eq, PartialEq, ValueEnum, ToSchema, TryFromField, Serialize, Deserialize,
+)]
 pub enum ImageHash {
+    /// 使用 blake3 哈希算法，长度 32 字节
     #[schema(rename = "blake3")]
     Blake3,
-    #[schema(rename = "phash")]
-    Phash,
+    /// 使用 dhash 哈希算法，长度 8 字节
+    #[schema(rename = "dhash")]
+    Dhash,
 }
 
 impl ImageHash {
@@ -113,11 +118,9 @@ impl ImageHash {
                 file.read_to_end(&mut data)?;
                 Ok(blake3::hash(&data).as_bytes().to_vec())
             }
-            Self::Phash => {
+            Self::Dhash => {
                 let img = imgcodecs::imread(path, imgcodecs::IMREAD_GRAYSCALE)?;
-                let mut output_arr = Mat::default();
-                p_hash(&img, &mut output_arr)?;
-                let hash = output_arr.data_bytes()?;
+                let hash = d_hash(&img)?;
                 Ok(hash.to_vec())
             }
         }
@@ -127,12 +130,10 @@ impl ImageHash {
     pub fn hash_bytes(&self, data: &[u8]) -> Result<(Option<Mat>, Vec<u8>)> {
         match self {
             Self::Blake3 => Ok((None, blake3::hash(data).as_bytes().to_vec())),
-            Self::Phash => {
+            Self::Dhash => {
                 let mat = Mat::from_slice(data)?;
                 let img = imgcodecs::imdecode(&mat, imgcodecs::IMREAD_GRAYSCALE)?;
-                let mut output_arr = Mat::default();
-                p_hash(&img, &mut output_arr)?;
-                let hash = output_arr.data_bytes()?;
+                let hash = d_hash(&img)?;
                 Ok((Some(img), hash.to_vec()))
             }
         }

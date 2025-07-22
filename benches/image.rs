@@ -2,11 +2,11 @@ use std::fs;
 use std::hint::black_box;
 
 use criterion::{Criterion, Throughput, criterion_group, criterion_main};
+use imsearch::dhash::{DHash, d_hash};
 use imsearch::orb::Slam3ORB;
 use imsearch::utils;
 use ndarray::Array2;
 use opencv::core::KeyPoint;
-use opencv::img_hash::p_hash;
 use opencv::imgcodecs;
 use opencv::imgproc::InterpolationFlags;
 use opencv::prelude::*;
@@ -24,10 +24,8 @@ fn blake3_hash(img: &[u8]) -> Vec<u8> {
     blake3::hash(img).as_bytes().to_vec()
 }
 
-fn phash_hash(img: &Mat) -> Vec<u8> {
-    let mut output_arr = Mat::default();
-    p_hash(img, &mut output_arr).unwrap();
-    output_arr.data_bytes().unwrap().to_vec()
+fn dhash_hash(img: &Mat) -> DHash {
+    d_hash(img).unwrap()
 }
 
 fn benchmark_image(c: &mut Criterion) {
@@ -54,7 +52,7 @@ fn benchmark_hash(c: &mut Criterion) {
     let mut group = c.benchmark_group("哈希计算");
     group.throughput(Throughput::Bytes(jpg.len() as u64));
     group.bench_function("BLAKE3", |b| b.iter(|| blake3_hash(black_box(&jpg))));
-    group.bench_function("pHash", |b| b.iter(|| phash_hash(black_box(&img))));
+    group.bench_function("dHash", |b| b.iter(|| dhash_hash(black_box(&img))));
     group.finish();
 }
 

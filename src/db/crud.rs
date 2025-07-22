@@ -303,7 +303,7 @@ pub async fn guess_hash(executor: &SqlitePool) -> Result<ImageHash> {
 
     match result.hash.len() {
         32 => Ok(ImageHash::Blake3),
-        8 => Ok(ImageHash::Phash),
+        8 => Ok(ImageHash::Dhash),
         _ => unreachable!(),
     }
 }

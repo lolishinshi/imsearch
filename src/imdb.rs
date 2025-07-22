@@ -79,7 +79,7 @@ impl IMDBBuilder {
             }
         }
 
-        let pindex = if self.hash == Some(ImageHash::Phash) {
+        let pindex = if self.hash == Some(ImageHash::Dhash) {
             let mut index = if self.conf_dir.path().join("phash.hnsw.graph").exists() {
                 HNSW::load(self.conf_dir.path())?
             } else {
