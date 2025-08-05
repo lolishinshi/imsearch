@@ -46,7 +46,7 @@ async fn main() -> anyhow::Result<()> {
         SubCommand::Clean(config) => {
             config.run(&opts).await?;
         }
-        SubCommand::Export(config) => {
+        SubCommand::Train(config) => {
             config.run(&opts).await?;
         }
     }

@@ -99,8 +99,8 @@ pub enum SubCommand {
     Build(BuildCommand),
     /// 清理数据库中的特征点，主要作用为减小数据库体积
     Clean(CleanCommand),
-    /// 导出 npy 格式的特征点，供训练使用
-    Export(ExportCommand),
+    /// 训练索引
+    Train(TrainCommand),
 }
 
 #[derive(Debug, Clone)]
