@@ -2,6 +2,8 @@
 
 ## 未发布
 
+- 移除 `export` 命令
+- 增加 `train` 命令，使用 KModes 进行聚类
 - `add` 支持包含 tar 的文件夹（需要使用 `--suffix` 包含 tar 文件）
 - `add` 增加 `--append` 参数
 - 允许根据 dhash 相似度过滤
