@@ -67,9 +67,9 @@ pub async fn search_handler(
             .collect::<Result<Vec<_>>>()
     })
     .await??;
-    for (size, des) in &r {
+    for (size, des) in r {
         sizes.push(size);
-        deses.push(des.view());
+        deses.push(des);
     }
 
     let lock = state.index.read().await;
@@ -88,14 +88,14 @@ pub async fn search_handler(
 
     for (v, size) in result.iter().zip(sizes.into_iter()) {
         if !v.is_empty() {
-            inc_image_count(*size, params.nprobe, orb.orb_scale_factor);
+            inc_image_count(size, params.nprobe, orb.orb_scale_factor);
             inc_search_duration(
-                *size,
+                size,
                 params.nprobe,
                 orb.orb_scale_factor,
                 start.elapsed().as_secs_f32() / deses.len() as f32,
             );
-            inc_search_max_score(*size, params.nprobe, orb.orb_scale_factor, v[0].0);
+            inc_search_max_score(size, params.nprobe, orb.orb_scale_factor, v[0].0);
         }
     }
 
@@ -173,10 +173,10 @@ pub async fn add_image_handler(
         })
         .await??;
 
-        if des.dim().0 <= 10 {
+        if des.len() <= 10 {
             continue;
         }
-        state.db.add_image(file_name, &hash, des.view()).await?;
+        state.db.add_image(file_name, &hash, &des).await?;
     }
     Ok(Json(json!({})))
 }

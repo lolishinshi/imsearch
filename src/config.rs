@@ -131,7 +131,7 @@ impl ConfDir {
     /// 返回下一个子索引文件的路径
     pub fn next_sub_index(&self) -> PathBuf {
         for i in 1.. {
-            let path = self.path.join(format!("index.{}", i));
+            let path = self.path.join(format!("index.{i}"));
             if !path.exists() {
                 return path;
             }
@@ -143,7 +143,7 @@ impl ConfDir {
     pub fn all_sub_index(&self) -> Vec<PathBuf> {
         let mut paths = vec![];
         for i in 1.. {
-            let path = self.path.join(format!("index.{}", i));
+            let path = self.path.join(format!("index.{i}"));
             if !path.exists() {
                 break;
             }
@@ -179,7 +179,7 @@ impl FromStr for ConfDir {
 fn parse_size(s: &str) -> anyhow::Result<(i32, i32)> {
     let parts: Vec<&str> = s.split('x').collect();
     if parts.len() != 2 {
-        return Err(anyhow::anyhow!("无效的尺寸: {}", s));
+        return Err(anyhow::anyhow!("无效的尺寸: {s}"));
     }
     Ok((parts[0].parse()?, parts[1].parse()?))
 }
@@ -190,7 +190,7 @@ fn parse_interpolation(s: &str) -> Result<InterpolationFlags, String> {
         "cubic" => Ok(InterpolationFlags::INTER_CUBIC),
         "area" => Ok(InterpolationFlags::INTER_AREA),
         "lanczos4" => Ok(InterpolationFlags::INTER_LANCZOS4),
-        _ => Err(format!("无效的插值方式: {}", s)),
+        _ => Err(format!("无效的插值方式: {s}")),
     }
 }
 

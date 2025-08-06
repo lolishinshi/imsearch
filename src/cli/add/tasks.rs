@@ -68,7 +68,7 @@ pub fn task_hash(
 pub fn task_filter(
     lrx: Receiver<HashedImageData>,
     pb: ProgressBar,
-    db: Arc<IMDB>,
+    db: Arc<IMDB<32>>,
     duplicate: Duplicate,
     replace: Option<(Regex, String)>,
     distance: u32,
@@ -115,7 +115,7 @@ pub fn task_calc(
                             Either::Left(img) => orb.borrow_mut().detect_image(img),
                             Either::Right(bytes) => orb.borrow_mut().detect_bytes(&bytes),
                         }) {
-                            if des.dim().0 <= min_keypoints as usize {
+                            if des.len() <= min_keypoints as usize {
                                 pb.set_message(format!(
                                     "特征点少于 {}: {}",
                                     min_keypoints, data.path
@@ -144,7 +144,7 @@ pub fn task_calc(
 pub fn task_add(
     lrx: Receiver<ProcessableImage>,
     pb: ProgressBar,
-    db: Arc<IMDB>,
+    db: Arc<IMDB<32>>,
     duplicate: Duplicate,
     replace: Option<(Regex, String)>,
     phash_threshold: u32,
@@ -172,7 +172,7 @@ pub fn task_add(
                         .unwrap();
                     }
                     None => {
-                        db.add_image(path, &data.hash, data.descriptors.view()).await.unwrap();
+                        db.add_image(path, &data.hash, &data.descriptors).await.unwrap();
                         pb.set_message(path.to_owned());
                     }
                 }
@@ -260,7 +260,7 @@ async fn handle_duplicate(
     duplicate: Duplicate,
     duplicate_id: i64,
     replace: Option<&(Regex, String)>,
-    db: &Arc<IMDB>,
+    db: &Arc<IMDB<32>>,
     pb: &ProgressBar,
 ) -> Result<()> {
     let path = match data {
@@ -274,20 +274,20 @@ async fn handle_duplicate(
                 .map(|(re, replace)| re.replace(&path, replace))
                 .unwrap_or(Cow::Borrowed(&path));
             db.update_image_path(duplicate_id, &path).await?;
-            pb.set_message(format!("更新图片路径: {}", path));
+            pb.set_message(format!("更新图片路径: {path}"));
         }
         Duplicate::Append => {
             let path = replace
                 .map(|(re, replace)| re.replace(&path, replace))
                 .unwrap_or(Cow::Borrowed(&path));
             if db.append_image_path(duplicate_id, &path).await? {
-                pb.set_message(format!("追加图片路径: {}", path));
+                pb.set_message(format!("追加图片路径: {path}"));
             } else {
-                pb.set_message(format!("跳过已添加图片: {}", path));
+                pb.set_message(format!("跳过已添加图片: {path}"));
             }
         }
         Duplicate::Ignore => {
-            pb.set_message(format!("跳过已添加图片: {}", path));
+            pb.set_message(format!("跳过已添加图片: {path}"));
         }
     }
     Ok(())

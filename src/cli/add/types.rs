@@ -1,5 +1,4 @@
 use either::Either;
-use ndarray::Array2;
 use opencv::core::Mat;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -23,5 +22,5 @@ pub struct HashedImageData {
 pub struct ProcessableImage {
     pub path: String,
     pub hash: Vec<u8>,
-    pub descriptors: Array2<u8>,
+    pub descriptors: Vec<[u8; 32]>,
 }

@@ -6,7 +6,6 @@ use anyhow::{Result, anyhow};
 use futures::prelude::*;
 use indicatif::ProgressBar;
 use log::{debug, info, warn};
-use ndarray::prelude::*;
 use rayon::prelude::*;
 use tokio::sync::Mutex;
 use tokio::task::{block_in_place, spawn_blocking};
@@ -27,7 +26,7 @@ pub struct BuildOptions {
 }
 
 #[derive(Debug, Clone)]
-pub struct IMDBBuilder {
+pub struct IMDBBuilder<const N: usize> {
     conf_dir: ConfDir,
     wal: bool,
     cache: bool,
@@ -35,7 +34,7 @@ pub struct IMDBBuilder {
     hash: Option<ImageHash>,
 }
 
-impl IMDBBuilder {
+impl<const N: usize> IMDBBuilder<N> {
     pub fn new(conf_dir: ConfDir) -> Self {
         Self { conf_dir, wal: true, cache: false, score_type: ScoreType::Wilson, hash: None }
     }
@@ -62,15 +61,15 @@ impl IMDBBuilder {
         self
     }
 
-    pub async fn open(self) -> Result<IMDB> {
+    pub async fn open(self) -> Result<IMDB<N>> {
         if !self.conf_dir.path().exists() {
             std::fs::create_dir_all(self.conf_dir.path())?;
         }
         let db = init_db(self.conf_dir.database(), self.wal).await?;
 
         if let Ok((image_count, vector_count)) = crud::get_count(&db).await {
-            info!("图片数量  : {}", image_count);
-            info!("特征点数量：{}", vector_count);
+            info!("图片数量  : {image_count}");
+            info!("特征点数量：{vector_count}");
         }
 
         if let Ok(old_hash) = crud::guess_hash(&db).await {
@@ -122,7 +121,7 @@ impl IMDBBuilder {
     }
 }
 
-pub struct IMDB {
+pub struct IMDB<const N: usize> {
     conf_dir: ConfDir,
     db: Database,
     /// 是否使用缓存来加速 id 查询，会导致第一次查询速度变慢
@@ -130,25 +129,25 @@ pub struct IMDB {
     /// 每张图片特征点 ID 的累加数量，用于加速计算
     total_vector_count: RwLock<Vec<i64>>,
     /// 特征点索引
-    index: IndexManager,
+    index: IndexManager<N>,
     /// phash 索引
     pindex: Option<Arc<HNSW>>,
     /// 评分方式
     score_type: ScoreType,
 }
 
-impl IMDB {
+impl<const N: usize> IMDB<N> {
     /// 添加图片到数据库
-    pub async fn add_image<'a>(
+    pub async fn add_image(
         &self,
         filename: impl AsRef<str>,
         hash: &[u8],
-        descriptors: ArrayView2<'a, u8>,
+        descriptors: &[[u8; N]],
     ) -> Result<i64> {
         let mut tx = self.db.begin_with("BEGIN IMMEDIATE").await?;
         let id = crud::add_image(&mut *tx, hash, filename.as_ref()).await?;
-        crud::add_vector(&mut *tx, id, descriptors.as_slice().unwrap()).await?;
-        crud::add_vector_stats(&mut *tx, id, descriptors.dim().0 as i64).await?;
+        crud::add_vector(&mut *tx, id, descriptors.as_flattened()).await?;
+        crud::add_vector_stats(&mut *tx, id, descriptors.len() as i64).await?;
         // 尽快提交事务，避免锁住数据库
         tx.commit().await?;
         if let Some(index) = self.pindex.clone() {
@@ -197,19 +196,15 @@ impl IMDB {
     }
 
     /// 导出若干图片的特征点到一个二维数组
-    pub async fn export(&self, count: Option<usize>) -> Result<Array2<u8>> {
+    pub async fn export(&self, count: Option<usize>) -> Result<Vec<[u8; N]>> {
         let count = count.unwrap_or(usize::MAX);
-        let mut arr = Array2::zeros((0, 32));
+        let mut arr = vec![];
         let mut i = 0;
         let records = crud::get_vectors(&self.db, count, 0).await?;
         for record in records {
-            for vector in record.vector.chunks(32) {
-                if vector.len() != 32 {
-                    panic!("特征长度不正确");
-                }
-                let tmp = ArrayView::from(vector);
-                arr.push(Axis(0), tmp)?;
-            }
+            let (vectors, remainder) = record.vector.as_chunks::<N>();
+            assert!(remainder.is_empty());
+            arr.extend_from_slice(vectors);
             i += 1;
             if i >= count {
                 break;
@@ -220,7 +215,7 @@ impl IMDB {
     }
 
     /// 获取用于搜索的索引
-    pub fn get_index(&self, mmap: bool) -> Result<FaissIndex> {
+    pub fn get_index(&self, mmap: bool) -> Result<FaissIndex<N>> {
         self.index.get_aggregate_index(mmap)
     }
 
@@ -234,31 +229,31 @@ impl IMDB {
     /// * `max_distance` - 最大距离
     /// * `max_result` - 最大结果数量
     /// * `params` - 搜索参数
-    pub async fn search<'a>(
+    pub async fn search(
         &self,
-        index: Arc<FaissIndex>,
-        descriptors: &[ArrayView2<'a, u8>],
+        index: Arc<FaissIndex<N>>,
+        descriptors: &[Vec<[u8; N]>],
         knn: usize,
         max_distance: u32,
         max_result: usize,
         params: FaissSearchParams,
     ) -> Result<Vec<Vec<(f32, String)>>> {
-        let mat = ndarray::concatenate(Axis(0), descriptors)?;
+        let mat = descriptors.concat();
 
         info!(
             "对 {} 组 {} 条向量搜索 {} 个最近邻, {:?}",
             descriptors.len(),
-            mat.dim().0,
+            mat.len(),
             knn,
             params
         );
-        if mat.dim().0 == 0 {
+        if mat.is_empty() {
             return Ok(vec![vec![]; descriptors.len()]);
         }
 
         let mut instant = Instant::now();
 
-        let neighbors = spawn_blocking(move || index.search(mat.view(), knn, Some(params))).await?;
+        let neighbors = spawn_blocking(move || index.search(&mat, knn, Some(params))).await?;
         debug!("搜索耗时    ：{}ms", instant.elapsed().as_millis());
         instant = Instant::now();
 
@@ -266,7 +261,7 @@ impl IMDB {
         let mut res = &*neighbors;
         let mut cur;
         for item in descriptors {
-            (cur, res) = res.split_at(item.dim().0);
+            (cur, res) = res.split_at(item.len());
             result.push(self.process_neighbor_group(cur, max_distance as i32, max_result).await?);
         }
 
@@ -346,7 +341,7 @@ impl IMDB {
     }
 }
 
-impl IMDB {
+impl<const N: usize> IMDB<N> {
     /// 分段构建索引再进行合并
     pub async fn build_index(&self, options: BuildOptions) -> Result<()> {
         info!("正在计算未索引的图片数量……");
@@ -364,14 +359,13 @@ impl IMDB {
             index.set_ef_search(options.ef_search);
             assert!(index.is_trained(), "该索引未训练！");
 
-            let mut images = vec![];
-            let mut ids = vec![];
-            let mut features = Array2::zeros((0, 32));
-            features.reserve_rows(chunk.len() * 500)?;
+            let mut images = Vec::with_capacity(chunk.len());
+            let mut ids = Vec::with_capacity(chunk.len() * N);
+            let mut features = Vec::with_capacity(chunk.len() * N);
 
             for record in chunk {
-                for (i, feature) in record.vector.chunks(32).enumerate() {
-                    features.push_row(ArrayView::from(feature))?;
+                for (i, feature) in record.vector.chunks_exact(N).enumerate() {
+                    features.push(feature.try_into().unwrap());
                     // total_vector_count 记录了截止到这张图片的特征点数量累加和
                     // 因此使用它减去特征点本身的序号，就可以得到一个唯一的特征点 ID
                     ids.push(record.total_vector_count - i as i64);
@@ -380,7 +374,7 @@ impl IMDB {
             }
 
             block_in_place(|| {
-                index.add_with_ids(features.view(), &ids)?;
+                index.add_with_ids(&features, &ids)?;
                 index.write_file(self.conf_dir.next_sub_index())
             })?;
 

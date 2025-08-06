@@ -84,7 +84,7 @@ impl SubCommandExtend for ServerCommand {
                     .await
                     .unwrap();
                     if let Err(e) = r {
-                        error!("推送指标失败: {}", e);
+                        error!("推送指标失败: {e}");
                     }
                     sleep(Duration::from_secs(30)).await;
                 }

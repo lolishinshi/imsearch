@@ -10,9 +10,9 @@ use crate::faiss::FaissIndex;
 /// 应用状态
 pub struct AppState {
     /// Faiss索引
-    pub index: RwLock<Option<Arc<FaissIndex>>>,
+    pub index: RwLock<Option<Arc<FaissIndex<32>>>>,
     /// 数据库连接
-    pub db: IMDB,
+    pub db: IMDB<32>,
     /// 服务器配置选项
     pub orb: OrbOptions,
     /// 搜索配置选项
@@ -23,7 +23,7 @@ pub struct AppState {
 
 impl AppState {
     /// 创建新的应用状态
-    pub fn new(index: FaissIndex, db: IMDB, opts: ServerCommand) -> Arc<Self> {
+    pub fn new(index: FaissIndex<32>, db: IMDB<32>, opts: ServerCommand) -> Arc<Self> {
         Arc::new(AppState {
             index: RwLock::new(Some(Arc::new(index))),
             db,

@@ -5,37 +5,34 @@ use std::ptr::null_mut;
 use anyhow::Result;
 use faiss_sys::*;
 use log::debug;
-use ndarray::ArrayView2;
 
 use super::FaissInvLists;
 use super::types::*;
 use crate::faiss::faiss_try;
 
 /// Faiss 索引
-pub struct FaissIndex {
+pub struct FaissIndex<const N: usize> {
     index: *mut FaissIndexBinary,
-    /// 向量维数
-    d: i32,
 }
 
-impl FaissIndex {
+impl<const N: usize> FaissIndex<N> {
     /// 创建一个新的 Faiss 索引
     ///
     /// # Arguments
     ///
     /// * `d` - 向量维数，对于二进制向量来说，是总 bit 数
     /// * `description` - 索引的描述字符串
-    pub fn new(d: i32, description: &str) -> Result<Self> {
+    pub fn new(description: &str) -> Result<Self> {
         let index = null_mut();
         let description = CString::new(description).unwrap();
         unsafe {
             faiss_try(faiss_index_binary_factory(
                 &index as *const _ as *mut _,
-                d,
+                (N * 8) as i32,
                 description.as_ptr(),
             ))?;
         }
-        Ok(Self { index, d })
+        Ok(Self { index })
     }
 
     /// 从文件加载索引
@@ -60,7 +57,8 @@ impl FaissIndex {
             ))?;
         }
         let d = unsafe { faiss_IndexBinary_d(index) };
-        Ok(Self { index, d })
+        assert_eq!(d as usize, N * 8);
+        Ok(Self { index })
     }
 
     /// 该索引中的向量数量
@@ -78,7 +76,7 @@ impl FaissIndex {
         unsafe { faiss_IndexBinary_is_trained(self.index) != 0 }
     }
 
-    pub fn add_train<const N: usize>(&mut self, v: &[[u8; N]]) -> Result<()> {
+    pub fn add_train(&mut self, v: &[[u8; N]]) -> Result<()> {
         let quantizer = unsafe { faiss_IndexBinaryIVF_quantizer(self.index) };
         unsafe { faiss_IndexBinary_set_verbose(self.index, 1) };
         unsafe { faiss_IndexBinary_add(quantizer, v.len() as i64, v.as_ptr() as *const u8) };
@@ -101,32 +99,25 @@ impl FaissIndex {
     }
 
     /// 添加若干条向量到索引中
-    ///
-    /// # Arguments
-    ///
-    /// * `v` - 向量，大小为 (n, d)
-    pub fn add(&mut self, v: ArrayView2<u8>) -> Result<()> {
-        assert_eq!(v.dim().1 * 8, self.d as usize);
+    pub fn add(&mut self, v: &[[u8; N]]) -> Result<()> {
         unsafe {
-            faiss_try(faiss_IndexBinary_add(self.index, v.dim().0 as i64, v.as_ptr()))?;
+            faiss_try(faiss_IndexBinary_add(
+                self.index,
+                v.len() as i64,
+                v.as_flattened().as_ptr(),
+            ))?;
         }
         Ok(())
     }
 
     /// 使用自定义 ID 添加向量到索引中
-    ///
-    /// # Arguments
-    ///
-    /// * `v` - 向量，大小为 (n, d)
-    /// * `ids` - 向量 id 列表，长度为 n
-    pub fn add_with_ids(&mut self, v: ArrayView2<u8>, ids: &[i64]) -> Result<()> {
-        assert_eq!(v.dim().1 * 8, self.d as usize);
-        assert_eq!(v.dim().0, ids.len());
+    pub fn add_with_ids(&mut self, v: &[[u8; N]], ids: &[i64]) -> Result<()> {
+        assert_eq!(v.len(), ids.len());
         unsafe {
             faiss_try(faiss_IndexBinary_add_with_ids(
                 self.index,
-                v.dim().0 as i64,
-                v.as_ptr(),
+                v.len() as i64,
+                v.as_flattened().as_ptr(),
                 ids.as_ptr(),
             ))?;
         }
@@ -134,21 +125,14 @@ impl FaissIndex {
     }
 
     /// 批量搜索 points 中的向量，对每个向量，返回 knn 个最近邻
-    ///
-    /// # Arguments
-    ///
-    /// * `points` - 需要搜索的向量数组，大小为 (n, d)，其中 n 为向量数量，d 为向量维度
-    /// * `knn` - 每个向量需要返回的最近邻数量
-    /// * `params` - 搜索参数
     pub fn search(
         &self,
-        points: ArrayView2<u8>,
+        points: &[[u8; N]],
         knn: usize,
         params: Option<FaissSearchParams>,
     ) -> Vec<Vec<Neighbor>> {
-        assert_eq!(points.dim().1 * 8, self.d as usize);
-        let mut distances = vec![0i32; points.dim().0 * knn];
-        let mut labels = vec![0i64; points.dim().0 * knn];
+        let mut distances = vec![0i32; points.len() * knn];
+        let mut labels = vec![0i64; points.len() * knn];
 
         // 初始化参数
         if let Some(params) = params {
@@ -157,8 +141,8 @@ impl FaissIndex {
             unsafe {
                 faiss_try(faiss_IndexBinary_search_with_params(
                     self.index,
-                    points.dim().0 as i64,
-                    points.as_ptr(),
+                    points.len() as i64,
+                    points.as_flattened().as_ptr(),
                     knn as i64,
                     *raw_params,
                     distances.as_mut_ptr(),
@@ -170,8 +154,8 @@ impl FaissIndex {
             unsafe {
                 faiss_try(faiss_IndexBinary_search(
                     self.index,
-                    points.dim().0 as i64,
-                    points.as_ptr(),
+                    points.len() as i64,
+                    points.as_flattened().as_ptr(),
                     knn as i64,
                     distances.as_mut_ptr(),
                     labels.as_mut_ptr(),
@@ -307,7 +291,7 @@ impl FaissIndex {
     }
 }
 
-impl Drop for FaissIndex {
+impl<const N: usize> Drop for FaissIndex<N> {
     fn drop(&mut self) {
         debug!("释放 faiss 索引");
         unsafe {
@@ -316,8 +300,8 @@ impl Drop for FaissIndex {
     }
 }
 
-unsafe impl Sync for FaissIndex {}
-unsafe impl Send for FaissIndex {}
+unsafe impl<const N: usize> Sync for FaissIndex<N> {}
+unsafe impl<const N: usize> Send for FaissIndex<N> {}
 
 /// 获取 faiss 版本
 pub fn faiss_version() -> String {

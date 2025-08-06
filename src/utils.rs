@@ -5,7 +5,6 @@ use anyhow::Result;
 use axum_typed_multipart::TryFromField;
 use clap::ValueEnum;
 use indicatif::ProgressStyle;
-use ndarray::{Array2, ArrayView2};
 use opencv::core::*;
 use opencv::{imgcodecs, imgproc};
 use serde::{Deserialize, Serialize};
@@ -14,17 +13,18 @@ use utoipa::ToSchema;
 use crate::dhash::d_hash;
 use crate::orb::Slam3ORB;
 
+/// 检测并计算特征点
 pub fn detect_and_compute(
     orb: &mut Slam3ORB,
     image: &impl ToInputArray,
-) -> opencv::Result<(Vec<KeyPoint>, Array2<u8>)> {
+) -> opencv::Result<(Vec<KeyPoint>, Vec<[u8; 32]>)> {
     let mask = Mat::default();
     let mut kps = Vector::<KeyPoint>::new();
     let mut des = Mat::default();
     orb.detect_and_compute(image, &mask, &mut kps, &mut des)?;
     let kps = kps.to_vec();
-    let des = ArrayView2::from_shape((kps.len(), 32), des.data_bytes()?).unwrap();
-    Ok((kps, des.to_owned()))
+    let (des, _) = des.data_bytes()?.as_chunks::<32>();
+    Ok((kps, des.to_vec()))
 }
 
 pub fn imdecode(buf: &[u8], (height, width): (i32, i32)) -> opencv::Result<Mat> {

@@ -10,11 +10,11 @@ use crate::faiss::*;
 use crate::utils::pb_style;
 
 #[derive(Debug)]
-pub struct IndexManager {
+pub struct IndexManager<const N: usize> {
     conf_dir: ConfDir,
 }
 
-impl IndexManager {
+impl<const N: usize> IndexManager<N> {
     pub fn new(conf_dir: ConfDir) -> Self {
         if !conf_dir.path().exists() {
             fs::create_dir_all(conf_dir.path()).unwrap();
@@ -23,7 +23,7 @@ impl IndexManager {
     }
 
     /// 获取模板索引
-    pub fn get_template_index(&self) -> Result<FaissIndex> {
+    pub fn get_template_index(&self) -> Result<FaissIndex<N>> {
         let index_file = self.conf_dir.template_index();
         if index_file.exists() {
             FaissIndex::from_file(index_file, false)
@@ -33,7 +33,7 @@ impl IndexManager {
     }
 
     /// 获取主索引
-    fn get_main_index(&self, mut mmap: bool) -> Result<FaissIndex> {
+    fn get_main_index(&self, mut mmap: bool) -> Result<FaissIndex<N>> {
         let index_file = self.conf_dir.index();
         if !index_file.exists() {
             return self.get_template_index();
@@ -60,12 +60,12 @@ impl IndexManager {
     }
 
     /// 获取子索引
-    fn get_sub_index(&self, mmap: bool) -> impl Iterator<Item = Result<FaissIndex>> {
+    fn get_sub_index(&self, mmap: bool) -> impl Iterator<Item = Result<FaissIndex<N>>> {
         self.conf_dir.all_sub_index().into_iter().map(move |file| FaissIndex::from_file(file, mmap))
     }
 
     /// 获取聚合索引
-    pub fn get_aggregate_index(&self, mmap: bool) -> Result<FaissIndex> {
+    pub fn get_aggregate_index(&self, mmap: bool) -> Result<FaissIndex<N>> {
         if self.conf_dir.all_sub_index().is_empty() {
             self.get_main_index(mmap)
         } else {
@@ -83,7 +83,7 @@ impl IndexManager {
             }
 
             if self.conf_dir.index().exists() {
-                let mut index = FaissIndex::from_file(self.conf_dir.index(), mmap)?;
+                let mut index = FaissIndex::<N>::from_file(self.conf_dir.index(), mmap)?;
                 index.set_own_invlists(false);
                 invfs.push(index.invlists());
             }
@@ -152,7 +152,7 @@ impl IndexManager {
 
         // 旧索引
         if self.conf_dir.index().exists() {
-            let mut index = if self.conf_dir.ondisk_ivf().exists() {
+            let mut index: FaissIndex<N> = if self.conf_dir.ondisk_ivf().exists() {
                 // OnDiskIVF 格式永远是 mmap，不能设置 mmap
                 FaissIndex::from_file(self.conf_dir.index(), false)?
             } else {

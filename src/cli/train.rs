@@ -24,15 +24,13 @@ pub struct TrainCommand {
 
 impl SubCommandExtend for TrainCommand {
     async fn run(&self, opts: &Opts) -> Result<()> {
-        let db = IMDBBuilder::new(opts.conf_dir.clone()).open().await?;
+        let db = IMDBBuilder::<32>::new(opts.conf_dir.clone()).open().await?;
         let data = db.export(Some(self.images)).await?;
-
-        let (data, _) = data.as_slice().unwrap().as_chunks::<32>();
-        let centroids = kmodes_2level::<32>(data, self.centers, self.max_iter);
+        let centroids = kmodes_2level(&data, self.centers, self.max_iter);
         let description = format!("BIVF{}_HNSW32", self.centers);
-        let mut index = FaissIndex::new(256, &description)?;
+        let mut index = FaissIndex::new(&description)?;
         index.add_train(&centroids.centroids)?;
-        index.write_file(&format!("{}.trained", description))?;
+        index.write_file(format!("{description}.trained"))?;
         Ok(())
     }
 }

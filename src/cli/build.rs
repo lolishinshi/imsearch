@@ -24,7 +24,7 @@ pub struct BuildCommand {
 
 impl SubCommandExtend for BuildCommand {
     async fn run(&self, opts: &Opts) -> Result<()> {
-        let db = IMDBBuilder::new(opts.conf_dir.clone()).open().await?;
+        let db = IMDBBuilder::<32>::new(opts.conf_dir.clone()).open().await?;
         let options = BuildOptions {
             on_disk: self.on_disk,
             batch_size: self.batch_size,

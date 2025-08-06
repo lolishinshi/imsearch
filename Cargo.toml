@@ -24,8 +24,6 @@ futures = "0.3.31"
 hnsw_rs = "0.3.2"
 indicatif = { version = "0.17.11", features = ["rayon"] }
 log = "0.4.27"
-ndarray = "0.16.1"
-ndarray-npy = "0.9.1"
 num_cpus = "1.17.0"
 prometheus = { version = "0.14.0", features = ["process", "push"] }
 rand = "0.9.2"

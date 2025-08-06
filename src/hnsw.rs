@@ -22,6 +22,12 @@ pub struct HNSW {
     index: Hnsw<'static, u8, DistHamming<8>>,
 }
 
+impl Default for HNSW {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl HNSW {
     pub fn new() -> Self {
         Self { index: Hnsw::<u8, _>::new(32, 1_000_000, 16, 128, DistHamming::<8>) }

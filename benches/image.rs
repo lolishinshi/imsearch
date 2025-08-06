@@ -5,13 +5,12 @@ use criterion::{Criterion, Throughput, criterion_group, criterion_main};
 use imsearch::dhash::{DHash, d_hash};
 use imsearch::orb::Slam3ORB;
 use imsearch::utils;
-use ndarray::Array2;
 use opencv::core::KeyPoint;
 use opencv::imgcodecs;
 use opencv::imgproc::InterpolationFlags;
 use opencv::prelude::*;
 
-fn orb_detect(orb: &mut Slam3ORB, img: &Mat) -> (Vec<KeyPoint>, Array2<u8>) {
+fn orb_detect(orb: &mut Slam3ORB, img: &Mat) -> (Vec<KeyPoint>, Vec<[u8; 32]>) {
     utils::detect_and_compute(orb, img).unwrap()
 }
 
