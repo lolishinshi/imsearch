@@ -1,10 +1,10 @@
-use indicatif::{ProgressBar, ProgressIterator, ProgressStyle};
+use indicatif::{ProgressBar, ProgressIterator};
 use log::info;
 use rand::prelude::*;
 use rand::rng;
 use rayon::prelude::*;
 
-use crate::hamming::{batch_knn_hamming, hamming};
+use crate::hamming::hamming;
 use crate::utils::pb_style;
 
 pub fn kmodes_2level<const N: usize>(x: &[[u8; N]], nc: usize, max_iter: usize) -> KModeState<N> {

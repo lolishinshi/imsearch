@@ -78,6 +78,15 @@ impl FaissIndex {
         unsafe { faiss_IndexBinary_is_trained(self.index) != 0 }
     }
 
+    pub fn add_train<const N: usize>(&mut self, v: &[[u8; N]]) -> Result<()> {
+        let quantizer = unsafe { faiss_IndexBinaryIVF_quantizer(self.index) };
+        unsafe { faiss_IndexBinary_set_verbose(self.index, 1) };
+        unsafe { faiss_IndexBinary_add(quantizer, v.len() as i64, v.as_ptr() as *const u8) };
+        unsafe { faiss_IndexBinary_train(quantizer, v.len() as i64, v.as_ptr() as *const u8) };
+        unsafe { faiss_IndexBinary_train(self.index, v.len() as i64, v.as_ptr() as *const u8) };
+        Ok(())
+    }
+
     /// 将索引写入到文件，考虑到中途打断的情况，使用临时文件写入再重命名
     pub fn write_file(&self, path: impl AsRef<Path>) -> Result<()> {
         let path = path.as_ref();

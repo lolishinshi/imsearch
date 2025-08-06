@@ -3,7 +3,7 @@ pub mod config;
 pub mod db;
 pub mod dhash;
 pub mod faiss;
-mod hamming;
+pub mod hamming;
 pub mod hnsw;
 pub mod imdb;
 pub mod index;

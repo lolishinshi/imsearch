@@ -2,6 +2,7 @@ use anyhow::Result;
 use clap::Parser;
 
 use crate::cli::SubCommandExtend;
+use crate::faiss::FaissIndex;
 use crate::kmodes::kmodes_2level;
 use crate::{IMDBBuilder, Opts};
 
@@ -25,8 +26,13 @@ impl SubCommandExtend for TrainCommand {
     async fn run(&self, opts: &Opts) -> Result<()> {
         let db = IMDBBuilder::new(opts.conf_dir.clone()).open().await?;
         let data = db.export(Some(self.images)).await?;
+
         let (data, _) = data.as_slice().unwrap().as_chunks::<32>();
         let centroids = kmodes_2level::<32>(data, self.centers, self.max_iter);
+        let description = format!("BIVF{}_HNSW32", self.centers);
+        let mut index = FaissIndex::new(256, &description)?;
+        index.add_train(&centroids.centroids)?;
+        index.write_file(&format!("{}.trained", description))?;
         Ok(())
     }
 }
