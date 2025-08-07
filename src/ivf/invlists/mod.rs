@@ -1,7 +1,6 @@
 mod array_invlists;
 mod ondisk_invlists;
 
-use std::borrow::Cow;
 use std::fs::File;
 use std::io::{BufWriter, Cursor, Read, Write};
 use std::path::Path;
@@ -22,7 +21,7 @@ pub trait InvertedLists<const N: usize> {
     fn list_len(&self, list_no: usize) -> usize;
 
     /// 返回指定倒排表中向量的 ID 列表和数据
-    fn get_list(&self, list_no: usize) -> Result<(Cow<[u64]>, Cow<[[u8; N]]>)>;
+    fn get_list(&self, list_no: usize) -> Result<(&[u64], &[[u8; N]])>;
 
     /// 往指定倒排表中添加元素
     fn add_entries(&mut self, list_no: usize, ids: &[u64], codes: &[[u8; N]]) -> Result<u64>;

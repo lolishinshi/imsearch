@@ -33,20 +33,6 @@ pub fn hamming_32(va: &[u8], vb: &[u8]) -> u32 {
         + (va[3] ^ vb[3]).count_ones()
 }
 
-#[inline(always)]
-pub fn hamming_d<const N: usize>(va: &[u8; N], vb: &[u8; N], d: u32) -> u32 {
-    let va: &[u64] = cast_slice(va);
-    let vb: &[u64] = cast_slice(vb);
-    let mut sum = 0;
-    for i in 0..N / 8 {
-        sum += (va[i] ^ vb[i]).count_ones();
-        if sum >= d {
-            return sum;
-        }
-    }
-    sum
-}
-
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
 pub struct KNNResult {
     pub dis: u32,
@@ -90,7 +76,7 @@ pub fn knn_hamming_array<const N: usize>(
     let mut idx = [0; 8];
     for (i, chunk) in vb.iter().enumerate() {
         let d = hamming::<N>(va, chunk);
-        if d > dis[0] {
+        if d >= dis[0] {
             continue;
         }
         // 维护一个长度为 K 的单调递减数组

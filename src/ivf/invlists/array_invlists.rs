@@ -1,4 +1,3 @@
-use std::borrow::Cow;
 use std::fs::File;
 use std::io::{BufWriter, Write};
 use std::path::Path;
@@ -49,8 +48,8 @@ impl<const N: usize> InvertedLists<N> for ArrayInvertedLists<N> {
         self.ids[list_no].len()
     }
 
-    fn get_list(&self, list_no: usize) -> Result<(Cow<[u64]>, Cow<[[u8; N]]>)> {
-        Ok((Cow::Borrowed(&self.ids[list_no]), Cow::Borrowed(&self.codes[list_no])))
+    fn get_list(&self, list_no: usize) -> Result<(&[u64], &[[u8; N]])> {
+        Ok((&self.ids[list_no], &self.codes[list_no]))
     }
 
     fn add_entries(&mut self, list_no: usize, ids: &[u64], codes: &[[u8; N]]) -> Result<u64> {

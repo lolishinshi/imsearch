@@ -48,7 +48,7 @@ impl<const N: usize> Quantizer<N> for FaissHNSWQuantizer<N> {
         Ok(Self { index })
     }
 
-    fn search(&self, x: &[[u8; N]], k: usize) -> Result<Vec<Vec<usize>>> {
+    fn search(&self, x: &[[u8; N]], k: usize) -> Result<Vec<i64>> {
         let xf = x.as_flattened();
         let mut distances = vec![0; x.len() * k];
         let mut labels = vec![0; x.len() * k];
@@ -62,8 +62,7 @@ impl<const N: usize> Quantizer<N> for FaissHNSWQuantizer<N> {
                 labels.as_mut_ptr(),
             ))?;
         }
-        // TODO: 能不能允许 search 返回 Iterator<Iterator<usize>>?
-        Ok(labels.chunks_exact(k).map(|c| c.iter().map(|l| *l as usize).collect()).collect())
+        Ok(labels)
     }
 
     fn save<P: AsRef<std::path::Path>>(&self, path: P) -> Result<()> {

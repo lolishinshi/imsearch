@@ -49,10 +49,9 @@ where
     // TODO: 这里的 API 能不能改成接受 IntoIterator ？
     pub fn add(&mut self, data: &[[u8; N]], ids: &[u64]) -> Result<()> {
         let vlists = self.quantizer.search(data, 1)?;
-        for ((xq, id), lists) in data.iter().zip(ids).zip(vlists) {
-            let list_no = lists[0];
+        for ((xq, id), list_no) in data.iter().zip(ids).zip(vlists) {
             let (xq, _) = xq.as_chunks();
-            self.invlists.add_entries(list_no, &[*id], xq)?;
+            self.invlists.add_entries(list_no as usize, &[*id], xq)?;
         }
         Ok(())
     }
@@ -66,18 +65,18 @@ where
         let calc_time = AtomicU64::new(0);
 
         let neighbors = data
-            .iter()
-            .zip(vlists)
+            .into_iter()
+            .zip(vlists.chunks_exact(nprobe))
             .par_bridge()
             .map(|(xq, lists)| {
                 let mut v = Vec::with_capacity(k * lists.len());
-                for list_no in lists {
-                    if list_no == usize::MAX {
+                for &list_no in lists {
+                    if list_no == -1 {
                         continue;
                     }
                     let t = Instant::now();
                     // NOTE: 此处统计的 IO 时间并不准确，因为 mmap 的实际 IO 发生在访问时
-                    let (ids, codes) = self.invlists.get_list(list_no).unwrap();
+                    let (ids, codes) = self.invlists.get_list(list_no as usize).unwrap();
                     io_time.fetch_add(t.elapsed().as_nanos() as u64, Ordering::Relaxed);
                     let r = knn_hamming::<N>(xq, &codes, k);
                     let n =

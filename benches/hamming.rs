@@ -73,7 +73,7 @@ fn bench_hamming_knn(c: &mut Criterion) {
     let mut group = c.benchmark_group("Hamming KNN");
     let mut rng = rand::rng();
     let mut src = [0u8; 32];
-    let dst: &[u8] = include_bytes_align_as!(u64, "./list");
+    let dst: &[u8] = include_bytes_align_as!(u64, "./list.bin");
     let k = black_box(3);
     rng.fill_bytes(&mut src);
 

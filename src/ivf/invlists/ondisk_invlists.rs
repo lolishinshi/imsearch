@@ -1,4 +1,3 @@
-use std::borrow::Cow;
 use std::fs::File;
 use std::path::Path;
 
@@ -56,17 +55,14 @@ impl<const N: usize> InvertedLists<N> for OnDiskInvlists<N> {
         self.list_len[list_no]
     }
 
-    fn get_list(
-        &self,
-        list_no: usize,
-    ) -> Result<(std::borrow::Cow<[u64]>, std::borrow::Cow<[[u8; N]]>)> {
+    fn get_list(&self, list_no: usize) -> Result<(&[u64], &[[u8; N]])> {
         let len = self.list_len(list_no);
         let offset = self.list_offset(list_no);
-        let data = &self.mmap[offset..offset + len * (size_of::<u64>() + N * size_of::<u8>())];
-        let ids = cast_slice(&data[..len * size_of::<u64>()]);
-        let (codes, _) = &data[len * size_of::<u64>()..].as_chunks();
-        Ok((Cow::Borrowed(ids), Cow::Borrowed(codes)))
-        //Ok((Cow::Owned(ids.to_vec()), Cow::Owned(codes.to_vec())))
+        let data = &self.mmap[offset..][..len * (size_of::<u64>() + N * size_of::<u8>())];
+        let (ids, codes) = data.split_at(len * size_of::<u64>());
+        let ids = cast_slice(ids);
+        let (codes, _) = codes.as_chunks();
+        Ok((ids, codes))
     }
 
     fn add_entries(&mut self, _list_no: usize, _ids: &[u64], _codes: &[[u8; N]]) -> Result<u64> {
