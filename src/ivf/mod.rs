@@ -2,10 +2,13 @@ pub mod invlists;
 pub mod quantizer;
 
 use std::path::Path;
-use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::atomic::{AtomicU64, AtomicUsize, Ordering};
+use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
 use anyhow::Result;
+use bytemuck::checked::cast_slice;
+use crossbeam_channel::bounded;
 pub use invlists::*;
 pub use quantizer::*;
 use rayon::prelude::*;
@@ -26,13 +29,19 @@ pub struct SeachResult {
     /// 总搜索耗时
     pub search_time: Duration,
     /// 搜索结果
-    pub neighbors: Vec<Vec<Neighbor>>,
+    pub neighbors: Vec<Neighbor>,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct Neighbor {
-    pub id: usize,
+    pub id: i64,
     pub distance: u32,
+}
+
+impl Default for Neighbor {
+    fn default() -> Self {
+        Self { id: -1, distance: u32::MAX }
+    }
 }
 
 pub struct IvfHnsw<const N: usize, Q: Quantizer<N>, I: InvertedLists<N>> {
@@ -64,31 +73,61 @@ where
         let io_time = AtomicU64::new(0);
         let calc_time = AtomicU64::new(0);
 
-        let neighbors = data
-            .into_iter()
-            .zip(vlists.chunks_exact(nprobe))
-            .par_bridge()
-            .map(|(xq, lists)| {
-                let mut v = Vec::with_capacity(k * lists.len());
-                for &list_no in lists {
-                    if list_no == -1 {
-                        continue;
+        let neighbors = Arc::new(Mutex::new(vec![]));
+
+        std::thread::scope(|s| {
+            let (tx, rx) = bounded(32);
+
+            let chunk_size = data.len() / 32;
+
+            // 此处将数据分块，并发送到子线程进行预取
+            // 其中由于 data 中的每个向量对应 nprobe 个 list，所以 vlists 分块大小需要乘以 nprobe
+            for chunk in data.chunks(chunk_size).zip(vlists.chunks(chunk_size * nprobe)) {
+                let tx = tx.clone();
+                let io_time = &io_time;
+                s.spawn(move || {
+                    // 遍历每条向量和对应的 list
+                    for (xq, lists) in chunk.0.iter().zip(chunk.1.chunks_exact(nprobe)) {
+                        let t = Instant::now();
+                        // 收集对应倒排列表中的所有 id 和 code
+                        let mut all_ids: Vec<u64> = vec![];
+                        let mut all_codes: Vec<[u8; N]> = vec![];
+                        for &list_no in lists {
+                            if list_no == -1 {
+                                continue;
+                            }
+                            let (ids, codes) = self.invlists.get_list(list_no as usize).unwrap();
+                            all_ids.extend(ids);
+                            all_codes.extend(codes);
+                        }
+                        io_time.fetch_add(t.elapsed().as_nanos() as u64, Ordering::Relaxed);
+                        tx.send((xq, all_ids, all_codes)).unwrap();
                     }
-                    let t = Instant::now();
-                    // NOTE: 此处统计的 IO 时间并不准确，因为 mmap 的实际 IO 发生在访问时
-                    let (ids, codes) = self.invlists.get_list(list_no as usize).unwrap();
-                    io_time.fetch_add(t.elapsed().as_nanos() as u64, Ordering::Relaxed);
-                    let r = knn_hamming::<N>(xq, &codes, k);
-                    let n =
-                        r.into_iter().map(|(i, d)| Neighbor { id: ids[i] as usize, distance: d });
-                    v.extend(n);
-                    calc_time.fetch_add(t.elapsed().as_nanos() as u64, Ordering::Relaxed);
-                }
-                v.select_nth_unstable_by_key(k, |n| n.distance);
-                v.truncate(k);
-                v
-            })
-            .collect::<Vec<_>>();
+                });
+            }
+
+            for _ in 0..num_cpus::get() {
+                let neighbors = neighbors.clone();
+                let calc_time = &calc_time;
+                let rx = rx.clone();
+                s.spawn(move || {
+                    while let Ok((xq, ids, codes)) = rx.recv() {
+                        let t = Instant::now();
+                        let r = knn_hamming::<N>(xq, &codes, k);
+                        let v = r
+                            .into_iter()
+                            .map(|(i, d)| Neighbor { id: ids[i] as i64, distance: d })
+                            .collect::<Vec<_>>();
+                        neighbors.lock().unwrap().extend(v);
+                        calc_time.fetch_add(t.elapsed().as_nanos() as u64, Ordering::Relaxed);
+                    }
+                });
+            }
+        });
+
+        // NOTE: 此处没有进行任何排序，因为 imsearch 不关心顺序，只关心频率
+        let neighbors = Arc::into_inner(neighbors).unwrap().into_inner().unwrap();
+
         let search_time = start.elapsed() - quantizer_time;
         Ok(SeachResult {
             quantizer_time,

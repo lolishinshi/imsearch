@@ -254,14 +254,14 @@ impl IMDB {
     /// 处理一个搜索结果分组
     async fn process_neighbor_group(
         &self,
-        neighbors: &[Vec<Neighbor>],
+        neighbors: &[Neighbor],
         max_distance: u32,
         max_result: usize,
     ) -> Result<Vec<(f32, String)>> {
         let counter = Mutex::new(HashMap::new());
 
         // 遍历所有结果，并统计每个图片 ID 的出现次数
-        stream::iter(neighbors.iter().flatten())
+        stream::iter(neighbors.iter())
             .filter(|neighbor| future::ready(neighbor.distance <= max_distance))
             .for_each(|neighbor| async {
                 if let Ok(id) = self.find_image_id(neighbor.id as i64).await {
