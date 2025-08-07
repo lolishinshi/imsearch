@@ -12,7 +12,7 @@ use bytemuck::{cast_slice, cast_slice_mut};
 use byteorder::{NativeEndian, ReadBytesExt, WriteBytesExt};
 pub use ondisk_invlists::*;
 
-use crate::kmeans::imbalance_factor;
+use crate::kmodes::imbalance_factor;
 
 pub trait InvertedLists<const N: usize> {
     /// 返回倒排表的列表数量

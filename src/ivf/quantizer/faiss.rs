@@ -1,4 +1,4 @@
-use std::ffi::CString;
+use std::ffi::{CStr, CString};
 use std::path::Path;
 use std::ptr;
 
@@ -37,8 +37,8 @@ impl<const N: usize> Quantizer<N> for FaissHNSWQuantizer<N> {
         unsafe {
             faiss_try(faiss_IndexBinaryHNSW_new(&mut index, (N * 8) as i32, 32))?;
             // faiss 默认值为 40, 16
-            faiss_try(faiss_IndexBinaryHNSW_set_efConstruction(index, 128))?;
-            faiss_try(faiss_IndexBinaryHNSW_set_efSearch(index, 32))?;
+            //faiss_try(faiss_IndexBinaryHNSW_set_efConstruction(index, 128))?;
+            //faiss_try(faiss_IndexBinaryHNSW_set_efSearch(index, 32))?;
         }
         let index = index.cast();
         let xf = x.as_flattened();
@@ -82,7 +82,12 @@ impl<const N: usize> Quantizer<N> for FaissHNSWQuantizer<N> {
 
 fn faiss_try(code: std::os::raw::c_int) -> Result<()> {
     if code != 0 {
-        anyhow::bail!("faiss error: {}", code);
+        unsafe {
+            let err = faiss_get_last_error();
+            assert!(!err.is_null());
+            let cstr = CStr::from_ptr(err);
+            anyhow::bail!("faiss error {}: {}", code, cstr.to_string_lossy());
+        }
     }
     Ok(())
 }

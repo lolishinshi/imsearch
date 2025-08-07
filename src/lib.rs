@@ -4,7 +4,7 @@ mod db;
 pub mod hamming;
 pub mod imdb;
 pub mod ivf;
-pub mod kmeans;
+pub mod kmodes;
 mod metrics;
 pub mod orb;
 mod server;

@@ -1,5 +1,5 @@
 use criterion::{Criterion, black_box, criterion_group, criterion_main};
-use imsearch::kmeans::{binary_kmeans, binary_kmeans_2level};
+use imsearch::kmodes::{kmodes_2level, kmodes_binary};
 use rand::rngs::StdRng;
 use rand::{Rng, SeedableRng};
 
@@ -29,8 +29,8 @@ fn generate_clustered_data<const N: usize>(n: usize, num_clusters: usize) -> Vec
     data
 }
 
-fn bench_kmeans_comparison(c: &mut Criterion) {
-    let mut group = c.benchmark_group("kmeans_256bit");
+fn bench_kmodes_comparison(c: &mut Criterion) {
+    let mut group = c.benchmark_group("kmodes_256bit");
 
     // 定义测试参数组合
     let test_cases = black_box(vec![(7680, 256), (15360, 512), (30720, 1024)]);
@@ -39,17 +39,17 @@ fn bench_kmeans_comparison(c: &mut Criterion) {
         // 生成有聚类模式的数据，聚类数量为目标聚类数量的一半
         let data = black_box(generate_clustered_data(n, nc / 2));
 
-        group.bench_function(format!("binary_kmeans_{n}_{nc}"), |b| {
-            b.iter(|| binary_kmeans::<32>(&data, nc, 50, false))
+        group.bench_function(format!("binary_kmodes_{n}_{nc}"), |b| {
+            b.iter(|| kmodes_binary::<32>(&data, nc, 50))
         });
 
-        group.bench_function(format!("binary_kmeans_2level_{n}_{nc}"), |b| {
-            b.iter(|| binary_kmeans_2level::<32>(&data, nc, 50))
+        group.bench_function(format!("binary_kmodes_2level_{n}_{nc}"), |b| {
+            b.iter(|| kmodes_2level::<32>(&data, nc, 50))
         });
     }
 
     group.finish();
 }
 
-criterion_group!(benches, bench_kmeans_comparison);
+criterion_group!(benches, bench_kmodes_comparison);
 criterion_main!(benches);
