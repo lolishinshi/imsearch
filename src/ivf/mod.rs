@@ -57,15 +57,12 @@ where
     pub fn add(&mut self, data: &[[u8; N]], ids: &[u64]) -> Result<()> {
         let vlists = self.quantizer.search(data, 1)?;
         let centroids = self.quantizer.centroids()?;
-        for (&list_no, (&id, xq)) in vlists.iter().zip(ids.iter().zip(data)) {
+        for (&list_no, (&id, bvec)) in vlists.iter().zip(ids.iter().zip(data)) {
             assert!(list_no != -1);
             // 此处将向量和中心点异或，这样可以在后续压缩过程中节省空间
-            let q = centroids[list_no as usize];
-            let mut xq = xq.clone();
-            for i in 0..N {
-                xq[i] = xq[i] ^ q[i];
-            }
-            self.invlists.add_entry(list_no as usize, id, &xq)?;
+            let bcent = &centroids[list_no as usize];
+            let bvec = xor(bvec, bcent);
+            self.invlists.add_entry(list_no as usize, id, &bvec)?;
         }
         Ok(())
     }
@@ -97,26 +94,22 @@ where
                     // 遍历每条向量和对应的 list
                     for (xq, lists) in chunk.0.iter().zip(chunk.1.chunks_exact(nprobe)) {
                         let t = Instant::now();
-                        // NOTE: 倒排列表中的向量已经和中心点异或过了，所以这里也给查询向量异或一次
-                        let q = centroids[lists[0] as usize];
-                        let mut xq = xq.clone();
-                        for i in 0..N {
-                            xq[i] = xq[i] ^ q[i];
-                        }
                         // 收集对应倒排列表中的所有 id 和 code
                         // TODO: 是否可以考虑改成 Vec<Vec<u64>> 和 Vec<Vec<[u8; N]>> 来避免拷贝？
-                        let mut all_ids: Vec<u64> = vec![];
-                        let mut all_codes: Vec<[u8; N]> = vec![];
+                        let mut all_ids = Vec::with_capacity(lists.len());
+                        let mut all_codes = Vec::with_capacity(lists.len());
+                        let mut all_centroids = Vec::with_capacity(lists.len());
                         for &list_no in lists {
                             if list_no == -1 {
                                 continue;
                             }
                             let (ids, codes) = self.invlists.get_list(list_no as usize).unwrap();
-                            all_ids.extend_from_slice(&ids);
-                            all_codes.extend_from_slice(&codes);
+                            all_ids.push(ids);
+                            all_codes.push(codes);
+                            all_centroids.push(centroids[list_no as usize]);
                         }
                         io_time.fetch_add(t.elapsed().as_nanos() as u64, Ordering::Relaxed);
-                        tx.send((xq, all_ids, all_codes)).unwrap();
+                        tx.send((xq, all_ids, all_codes, all_centroids)).unwrap();
                     }
                 });
             }
@@ -126,10 +119,19 @@ where
                 let calc_time = &compute_time;
                 let rx = rx.clone();
                 s.spawn(move || {
-                    while let Ok((xq, ids, codes)) = rx.recv() {
+                    while let Ok((xq, ids, codes, centroids)) = rx.recv() {
                         let t = Instant::now();
-                        let r = knn_hamming::<N>(&xq, &codes, k);
-                        let v = r.iter().map(|&(i, d)| Neighbor { id: ids[i], distance: d });
+                        let mut v = Vec::with_capacity(k * centroids.len());
+                        for ((ids, codes), centroids) in
+                            ids.iter().zip(codes.iter()).zip(centroids.iter())
+                        {
+                            let xq = xor(xq, centroids);
+                            let r = knn_hamming::<N>(&xq, &codes, k);
+                            v.extend(r.iter().map(|&(i, d)| Neighbor { id: ids[i], distance: d }))
+                        }
+                        // 我们只需要排名前 k 的结果
+                        v.select_nth_unstable_by_key(k, |n| n.distance);
+                        v.truncate(k);
                         neighbors.lock().unwrap().extend(v);
                         calc_time.fetch_add(t.elapsed().as_nanos() as u64, Ordering::Relaxed);
                     }
@@ -179,4 +181,14 @@ impl<const N: usize> IvfHnsw<N, HnswQuantizer<N>, OnDiskInvlists<N>> {
         assert_eq!(nlist, invlists.nlist(), "nlist mismatch");
         Ok(Self { quantizer, invlists })
     }
+}
+
+// 对两个向量进行异或
+#[inline(always)]
+fn xor<const N: usize>(va: &[u8; N], vb: &[u8; N]) -> [u8; N] {
+    let mut vc = [0u8; N];
+    for i in 0..N {
+        vc[i] = va[i] ^ vb[i];
+    }
+    vc
 }
