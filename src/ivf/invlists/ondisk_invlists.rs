@@ -1,71 +1,68 @@
+use std::borrow::Cow;
 use std::fs::File;
+use std::io::Cursor;
 use std::path::Path;
 
 use anyhow::Result;
-use bytemuck::cast_slice;
+use binrw::BinRead;
+use bytemuck::cast_slice_mut;
 use memmap2::{Advice, MmapMut};
+use zstd::bulk::decompress_to_buffer;
 
-use crate::ivf::InvertedLists;
-use crate::ivf::invlists::read_metadata;
+use crate::ivf::{InvertedLists, OnDiskIvfMetadata};
 
+/// 磁盘倒排列表
 pub struct OnDiskInvlists<const N: usize> {
-    /// 倒排列表数量
-    nlist: usize,
+    /// 元数据
+    metadata: OnDiskIvfMetadata,
     /// 内存映射文件
     mmap: MmapMut,
-    /// 倒排列表大小
-    list_len: Vec<usize>,
-    /// 倒排列表大小累加和，用于辅助偏移计算
-    list_len_acc: Vec<usize>,
 }
 
 impl<const N: usize> OnDiskInvlists<N> {
+    /// 加载磁盘倒排列表
     pub fn load(path: impl AsRef<Path>) -> Result<Self> {
         let file = File::options().read(true).write(true).open(path)?;
         let mmap = unsafe { MmapMut::map_mut(&file)? };
         // TODO: 是否有必要使用 MAP_POPULATE ？
         mmap.advise(Advice::Random)?;
-        let (nlist, code_size, list_len) = read_metadata(&mmap)?;
-        assert_eq!(code_size, N, "code_size mismatch");
-        let list_len_acc = list_len
-            .iter()
-            .scan(0, |acc, x| {
-                let prev = *acc;
-                *acc += x;
-                Some(prev)
-            })
-            .collect();
-        Ok(Self { nlist, mmap, list_len, list_len_acc })
+        let metadata = OnDiskIvfMetadata::read(&mut Cursor::new(&mmap))?;
+        assert_eq!(metadata.code_size, N as u64, "code_size mismatch");
+        Ok(Self { metadata, mmap })
     }
 
-    /// 获取指定倒排列表的偏移量，其中前 len * u64 是 ids，后面 len * N * u8 是 codes
-    fn list_offset(&self, list_no: usize) -> usize {
-        size_of::<u64>() * 2
-            + size_of::<u64>() * self.nlist
-            + (size_of::<u64>() + N * size_of::<u8>()) * self.list_len_acc[list_no]
+    // 加载一个倒排列表的长度，偏移量、大小和分割点
+    fn list_info(&self, list_no: usize) -> (usize, usize, usize, usize) {
+        let len = self.metadata.list_len[list_no] as usize;
+        let offset = self.metadata.list_offset[list_no] as usize;
+        let size = self.metadata.list_size[list_no] as usize;
+        let split = self.metadata.list_split[list_no] as usize;
+        (len, offset, size, split)
     }
 }
 
 impl<const N: usize> InvertedLists<N> for OnDiskInvlists<N> {
     fn nlist(&self) -> usize {
-        self.nlist
+        self.metadata.nlist as usize
     }
 
     fn list_len(&self, list_no: usize) -> usize {
-        self.list_len[list_no]
+        self.metadata.list_len[list_no] as usize
     }
 
-    fn get_list(&self, list_no: usize) -> Result<(&[u64], &[[u8; N]])> {
-        let len = self.list_len(list_no);
-        let offset = self.list_offset(list_no);
-        let data = &self.mmap[offset..][..len * (size_of::<u64>() + N * size_of::<u8>())];
-        let (ids, codes) = data.split_at(len * size_of::<u64>());
-        let ids = cast_slice(ids);
-        let (codes, _) = codes.as_chunks();
-        Ok((ids, codes))
+    fn get_list(&self, list_no: usize) -> Result<(Cow<'_, [u64]>, Cow<'_, [[u8; N]]>)> {
+        let (len, offset, size, split) = self.list_info(list_no);
+        let (ids, codes) = self.mmap[offset..][..size].split_at(split);
+        // 为了避免复杂的类型转换，这里先建立目标类型的缓冲区，然后作为 &mut [u8] 传入
+        // TODO: 需要使用 MaybeUninit 来避免初始化开销吗？
+        let mut ids_buf = vec![0u64; len];
+        let mut codes_buf = vec![[0u8; N]; len];
+        decompress_to_buffer(ids, cast_slice_mut(&mut ids_buf))?;
+        decompress_to_buffer(codes, codes_buf.as_flattened_mut())?;
+        Ok((Cow::Owned(ids_buf), Cow::Owned(codes_buf)))
     }
 
-    fn add_entries(&mut self, _list_no: usize, _ids: &[u64], _codes: &[[u8; N]]) -> Result<u64> {
+    fn add_entry(&mut self, _list_no: usize, _id: u64, _code: &[u8; N]) -> Result<()> {
         unimplemented!("OnDiskInvlists 不支持更新操作")
     }
 }

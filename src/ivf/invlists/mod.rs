@@ -1,15 +1,19 @@
 mod array_invlists;
 mod ondisk_invlists;
+mod vstack_invlists;
 
+use std::borrow::Cow;
 use std::fs::File;
-use std::io::{BufWriter, Cursor, Read, Write};
+use std::io::{BufWriter, Seek, SeekFrom, Write};
 use std::path::Path;
 
 use anyhow::Result;
 pub use array_invlists::*;
-use bytemuck::{cast_slice, cast_slice_mut};
-use byteorder::{NativeEndian, ReadBytesExt, WriteBytesExt};
+use binrw::{BinWrite, binrw};
+use bytemuck::cast_slice;
 pub use ondisk_invlists::*;
+pub use vstack_invlists::*;
+use zstd::bulk::compress;
 
 use crate::kmodes::imbalance_factor;
 
@@ -21,10 +25,18 @@ pub trait InvertedLists<const N: usize> {
     fn list_len(&self, list_no: usize) -> usize;
 
     /// 返回指定倒排表中向量的 ID 列表和数据
-    fn get_list(&self, list_no: usize) -> Result<(&[u64], &[[u8; N]])>;
+    fn get_list(&self, list_no: usize) -> Result<(Cow<'_, [u64]>, Cow<'_, [[u8; N]]>)>;
 
-    /// 往指定倒排表中添加元素
-    fn add_entries(&mut self, list_no: usize, ids: &[u64], codes: &[[u8; N]]) -> Result<u64>;
+    /// 往指定倒排表中添加一个元素
+    fn add_entry(&mut self, list_no: usize, id: u64, code: &[u8; N]) -> Result<()>;
+
+    /// 往指定倒排表中批量添加元素，注意默认实现会调用 add_entry
+    fn add_entries(&mut self, list_no: usize, ids: &[u64], codes: &[[u8; N]]) -> Result<()> {
+        for (id, code) in ids.iter().zip(codes) {
+            self.add_entry(list_no, *id, code)?;
+        }
+        Ok(())
+    }
 
     /// 计算不平衡度
     fn imbalance(&self) -> f32 {
@@ -36,45 +48,85 @@ pub trait InvertedLists<const N: usize> {
     }
 }
 
-/// 合并多个倒排列表，并保存到指定文件
-pub fn merge_invlists<const N: usize, T, P>(invlists: &[T], nlist: usize, path: P) -> Result<()>
-where
-    T: InvertedLists<N>,
-    P: AsRef<Path>,
-{
+/// 保存到文件
+pub fn save_invlists<const N: usize, P: AsRef<Path>>(
+    invlists: &dyn InvertedLists<N>,
+    path: P,
+) -> Result<()> {
     let file = File::create(path)?;
     let mut writer = BufWriter::new(file);
-    let mut list_len = vec![0; nlist];
-    for i in 0..nlist {
-        for invlist in invlists {
-            list_len[i] += invlist.list_len(i);
-        }
-    }
-    writer.write_u64::<NativeEndian>(nlist as u64)?;
-    writer.write_u64::<NativeEndian>(N as u64)?;
-    writer.write_all(cast_slice(&list_len))?;
 
-    for i in 0..nlist {
-        let mut ids = Vec::new();
-        let mut codes = Vec::new();
-        for invlist in invlists {
-            let (other_ids, other_codes) = invlist.get_list(i)?;
-            ids.extend_from_slice(&other_ids);
-            codes.extend_from_slice(&other_codes);
-        }
-        writer.write_all(cast_slice(&ids))?;
-        writer.write_all(codes.as_flattened())?;
+    // 提前写入 metadata 占位，后续再来覆盖
+    let mut metadata = OnDiskIvfMetadata::new(invlists.nlist(), N);
+    metadata.write(&mut writer)?;
+
+    // 注意此处 offset 为刨去 metadata 后的偏移量
+    let mut offset = writer.stream_position()?;
+    for i in 0..invlists.nlist() {
+        let (ids, codes) = invlists.get_list(i)?;
+        write_one_list(&mut writer, &mut metadata, i, &ids, &codes, &mut offset)?;
     }
 
+    writer.seek(SeekFrom::Start(0))?;
+    metadata.write(&mut writer)?;
     Ok(())
 }
 
-/// 从文件头读取 nlist, code_size, list_len
-fn read_metadata(buf: &[u8]) -> Result<(usize, usize, Vec<usize>)> {
-    let mut cursor = Cursor::new(buf);
-    let nlist = cursor.read_u64::<NativeEndian>()?;
-    let code_size = cursor.read_u64::<NativeEndian>()?;
-    let mut list_len = vec![0usize; nlist as usize];
-    cursor.read_exact(cast_slice_mut(&mut list_len))?;
-    Ok((nlist as usize, code_size as usize, list_len))
+#[binrw]
+#[brw(little)]
+pub struct OnDiskIvfMetadata {
+    /// 倒排列表数量
+    pub nlist: u64,
+    /// 向量字节数
+    pub code_size: u64,
+    /// 每个倒排列表的元素数量
+    #[br(count = nlist)]
+    pub list_len: Vec<u64>,
+    /// 倒排列表在整个文件中的偏移量
+    #[br(count = nlist)]
+    pub list_offset: Vec<u64>,
+    /// 倒排列表的总大小
+    #[br(count = nlist)]
+    pub list_size: Vec<u64>,
+    /// 单个倒排列表中 id 和 code 部分的分割点
+    #[br(count = nlist)]
+    pub list_split: Vec<u64>,
+}
+
+impl OnDiskIvfMetadata {
+    pub fn new(nlist: usize, code_size: usize) -> Self {
+        Self {
+            nlist: nlist as u64,
+            code_size: code_size as u64,
+            list_len: vec![0; nlist],
+            list_offset: vec![0; nlist],
+            list_size: vec![0; nlist],
+            list_split: vec![0; nlist],
+        }
+    }
+}
+
+fn write_one_list<const N: usize, W: Write>(
+    writer: &mut W,
+    metadata: &mut OnDiskIvfMetadata,
+    list_no: usize,
+    ids: &Cow<[u64]>,
+    codes: &Cow<[[u8; N]]>,
+    offset: &mut u64,
+) -> Result<()> {
+    metadata.list_len[list_no] = ids.len() as u64;
+
+    let ids = compress(cast_slice(&ids), 0)?;
+    let codes = compress(codes.as_flattened(), 0)?;
+    let size = (ids.len() + codes.len()) as u64;
+
+    metadata.list_offset[list_no] = *offset;
+    metadata.list_size[list_no] = size;
+    metadata.list_split[list_no] = ids.len() as u64;
+
+    *offset += size;
+
+    writer.write_all(&ids)?;
+    writer.write_all(&codes)?;
+    Ok(())
 }

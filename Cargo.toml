@@ -13,8 +13,9 @@ axum-auth = { version = "0.8.1", default-features = false, features = [
     "auth-bearer",
 ] }
 axum_typed_multipart = { version = "0.16.3", default-features = false }
+binrw = "0.15.0"
 blake3 = "1.8.2"
-bytemuck = "1.23.1"
+bytemuck = "1.23.2"
 byteorder = "1.5.0"
 clap = { version = "4.5.43", features = ["derive"] }
 crossbeam-channel = "0.5.15"
@@ -43,6 +44,7 @@ utoipa = { version = "5.4.0", features = ["axum_extras"] }
 # zip yank 掉了 2.6.x 版本，但是 utoipa-swagger-ui 9.0.1 最低依赖 2.6.x
 utoipa-swagger-ui = { version = "9.0.2", features = ["axum"] }
 walkdir = "2.5.0"
+zstd = "0.13.3"
 
 [dependencies.orb-slam3-sys]
 version = "0.1.0"

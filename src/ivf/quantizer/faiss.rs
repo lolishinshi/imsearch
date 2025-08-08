@@ -37,8 +37,8 @@ impl<const N: usize> Quantizer<N> for FaissHNSWQuantizer<N> {
         unsafe {
             faiss_try(faiss_IndexBinaryHNSW_new(&mut index, (N * 8) as i32, 32))?;
             // faiss 默认值为 40, 16
-            //faiss_try(faiss_IndexBinaryHNSW_set_efConstruction(index, 128))?;
-            //faiss_try(faiss_IndexBinaryHNSW_set_efSearch(index, 32))?;
+            faiss_try(faiss_IndexBinaryHNSW_set_efConstruction(index, 128))?;
+            faiss_try(faiss_IndexBinaryHNSW_set_efSearch(index, 32))?;
         }
         let index = index.cast();
         let xf = x.as_flattened();
@@ -76,6 +76,17 @@ impl<const N: usize> Quantizer<N> for FaissHNSWQuantizer<N> {
 
     fn nlist(&self) -> usize {
         unsafe { faiss_IndexBinary_ntotal(self.index) as usize }
+    }
+
+    fn centroids(&self) -> Result<&[[u8; N]]> {
+        let centroids = unsafe {
+            let mut xb = ptr::null_mut();
+            let storage = faiss_IndexBinaryHNSW_storage(self.index.cast());
+            faiss_try(faiss_IndexBinaryFlat_xb(storage.cast(), &mut xb))?;
+            std::slice::from_raw_parts(xb, self.nlist() * N)
+        };
+        let (centroids, _) = centroids.as_chunks::<N>();
+        Ok(centroids)
     }
 }
 

@@ -15,7 +15,9 @@ use usearch::{Index, IndexOptions, MetricKind, ScalarKind, b1x8};
 
 use crate::config::ScoreType;
 use crate::db::*;
-use crate::ivf::{InvertedLists, IvfHnsw, Neighbor, OnDiskInvlists, Quantizer, merge_invlists};
+use crate::ivf::{
+    InvertedLists, IvfHnsw, Neighbor, OnDiskInvlists, Quantizer, VStackInvlists, save_invlists,
+};
 use crate::utils::{self, ImageHash, pb_style};
 
 #[derive(Debug, Clone)]
@@ -243,7 +245,7 @@ impl IMDB {
         debug!(" 量化耗时：{}ms", result.quantizer_time.as_millis());
         debug!(" 搜索耗时：{}ms", result.search_time.as_millis());
         debug!("  （所有线程）IO 耗时：{}ms", result.io_time.as_millis());
-        debug!("  （所有线程）计算耗时：{}ms", result.thread_time.as_millis());
+        debug!("  （所有线程）计算耗时：{}ms", result.compute_time.as_millis());
         let start = Instant::now();
         let result = self.process_neighbor_group(&result.neighbors, max_distance, max_result).await;
         debug!("处理结果耗时：{}ms", start.elapsed().as_millis());
@@ -382,13 +384,20 @@ impl IMDB {
         }
 
         let mut ivfs = vec![];
+        if index_path.exists() {
+            let index =
+                Box::new(OnDiskInvlists::<32>::load(&index_path)?) as Box<dyn InvertedLists<32>>;
+            ivfs.push(index);
+        }
         for path in &paths {
-            let index = OnDiskInvlists::<32>::load(path)?;
+            let index = Box::new(OnDiskInvlists::<32>::load(path)?) as Box<dyn InvertedLists<32>>;
             ivfs.push(index);
         }
 
         if !ivfs.is_empty() {
-            merge_invlists(&ivfs, ivfs[0].nlist(), &index_path)?;
+            let v = VStackInvlists::new(ivfs);
+            save_invlists(&v, index_path.join(".tmp"))?;
+            fs::rename(index_path.join(".tmp"), index_path)?;
         }
 
         for path in paths {
