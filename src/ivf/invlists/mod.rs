@@ -6,12 +6,14 @@ use std::borrow::Cow;
 use std::fs::File;
 use std::io::{BufWriter, Seek, SeekFrom, Write};
 use std::path::Path;
+use std::sync::atomic::{AtomicUsize, Ordering};
 
 use anyhow::Result;
 pub use array_invlists::*;
 use binrw::{BinWrite, binrw};
 use bytemuck::cast_slice;
 pub use ondisk_invlists::*;
+use rayon::prelude::*;
 pub use vstack_invlists::*;
 use zstd::bulk::compress;
 
@@ -52,7 +54,7 @@ pub trait InvertedLists<const N: usize> {
 pub fn save_invlists<const N: usize, P, T>(invlists: &T, path: P) -> Result<()>
 where
     P: AsRef<Path>,
-    T: InvertedLists<N>,
+    T: InvertedLists<N> + Sync,
 {
     let file = File::create(path)?;
     let mut writer = BufWriter::new(file);
@@ -63,10 +65,24 @@ where
 
     // 注意此处 offset 为刨去 metadata 后的偏移量
     let mut offset = writer.stream_position()?;
-    for i in 0..invlists.nlist() {
-        let (ids, codes) = invlists.get_list(i)?;
-        write_one_list(&mut writer, &mut metadata, i, &ids, &codes, &mut offset)?;
-    }
+
+    // TODO: 增加写入进度条
+    rayon::scope(|s| {
+        let (tx, rx) = crossbeam_channel::bounded(num_cpus::get());
+        s.spawn(move |_| {
+            (0..invlists.nlist()).into_par_iter().for_each(|i| {
+                let (ids, codes) = invlists.get_list(i).unwrap();
+                let list_len = ids.len();
+                let ids = compress(cast_slice(&ids), 0).unwrap();
+                let codes = compress(codes.as_flattened(), 0).unwrap();
+                tx.send((i, list_len, ids, codes)).unwrap();
+            });
+        });
+        while let Ok((i, list_len, ids, codes)) = rx.recv() {
+            write_one_list(&mut writer, &mut metadata, i, list_len, &ids, &codes, &mut offset)
+                .unwrap();
+        }
+    });
 
     writer.seek(SeekFrom::Start(0))?;
     metadata.write(&mut writer)?;
@@ -107,20 +123,18 @@ impl OnDiskIvfMetadata {
     }
 }
 
-fn write_one_list<const N: usize, W: Write>(
+fn write_one_list<W: Write>(
     writer: &mut W,
     metadata: &mut OnDiskIvfMetadata,
     list_no: usize,
-    ids: &Cow<[u64]>,
-    codes: &Cow<[[u8; N]]>,
+    list_len: usize,
+    ids: &[u8],
+    codes: &[u8],
     offset: &mut u64,
 ) -> Result<()> {
-    metadata.list_len[list_no] = ids.len() as u64;
-
-    let ids = compress(cast_slice(&ids), 0)?;
-    let codes = compress(codes.as_flattened(), 0)?;
     let size = (ids.len() + codes.len()) as u64;
 
+    metadata.list_len[list_no] = list_len as u64;
     metadata.list_offset[list_no] = *offset;
     metadata.list_size[list_no] = size;
     metadata.list_split[list_no] = ids.len() as u64;
