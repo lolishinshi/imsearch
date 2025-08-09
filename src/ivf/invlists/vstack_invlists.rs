@@ -5,13 +5,16 @@ use anyhow::Result;
 use super::InvertedLists;
 
 /// 垂直堆叠多个倒排列表，通常用于合并工作
-pub struct VStackInvlists<const N: usize> {
+pub struct VStackInvlists<const N: usize, T> {
     nlist: usize,
-    invlists: Vec<Box<dyn InvertedLists<N>>>,
+    invlists: Vec<T>,
 }
 
-impl<const N: usize> VStackInvlists<N> {
-    pub fn new(invlists: Vec<Box<dyn InvertedLists<N>>>) -> Self {
+impl<const N: usize, T> VStackInvlists<N, T>
+where
+    T: InvertedLists<N>,
+{
+    pub fn new(invlists: Vec<T>) -> Self {
         assert!(!invlists.is_empty(), "invlists is empty");
         let nlist = invlists[0].nlist();
         for invlist in &invlists {
@@ -21,7 +24,10 @@ impl<const N: usize> VStackInvlists<N> {
     }
 }
 
-impl<const N: usize> InvertedLists<N> for VStackInvlists<N> {
+impl<const N: usize, T> InvertedLists<N> for VStackInvlists<N, T>
+where
+    T: InvertedLists<N>,
+{
     fn nlist(&self) -> usize {
         self.nlist
     }

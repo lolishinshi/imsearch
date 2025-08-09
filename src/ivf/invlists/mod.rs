@@ -49,10 +49,11 @@ pub trait InvertedLists<const N: usize> {
 }
 
 /// 保存到文件
-pub fn save_invlists<const N: usize, P: AsRef<Path>>(
-    invlists: &dyn InvertedLists<N>,
-    path: P,
-) -> Result<()> {
+pub fn save_invlists<const N: usize, P, T>(invlists: &T, path: P) -> Result<()>
+where
+    P: AsRef<Path>,
+    T: InvertedLists<N>,
+{
     let file = File::create(path)?;
     let mut writer = BufWriter::new(file);
 

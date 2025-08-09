@@ -57,6 +57,7 @@ impl<const N: usize> InvertedLists<N> for OnDiskInvlists<N> {
         // TODO: 需要使用 MaybeUninit 来避免初始化开销吗？
         let mut ids_buf = vec![0u64; len];
         let mut codes_buf = vec![[0u8; N]; len];
+        // TODO: 是否需要延迟解压？
         decompress_to_buffer(ids, cast_slice_mut(&mut ids_buf))?;
         decompress_to_buffer(codes, codes_buf.as_flattened_mut())?;
         Ok((Cow::Owned(ids_buf), Cow::Owned(codes_buf)))

@@ -385,19 +385,18 @@ impl IMDB {
 
         let mut ivfs = vec![];
         if index_path.exists() {
-            let index =
-                Box::new(OnDiskInvlists::<32>::load(&index_path)?) as Box<dyn InvertedLists<32>>;
+            let index = OnDiskInvlists::<32>::load(&index_path)?;
             ivfs.push(index);
         }
         for path in &paths {
-            let index = Box::new(OnDiskInvlists::<32>::load(path)?) as Box<dyn InvertedLists<32>>;
+            let index = OnDiskInvlists::<32>::load(path)?;
             ivfs.push(index);
         }
 
         if !ivfs.is_empty() {
             let v = VStackInvlists::new(ivfs);
-            save_invlists(&v, index_path.join(".tmp"))?;
-            fs::rename(index_path.join(".tmp"), index_path)?;
+            save_invlists(&v, index_path.with_extension("tmp"))?;
+            fs::rename(index_path.with_extension("tmp"), index_path)?;
         }
 
         for path in paths {
