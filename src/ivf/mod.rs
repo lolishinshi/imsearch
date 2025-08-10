@@ -9,6 +9,8 @@ use std::time::Duration;
 use anyhow::Result;
 use crossbeam_channel::bounded;
 pub use invlists::*;
+use itertools::izip;
+use log::debug;
 pub use quantizer::*;
 use tokio::time::Instant;
 
@@ -55,14 +57,15 @@ where
 {
     /// 往倒排列表中增加一组向量，并使用自定义 id
     pub fn add(&mut self, data: &[[u8; N]], ids: &[u64]) -> Result<()> {
+        debug!("add {} vectors", data.len());
         let vlists = self.quantizer.search(data, 1)?;
         let centroids = self.quantizer.centroids()?;
-        for (&list_no, (&id, bvec)) in vlists.iter().zip(ids.iter().zip(data)) {
+        for (list_no, id, bvec) in izip!(vlists, ids, data) {
             assert!(list_no != -1);
             // 此处将向量和中心点异或，这样可以在后续压缩过程中节省空间
             let bcent = &centroids[list_no as usize];
             let bvec = xor(bvec, bcent);
-            self.invlists.add_entry(list_no as usize, id, &bvec)?;
+            self.invlists.add_entry(list_no as usize, *id, &bvec)?;
         }
         Ok(())
     }
@@ -122,10 +125,8 @@ where
                     while let Ok((xq, ids, codes, centroids)) = rx.recv() {
                         let t = Instant::now();
                         let mut v = Vec::with_capacity(k * centroids.len());
-                        for ((ids, codes), centroids) in
-                            ids.iter().zip(codes.iter()).zip(centroids.iter())
-                        {
-                            let xq = xor(xq, centroids);
+                        for (ids, codes, centroids) in izip!(ids, codes, centroids) {
+                            let xq = xor(xq, &centroids);
                             let r = knn_hamming::<N>(&xq, &codes, k);
                             v.extend(r.iter().map(|&(i, d)| Neighbor { id: ids[i], distance: d }))
                         }
@@ -165,6 +166,7 @@ impl<const N: usize> IvfHnsw<N, HnswQuantizer<N>, ArrayInvertedLists<N>> {
     }
 
     pub fn save(&self, path: impl AsRef<Path>) -> Result<()> {
+        debug!("保存 {:?}", path.as_ref());
         save_invlists(&self.invlists, path)?;
         Ok(())
     }

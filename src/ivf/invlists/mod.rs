@@ -6,12 +6,12 @@ use std::borrow::Cow;
 use std::fs::File;
 use std::io::{BufWriter, Seek, SeekFrom, Write};
 use std::path::Path;
-use std::sync::atomic::{AtomicUsize, Ordering};
 
 use anyhow::Result;
 pub use array_invlists::*;
 use binrw::{BinWrite, binrw};
 use bytemuck::cast_slice;
+use itertools::izip;
 pub use ondisk_invlists::*;
 use rayon::prelude::*;
 pub use vstack_invlists::*;
@@ -32,10 +32,10 @@ pub trait InvertedLists<const N: usize> {
     /// 往指定倒排表中添加一个元素
     fn add_entry(&mut self, list_no: usize, id: u64, code: &[u8; N]) -> Result<()>;
 
-    /// 往指定倒排表中批量添加元素，注意默认实现会调用 add_entry
+    /// 往指定倒排表中批量添加元素
     fn add_entries(&mut self, list_no: usize, ids: &[u64], codes: &[[u8; N]]) -> Result<()> {
-        for (id, code) in ids.iter().zip(codes) {
-            self.add_entry(list_no, *id, code)?;
+        for (id, code) in izip!(ids, codes) {
+            self.add_entry(list_no, *id, &code)?;
         }
         Ok(())
     }
