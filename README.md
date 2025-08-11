@@ -24,53 +24,43 @@ apt install cmake clang libopencv-dev libopenblas-dev
 
 ## 基本用法
 
-### 1. 选择索引
+### 1. 添加图片
+
+使用 `imsearch add DIR` 添加指定目录下的所有图片。
+
+默认只扫描 jpg 和 png，可以使用 `-s jpg,png,webp` 增加其他格式。
+
+### 2. 选择聚类大小
 
 参考 [Guidelines-to-choose-an-index](https://github.com/facebookresearch/faiss/wiki/Guidelines-to-choose-an-index)，给出推荐如下。
 
-| 图片数量   | 索引描述                                                              |
-| ---------- | --------------------------------------------------------------------- |
-| < 2K       | BIVF{K} ($K=4\sqrt{N} \sim 16\sqrt{N}$, $N=\text{图片数量}\times500$) |
-| 2K ~ 20K   | BIVF65536_HNSW32                                                      |
-| 20K ~ 200K | BIVF262144_HNSW32                                                     |
-| 200K ~ 2M  | BIVF1048576_HNSW32                                                    |
+| 图片数量   | 索引描述                                                    |
+| ---------- | ----------------------------------------------------------- |
+| < 2K       | $K=4\sqrt{N} \sim 16\sqrt{N}$, $N=\text{图片数量}\times500$ |
+| 2K ~ 20K   | K=65536                                                     |
+| 20K ~ 200K | K=262144                                                    |
+| 200K ~ 2M  | K=1048576                                                   |
 
 > 注意：以上选择基于每张图片提取 500 个特征点这一默认参数，下同
 
-### 2. 训练索引
+### 3. 训练索引
 
 BIVF 索引需要一定量的数据训练聚类器，推荐数据量为 K 的 30 ~ 256 倍。
 即对于 K = 65536，需要 65536 \* 50 / 500 =~ 6.5k 张图片。
 
 训练集需要有代表性，如果和实际数据集相差过大会导致索引不平衡，影响搜索速度。
 
-将训练集放到 train 文件夹中，使用下列命令提取训练集中的特征点：
-
 ```bash
-imsearch -c ./train.db add ./train
-imsearch -c ./train.db export
+imsearch train -c 65536 -i 6500
 ```
 
-由于训练需要 GPU 参与，此处采用 faiss 的 python 绑定来进行训练（纯 CPU 训练非常慢）。
-可以参见[官方教程](https://github.com/facebookresearch/faiss/blob/main/INSTALL.md#installing-faiss-via-conda)使用 conda 安装或直接用 pip 安装第三方编译的 faiss-gpu-cu12，然后使用以下命令进行训练：
-
-```python
-python utils/train.py DESCRIPTION train.npy
-```
-
-训练结束后，会得到一个 `{DESCRIPTION}.train` 文件。
-
-### 3. 添加图片
-
-使用 `imsearch add DIR` 添加指定目录下的所有图片。
-
-默认只扫描 jpg 和 png，可以使用 `-s jpg,png,webp` 增加其他格式。
+训练结束后，会得到一个 `quantizer.bin` 文件。
 
 ### 4. 构建索引
 
-将先前训练得到的 `{DESCRIPTION}.train` 重命名为 `index.template` 并保存到配置目录中（可以使用 `imsearch --help` 查看默认目录）。
+将先前训练得到的 `quantizer.bin` 移动到配置目录中（可以使用 `imsearch --help` 查看默认目录）。
 
-然后使用 `imsearch build` 构建索引，注意这个过程需要大量内存，并且非常慢。
+然后使用 `imsearch build` 构建索引。
 
 ### 5. 搜索图片
 
