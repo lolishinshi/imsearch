@@ -37,25 +37,25 @@ def log(msg, *args, **kwargs):
 
 def main():
     if len(argv) != 3:
-        print(f"Usage: {argv[0]} DESCRIPTION train.npy")
+        print(f"Usage: {argv[0]} K train.npy")
         return
 
-    description = argv[1]
+    nlist = int(argv[1])
     d = 256
 
-    index = faiss.index_binary_factory(d, description)
+    index = faiss.IndexBinaryHNSW(d, 32)
     xt = np.load(argv[2], mmap_mode="r")
     if xt.shape[0] > 2**31 - 1:
         print(f"训练特征点数量不能超过 2^31-1，当前数量为 {xt.shape[0]}")
         return
 
-    if not (256 * index.nlist >= len(xt) >= 30 * index.nlist):
+    if not (256 * nlist >= len(xt) >= 30 * nlist):
         print(
-            f"警告：训练集数量 {len(xt)} 不在合理范围内（{256 * index.nlist} - {30 * index.nlist}）"
+            f"警告：训练集数量 {len(xt)} 不在合理范围内（{256 * nlist} - {30 * nlist}）"
         )
 
-    nc1 = int(np.sqrt(index.nlist))
-    nc2 = index.nlist
+    nc1 = int(np.sqrt(nlist))
+    nc2 = nlist
 
     log(f"对向量 {xt.shape} 进行 2 级聚类，1 级聚类数量 = {nc1}，总数 = {nc2}")
     log("开始一级聚类...")
@@ -97,7 +97,7 @@ def main():
     index.quantizer.add(centroids)
     index.train(xt)
 
-    faiss.write_index_binary(index, f"{description}.train")
+    faiss.write_index_binary(index, f"{nlist}.train")
 
 
 if __name__ == "__main__":

@@ -1,4 +1,5 @@
 /// 图片记录
+#[allow(unused)]
 pub struct ImageRecord {
     /// 图片 ID
     pub id: i64,
@@ -9,6 +10,7 @@ pub struct ImageRecord {
 }
 
 /// 图片特征向量统计
+#[allow(unused)]
 pub struct VectorStatsRecord {
     /// 图片 ID
     pub id: i64,
@@ -21,6 +23,7 @@ pub struct VectorStatsRecord {
 }
 
 /// 图片特征向量记录
+#[allow(unused)]
 pub struct VectorRecord {
     /// 图片 ID
     pub id: i64,

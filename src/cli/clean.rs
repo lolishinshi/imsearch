@@ -19,7 +19,7 @@ pub struct CleanCommand {
 
 impl SubCommandExtend for CleanCommand {
     async fn run(&self, opts: &Opts) -> Result<()> {
-        let db = IMDBBuilder::<32>::new(opts.conf_dir.clone()).wal(false).open().await?;
+        let db = IMDBBuilder::new(opts.conf_dir.clone()).wal(false).open().await?;
 
         if !self.force {
             print!("确定要清理{}缓存吗？[y/N] ", if self.all { "所有" } else { "" });

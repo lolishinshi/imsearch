@@ -199,7 +199,7 @@ fn update_centroid<const N: usize>(
 }
 
 /// 计算不平衡因子
-fn imbalance_factor(hist: &[usize]) -> f32 {
+pub fn imbalance_factor(hist: &[usize]) -> f32 {
     let (mut tot, mut uf) = (0.0, 0.0);
     for h in hist {
         let h = *h as f32;

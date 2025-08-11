@@ -68,7 +68,7 @@ pub fn task_hash(
 pub fn task_filter(
     lrx: Receiver<HashedImageData>,
     pb: ProgressBar,
-    db: Arc<IMDB<32>>,
+    db: Arc<IMDB>,
     duplicate: Duplicate,
     replace: Option<(Regex, String)>,
     distance: u32,
@@ -144,7 +144,7 @@ pub fn task_calc(
 pub fn task_add(
     lrx: Receiver<ProcessableImage>,
     pb: ProgressBar,
-    db: Arc<IMDB<32>>,
+    db: Arc<IMDB>,
     duplicate: Duplicate,
     replace: Option<(Regex, String)>,
     phash_threshold: u32,
@@ -260,7 +260,7 @@ async fn handle_duplicate(
     duplicate: Duplicate,
     duplicate_id: i64,
     replace: Option<&(Regex, String)>,
-    db: &Arc<IMDB<32>>,
+    db: &Arc<IMDB>,
     pb: &ProgressBar,
 ) -> Result<()> {
     let path = match data {

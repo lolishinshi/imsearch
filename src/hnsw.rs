@@ -1,4 +1,4 @@
-use std::path::Path;
+use std::path::{Path, PathBuf};
 
 use anyhow::Result;
 use bytemuck::cast_slice;
@@ -20,28 +20,30 @@ impl<const N: usize> Distance<u8> for DistHamming<N> {
 
 pub struct HNSW {
     index: Hnsw<'static, u8, DistHamming<8>>,
-}
-
-impl Default for HNSW {
-    fn default() -> Self {
-        Self::new()
-    }
+    path: PathBuf,
 }
 
 impl HNSW {
-    pub fn new() -> Self {
-        Self { index: Hnsw::<u8, _>::new(32, 1_000_000, 16, 128, DistHamming::<8>) }
+    pub fn new(path: impl AsRef<Path>) -> Result<Self> {
+        let path = path.as_ref();
+        let index = Hnsw::<u8, _>::new(32, 1_000_000, 16, 128, DistHamming::<8>);
+        Ok(Self { index, path: path.to_path_buf() })
     }
 
-    pub fn load(path: impl AsRef<Path>) -> Result<Self> {
-        let reloader = HnswIo::new(path.as_ref(), "phash");
-        let reloader = Box::leak(Box::new(reloader));
-        let index = reloader.load_hnsw_with_dist(DistHamming::<8>)?;
-        Ok(Self { index })
+    pub fn open(path: impl AsRef<Path>) -> Result<Self> {
+        let path = path.as_ref();
+        let index = if path.join("phash.hnsw.graph").exists() {
+            let reloader = HnswIo::new(path, "phash");
+            let reloader = Box::leak(Box::new(reloader));
+            reloader.load_hnsw_with_dist(DistHamming::<8>)?
+        } else {
+            Hnsw::<u8, _>::new(32, 1_000_000, 16, 128, DistHamming::<8>)
+        };
+        Ok(Self { index, path: path.to_path_buf() })
     }
 
-    pub fn write(&self, path: impl AsRef<Path>) -> Result<()> {
-        self.index.file_dump(path.as_ref(), "phash")?;
+    pub fn write(&self) -> Result<()> {
+        self.index.file_dump(&self.path, "phash")?;
         Ok(())
     }
 

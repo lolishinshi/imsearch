@@ -8,6 +8,7 @@ use tokio::time::{Duration, sleep};
 
 use crate::cli::SubCommandExtend;
 use crate::config::{OrbOptions, SearchOptions};
+use crate::ivf::IvfHnsw;
 use crate::{IMDBBuilder, Opts, server};
 
 #[derive(Parser, Debug, Clone)]
@@ -41,7 +42,7 @@ impl SubCommandExtend for ServerCommand {
             .open()
             .await?;
 
-        let index = db.get_index(!self.search.no_mmap)?;
+        let index = IvfHnsw::open_disk(&opts.conf_dir)?;
 
         let mut self_clone = self.clone();
         if self_clone.token.is_empty() {

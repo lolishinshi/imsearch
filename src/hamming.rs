@@ -1,5 +1,7 @@
+use std::cmp::Reverse;
+use std::collections::BinaryHeap;
+
 use bytemuck::cast_slice;
-use rayon::prelude::*;
 
 #[inline(always)]
 pub fn hamming<const N: usize>(va: &[u8], vb: &[u8]) -> u32 {
@@ -31,15 +33,50 @@ pub fn hamming_32(va: &[u8], vb: &[u8]) -> u32 {
         + (va[3] ^ vb[3]).count_ones()
 }
 
-/// 计算向量 va 和 vb 的汉明距离，并返回距离最小的 k 个索引和距离
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
+pub struct KNNResult {
+    pub dis: u32,
+    pub idx: usize,
+}
+
 pub fn knn_hamming<const N: usize>(va: &[u8; N], vb: &[[u8; N]], k: usize) -> Vec<(usize, u32)> {
+    return knn_hamming_heap::<N>(va, vb, k);
+}
+
+/// 计算向量 va 和 vb 的汉明距离，并返回距离最小的 k 个索引和距离
+pub fn knn_hamming_heap<const N: usize>(
+    va: &[u8; N],
+    vb: &[[u8; N]],
+    k: usize,
+) -> Vec<(usize, u32)> {
+    let mut heap = BinaryHeap::new();
+    for (i, chunk) in vb.iter().enumerate() {
+        let d = hamming::<N>(va, chunk);
+        if heap.len() < k {
+            heap.push(Reverse(KNNResult { idx: i, dis: d }));
+        } else {
+            let Reverse(peek) = heap.peek().unwrap();
+            if d < peek.dis {
+                heap.pop();
+                heap.push(Reverse(KNNResult { idx: i, dis: d }));
+            }
+        }
+    }
+    heap.into_iter().map(|Reverse(a)| (a.idx, a.dis)).collect()
+}
+
+pub fn knn_hamming_array<const N: usize>(
+    va: &[u8; N],
+    vb: &[[u8; N]],
+    k: usize,
+) -> Vec<(usize, u32)> {
     // 考虑到 k 通常很小，为了最大化性能，此处开辟一个栈上的固定数组来存储 KNN 结果
     assert!(k <= 8, "k must be less than 8");
     let mut dis = [u32::MAX; 8];
     let mut idx = [0; 8];
     for (i, chunk) in vb.iter().enumerate() {
         let d = hamming::<N>(va, chunk);
-        if d > dis[0] {
+        if d >= dis[0] {
             continue;
         }
         // 维护一个长度为 K 的单调递减数组
@@ -66,7 +103,12 @@ pub fn batch_knn_hamming<const N: usize>(
     vb: &[[u8; N]],
     k: usize,
 ) -> Vec<Vec<(usize, u32)>> {
-    va.par_iter().map(|chunk| knn_hamming::<N>(chunk, vb, k)).collect()
+    let mut r = Vec::with_capacity(va.len());
+    for chunk in va.iter() {
+        let t = knn_hamming::<N>(chunk, vb, k);
+        r.push(t);
+    }
+    r
 }
 
 #[cfg(test)]

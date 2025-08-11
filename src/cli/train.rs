@@ -2,7 +2,7 @@ use anyhow::Result;
 use clap::Parser;
 
 use crate::cli::SubCommandExtend;
-use crate::faiss::FaissIndex;
+use crate::ivf::{HnswQuantizer, Quantizer};
 use crate::kmodes::kmodes_2level;
 use crate::{IMDBBuilder, Opts};
 
@@ -17,20 +17,15 @@ pub struct TrainCommand {
     /// 最大迭代次数
     #[arg(short, long, default_value_t = 20)]
     pub max_iter: usize,
-    /// 使用二级聚类
-    #[arg(default_value_t = true)]
-    pub use_2level: bool,
 }
 
 impl SubCommandExtend for TrainCommand {
     async fn run(&self, opts: &Opts) -> Result<()> {
-        let db = IMDBBuilder::<32>::new(opts.conf_dir.clone()).open().await?;
+        let db = IMDBBuilder::new(opts.conf_dir.clone()).open().await?;
         let data = db.export(Some(self.images)).await?;
-        let centroids = kmodes_2level(&data, self.centers, self.max_iter);
-        let description = format!("BIVF{}_HNSW32", self.centers);
-        let mut index = FaissIndex::new(&description)?;
-        index.add_train(&centroids.centroids)?;
-        index.write_file(format!("{description}.trained"))?;
+        let centroids = kmodes_2level::<32>(&data, self.centers, self.max_iter).centroids;
+        let quantizer = HnswQuantizer::init(&centroids)?;
+        quantizer.save(&opts.conf_dir.join("quantizer.bin"))?;
         Ok(())
     }
 }

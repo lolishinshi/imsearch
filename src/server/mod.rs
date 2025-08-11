@@ -20,20 +20,11 @@ pub use self::types::*;
 #[openapi(
     paths(
         search_handler,
-        reload_handler,
-        add_image_handler,
-        build_handler,
-        stats_handler,
-        reset_stats_handler,
         metrics_handler
     ),
     components(schemas(
         SearchForm,
         SearchResponse,
-        ReloadRequest,
-        AddImageForm,
-        BuildRequest,
-        StatsResponse
     )),
     modifiers(&SecurityAddon)
 )]
@@ -43,11 +34,6 @@ pub struct ApiDoc;
 pub fn create_app(state: Arc<AppState>) -> Router {
     Router::new()
         .route("/search", post(search_handler))
-        .route("/reload", post(reload_handler))
-        .route("/add", post(add_image_handler))
-        .route("/build", post(build_handler))
-        .route("/stats", get(stats_handler))
-        .route("/reset_stats", post(reset_stats_handler))
         .route("/metrics", get(metrics_handler))
         .merge(SwaggerUi::new("/docs").url("/api-docs/openapi.json", ApiDoc::openapi()))
         .layer(DefaultBodyLimit::disable())

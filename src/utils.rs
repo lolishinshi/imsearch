@@ -23,8 +23,9 @@ pub fn detect_and_compute(
     let mut des = Mat::default();
     orb.detect_and_compute(image, &mask, &mut kps, &mut des)?;
     let kps = kps.to_vec();
-    let (des, _) = des.data_bytes()?.as_chunks::<32>();
-    Ok((kps, des.to_vec()))
+    let des = des.data_bytes()?;
+    let des = des.chunks_exact(32).map(|chunk| chunk.try_into().unwrap()).collect();
+    Ok((kps, des))
 }
 
 pub fn imdecode(buf: &[u8], (height, width): (i32, i32)) -> opencv::Result<Mat> {

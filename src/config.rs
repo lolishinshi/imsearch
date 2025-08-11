@@ -1,6 +1,4 @@
-use std::convert::Infallible;
-use std::path::{Path, PathBuf};
-use std::str::FromStr;
+use std::path::PathBuf;
 use std::sync::LazyLock;
 
 use clap::{Parser, Subcommand, ValueEnum};
@@ -9,13 +7,13 @@ use opencv::imgproc::InterpolationFlags;
 
 use crate::cli::*;
 
-static CONF_DIR: LazyLock<ConfDir> = LazyLock::new(|| {
+static CONF_DIR: LazyLock<PathBuf> = LazyLock::new(|| {
     let proj_dirs = ProjectDirs::from("", "aloxaf", "imsearch").expect("failed to get project dir");
-    ConfDir { path: proj_dirs.config_dir().to_path_buf(), default: "index".to_string() }
+    proj_dirs.config_dir().to_path_buf()
 });
 
 fn default_config_dir() -> &'static str {
-    CONF_DIR.path().to_str().unwrap()
+    CONF_DIR.to_str().unwrap()
 }
 
 #[derive(Parser, Debug, Clone)]
@@ -54,9 +52,6 @@ pub struct OrbOptions {
 
 #[derive(Parser, Debug, Clone)]
 pub struct SearchOptions {
-    /// 不使用 mmap 模式加载索引，而是一次性全部加载到内存
-    #[arg(long)]
-    pub no_mmap: bool,
     /// 两个相似向量的允许的最大距离，范围从 0 到 255
     #[arg(long, value_name = "N", default_value_t = 64, value_parser = clap::value_parser!(u32).range(0..=255))]
     pub distance: u32,
@@ -69,9 +64,6 @@ pub struct SearchOptions {
     /// 搜索的倒排列表数量
     #[arg(long, default_value = "3")]
     pub nprobe: usize,
-    /// HNSW 搜索时每次访问的节点数量
-    #[arg(long, default_value = "16")]
-    pub ef_search: usize,
     /// 评分方式
     #[arg(long, value_enum, default_value_t = ScoreType::Wilson)]
     pub score_type: ScoreType,
@@ -84,7 +76,7 @@ pub struct Opts {
     pub subcmd: SubCommand,
     /// imsearch 配置文件目录
     #[arg(short, long, default_value = default_config_dir())]
-    pub conf_dir: ConfDir,
+    pub conf_dir: PathBuf,
 }
 
 #[derive(Subcommand, Debug, Clone)]
@@ -101,79 +93,6 @@ pub enum SubCommand {
     Clean(CleanCommand),
     /// 训练索引
     Train(TrainCommand),
-}
-
-#[derive(Debug, Clone)]
-pub struct ConfDir {
-    path: PathBuf,
-    default: String,
-}
-
-impl ConfDir {
-    pub fn path(&self) -> &Path {
-        self.path.as_path()
-    }
-
-    pub fn set_default(&mut self, default: String) {
-        self.default = default;
-    }
-
-    /// 返回数据库文件的路径
-    pub fn database(&self) -> PathBuf {
-        self.path.join("imsearch.db")
-    }
-
-    /// 返回索引文件的路径
-    pub fn index(&self) -> PathBuf {
-        self.path.join(&self.default)
-    }
-
-    /// 返回下一个子索引文件的路径
-    pub fn next_sub_index(&self) -> PathBuf {
-        for i in 1.. {
-            let path = self.path.join(format!("index.{i}"));
-            if !path.exists() {
-                return path;
-            }
-        }
-        unreachable!()
-    }
-
-    /// 返回所有子索引文件的路径
-    pub fn all_sub_index(&self) -> Vec<PathBuf> {
-        let mut paths = vec![];
-        for i in 1.. {
-            let path = self.path.join(format!("index.{i}"));
-            if !path.exists() {
-                break;
-            }
-            paths.push(path);
-        }
-        paths
-    }
-
-    /// 返回索引模板文件的路径
-    pub fn template_index(&self) -> PathBuf {
-        self.path.join("index.template")
-    }
-
-    /// 返回 ondisk ivf 文件的路径
-    pub fn ondisk_ivf(&self) -> PathBuf {
-        self.path.join("index.ivfdata")
-    }
-
-    /// 返回 ondisk ivf 文件的临时路径
-    pub fn ondisk_ivf_tmp(&self) -> PathBuf {
-        self.path.join("index.ivfdata.tmp")
-    }
-}
-
-impl FromStr for ConfDir {
-    type Err = Infallible;
-
-    fn from_str(s: &str) -> Result<Self, Self::Err> {
-        Ok(Self { path: PathBuf::from(s), default: "index".to_string() })
-    }
 }
 
 fn parse_size(s: &str) -> anyhow::Result<(i32, i32)> {

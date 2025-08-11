@@ -3,12 +3,33 @@ use std::env;
 use clap::Parser;
 use imsearch::cli::SubCommandExtend;
 use imsearch::config::*;
-use imsearch::faiss::faiss_version;
 use log::{info, warn};
 use tikv_jemallocator::Jemalloc;
 
 #[global_allocator]
 static GLOBAL: Jemalloc = Jemalloc;
+
+fn simd_version() -> &'static str {
+    if cfg!(target_feature = "avx512vpopcntdq") {
+        "avx512vpopcntdq"
+    } else if cfg!(target_feature = "avx512f") {
+        "avx512f"
+    } else if cfg!(target_feature = "avx2") {
+        "avx2"
+    } else if cfg!(target_feature = "sse4.2") {
+        "sse4.2"
+    } else if cfg!(target_feature = "sse4.1") {
+        "sse4.1"
+    } else if cfg!(target_feature = "sse3") {
+        "sse3"
+    } else if cfg!(target_feature = "sse2") {
+        "sse2"
+    } else if cfg!(target_feature = "sse") {
+        "sse"
+    } else {
+        "none"
+    }
+}
 
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
@@ -26,7 +47,7 @@ async fn main() -> anyhow::Result<()> {
 
     env_logger::init();
 
-    info!("faiss 版本: {}", faiss_version());
+    info!("SIMD 版本: {}", simd_version());
 
     let opts = Opts::parse();
 
