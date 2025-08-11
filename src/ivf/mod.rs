@@ -17,6 +17,7 @@ use tokio::time::Instant;
 use crate::hamming::knn_hamming;
 
 pub type IvfHnswDisk = IvfHnsw<32, HnswQuantizer<32>, OnDiskInvlists<32>>;
+pub type IvfHnswArray = IvfHnsw<32, HnswQuantizer<32>, ArrayInvertedLists<32>>;
 
 #[derive(Debug)]
 pub struct SearchResult {

@@ -78,6 +78,7 @@ where
                 tx.send((i, list_len, ids, codes)).unwrap();
             });
         });
+        // NOTE: 此处只是按单线程写入，但写入的倒排列表顺序并不保证
         while let Ok((i, list_len, ids, codes)) = rx.recv() {
             write_one_list(&mut writer, &mut metadata, i, list_len, &ids, &codes, &mut offset)
                 .unwrap();
