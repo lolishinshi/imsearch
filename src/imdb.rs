@@ -87,14 +87,14 @@ impl IMDBBuilder {
             if let Ok((count, _)) = crud::get_count(&db).await {
                 if count != index.ntotal() as i64 {
                     warn!("phash 索引大小不一致，正在重新构建……");
+                    index = HNSW::new(&self.conf_dir)?;
+                    let hashes = crud::get_all_hash(&db).await?;
+                    debug!("正在添加 {} 条向量到 phash 索引……", hashes.len());
+                    hashes.into_par_iter().for_each(|(id, hash)| {
+                        index.add(&hash, id as usize);
+                    });
+                    debug!("phash 索引添加完成，大小：{}", index.ntotal());
                 }
-                index = HNSW::new(&self.conf_dir)?;
-                let hashes = crud::get_all_hash(&db).await?;
-                debug!("正在添加 {} 条向量到 phash 索引……", hashes.len());
-                hashes.into_par_iter().for_each(|(id, hash)| {
-                    index.add(&hash, id as usize);
-                });
-                debug!("phash 索引添加完成，大小：{}", index.ntotal());
             }
             Some(index)
         } else {
@@ -107,7 +107,7 @@ impl IMDBBuilder {
             total_vector_count: RwLock::new(vec![]),
             cache: self.cache,
             score_type: self.score_type,
-            pindex,
+            pindex: pindex.map(Arc::new),
         };
 
         imdb.load_total_vector_count().await?;
@@ -125,7 +125,7 @@ pub struct IMDB {
     /// 每张图片特征点 ID 的累加数量，用于加速计算
     total_vector_count: RwLock<Vec<i64>>,
     /// phash 索引
-    pindex: Option<HNSW>,
+    pindex: Option<Arc<HNSW>>,
     /// 评分方式
     score_type: ScoreType,
 }
@@ -142,26 +142,29 @@ impl IMDB {
         let id = crud::add_image(&mut *tx, hash, filename.as_ref()).await?;
         crud::add_vector(&mut *tx, id, descriptors.as_flattened()).await?;
         crud::add_vector_stats(&mut *tx, id, descriptors.len() as i64).await?;
+        // 尽快提交事务，避免锁住数据库
         tx.commit().await?;
-        if let Some(index) = &self.pindex {
-            // TODO: 这些地方是否需要 spawn_blocking 呢？
-            index.add(hash, id as usize);
+        if let Some(index) = self.pindex.clone() {
+            let hash = hash.to_vec();
+            spawn_blocking(move || index.add(&hash, id as usize)).await?;
         }
         Ok(id)
     }
 
     /// 检查图片是否存在
     pub async fn check_hash(&self, hash: &[u8], distance: u32) -> Result<Option<i64>> {
-        if distance > 0
-            && let Some(index) = &self.pindex
-        {
-            let result = index.search(hash, 1);
-            if !result.is_empty() && result[0].distance <= distance as f32 {
-                return Ok(Some(result[0].d_id as i64));
-            }
-        }
         if let Some(id) = crud::check_image_hash(&self.db, hash).await? {
             return Ok(Some(id));
+        }
+        // 由于 phash 检查较慢，因此放到后面检查
+        if let Some(index) = self.pindex.clone() {
+            if distance > 0 {
+                let hash = hash.to_vec();
+                let result = spawn_blocking(move || index.search(&hash, 1)).await?;
+                if !result.is_empty() && result[0].distance <= distance as f32 {
+                    return Ok(Some(result[0].d_id as i64));
+                }
+            }
         }
         Ok(None)
     }

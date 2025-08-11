@@ -1,22 +1,8 @@
-#![feature(portable_simd)]
-use std::convert::TryInto;
 use std::hint::black_box;
-use std::simd::num::SimdUint;
-use std::simd::*;
 
 use criterion::{Criterion, Throughput, criterion_group, criterion_main};
 use imsearch::hamming::{hamming_32, hamming_naive, knn_hamming_array, knn_hamming_heap};
 use rand::prelude::*;
-
-#[inline(always)]
-fn hamming_32_simd(va: &[u8], vb: &[u8]) -> u32 {
-    // 测试表明，此处使用 unsafe 转换并不会更快
-    let va: &[u8; 32] = va.try_into().unwrap();
-    let vb: &[u8; 32] = vb.try_into().unwrap();
-    let va = u8x32::from_slice(va);
-    let vb = u8x32::from_slice(vb);
-    (va ^ vb).count_ones().reduce_sum() as u32
-}
 
 fn bench_hamming(c: &mut Criterion) {
     let mut group = c.benchmark_group("Hamming");
@@ -39,9 +25,6 @@ fn bench_hamming(c: &mut Criterion) {
     });
     group.bench_function("hamming_32_unrolled", |b| {
         b.iter(|| dst.chunks_exact(32).map(|chunk| hamming_32(&src, chunk)).sum::<u32>());
-    });
-    group.bench_function("hamming_32_simd", |b| {
-        b.iter(|| dst.chunks_exact(32).map(|chunk| hamming_32_simd(&src, chunk)).sum::<u32>());
     });
     group.finish();
 }
