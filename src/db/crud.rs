@@ -1,5 +1,3 @@
-use std::collections::HashSet;
-
 use sqlx::{Executor, Result, Sqlite, SqlitePool};
 
 use super::VectorIdxRecord;
@@ -69,15 +67,13 @@ pub async fn update_image_path(executor: &SqlitePool, id: i64, path: &str) -> Re
 }
 
 /// 追加图片路径
-pub async fn append_image_path(executor: &SqlitePool, id: i64, path: &str) -> Result<()> {
+pub async fn append_image_path(executor: &SqlitePool, id: i64, path: &str) -> Result<bool> {
     let r = sqlx::query!(r"SELECT path FROM image WHERE id = ?", id).fetch_one(executor).await?;
-    let mut paths = r.path.split(':').collect::<HashSet<&str>>();
-    if paths.contains(path) {
-        return Ok(());
+    if r.path.split('\x1E').any(|p| p == path) {
+        return Ok(false);
     }
 
-    paths.insert(path);
-    let path = paths.into_iter().collect::<Vec<&str>>().join(":");
+    let path = format!("{}\x1E{}", r.path, path);
     sqlx::query!(
         r#"
         UPDATE image SET path = ? WHERE id = ?
@@ -88,7 +84,7 @@ pub async fn append_image_path(executor: &SqlitePool, id: i64, path: &str) -> Re
     .execute(executor)
     .await?;
 
-    Ok(())
+    Ok(true)
 }
 
 /// 批量设置图片为已索引

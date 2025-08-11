@@ -2,6 +2,10 @@
 
 ## 未发布
 
+- 增加 `train` 命令，使用 KModes 进行聚类
+- 移除 `export` 命令
+- 增加 `add` 命令对 tar 文件夹的兼容性，（需使用 `--suffix` 包含 tar 后缀）
+- 增加 `add` 命令的 `--append` 参数
 - 允许根据 phash 相似度过滤
 - 移除 show 和 match 命令
 - 允许直接使用匹配数量作为评分

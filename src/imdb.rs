@@ -11,10 +11,10 @@ use log::{debug, info, warn};
 use rayon::prelude::*;
 use tokio::sync::Mutex;
 use tokio::task::{block_in_place, spawn_blocking};
-use usearch::{Index, IndexOptions, MetricKind, ScalarKind, b1x8};
 
 use crate::config::ScoreType;
 use crate::db::*;
+use crate::hnsw::HNSW;
 use crate::ivf::{
     InvertedLists, IvfHnsw, Neighbor, OnDiskInvlists, Quantizer, VStackInvlists, save_invlists,
 };
@@ -83,30 +83,18 @@ impl IMDBBuilder {
         }
 
         let pindex = if self.hash == Some(ImageHash::Phash) {
-            let options = IndexOptions {
-                dimensions: 64,
-                metric: MetricKind::Hamming,
-                quantization: ScalarKind::B1,
-                ..Default::default()
-            };
-            let index = Index::new(&options).unwrap();
-            index.reserve(32).unwrap();
-            let path = self.conf_dir.join("index.phash");
-            if path.exists() {
-                index.load(path.to_str().unwrap()).unwrap();
-            }
-
+            let mut index = HNSW::open(&self.conf_dir)?;
             if let Ok((count, _)) = crud::get_count(&db).await {
-                if count as usize != index.size() {
+                if count != index.ntotal() as i64 {
                     warn!("phash 索引大小不一致，正在重新构建……");
-                    index.reset().unwrap();
-                    let vectors = crud::get_all_hash(&db).await?;
-                    index.reserve(vectors.len()).unwrap();
-                    vectors.into_par_iter().for_each(|(id, hash)| {
-                        let hash = b1x8::from_u8s(&hash);
-                        index.add(id as u64, hash).unwrap();
-                    });
                 }
+                index = HNSW::new(&self.conf_dir)?;
+                let hashes = crud::get_all_hash(&db).await?;
+                debug!("正在添加 {} 条向量到 phash 索引……", hashes.len());
+                hashes.into_par_iter().for_each(|(id, hash)| {
+                    index.add(&hash, id as usize);
+                });
+                debug!("phash 索引添加完成，大小：{}", index.ntotal());
             }
             Some(index)
         } else {
@@ -137,7 +125,7 @@ pub struct IMDB {
     /// 每张图片特征点 ID 的累加数量，用于加速计算
     total_vector_count: RwLock<Vec<i64>>,
     /// phash 索引
-    pindex: Option<Index>,
+    pindex: Option<HNSW>,
     /// 评分方式
     score_type: ScoreType,
 }
@@ -154,14 +142,11 @@ impl IMDB {
         let id = crud::add_image(&mut *tx, hash, filename.as_ref()).await?;
         crud::add_vector(&mut *tx, id, descriptors.as_flattened()).await?;
         crud::add_vector_stats(&mut *tx, id, descriptors.len() as i64).await?;
-        if let Some(index) = &self.pindex {
-            if index.size() >= index.capacity() {
-                index.reserve(index.capacity() * 3 / 2).unwrap();
-            }
-            let hash = b1x8::from_u8s(hash);
-            index.add(id as u64, hash)?;
-        }
         tx.commit().await?;
+        if let Some(index) = &self.pindex {
+            // TODO: 这些地方是否需要 spawn_blocking 呢？
+            index.add(hash, id as usize);
+        }
         Ok(id)
     }
 
@@ -170,10 +155,9 @@ impl IMDB {
         if distance > 0
             && let Some(index) = &self.pindex
         {
-            let hash = b1x8::from_u8s(hash);
-            let result = index.search(hash, 1).unwrap();
-            if !result.distances.is_empty() && result.distances[0] <= distance as f32 {
-                return Ok(Some(result.keys[0] as i64));
+            let result = index.search(hash, 1);
+            if !result.is_empty() && result[0].distance <= distance as f32 {
+                return Ok(Some(result[0].d_id as i64));
             }
         }
         if let Some(id) = crud::check_image_hash(&self.db, hash).await? {
@@ -188,7 +172,7 @@ impl IMDB {
     }
 
     /// 追加图片路径
-    pub async fn append_image_path(&self, id: i64, path: &str) -> Result<()> {
+    pub async fn append_image_path(&self, id: i64, path: &str) -> Result<bool> {
         Ok(crud::append_image_path(&self.db, id, path).await?)
     }
 
@@ -427,13 +411,12 @@ impl IMDB {
         }
         unreachable!()
     }
-}
 
-impl Drop for IMDB {
-    fn drop(&mut self) {
-        if let Some(index) = self.pindex.as_mut() {
-            let path = self.conf_dir.join("index.phash");
-            index.save(path.to_str().unwrap()).unwrap();
+    pub fn save_phash_index(&self) -> Result<()> {
+        if let Some(index) = &self.pindex {
+            debug!("正在保存 phash 索引，大小：{}……", index.ntotal());
+            index.write()?;
         }
+        Ok(())
     }
 }

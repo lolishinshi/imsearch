@@ -14,7 +14,7 @@ use crate::IMDBBuilder;
 use crate::cli::SubCommandExtend;
 use crate::config::{Opts, OrbOptions};
 use crate::orb::*;
-use crate::utils::{ImageHash, pb_style};
+use crate::utils::{ImageHash, pb_style_speed};
 
 #[derive(Parser, Debug, Clone)]
 pub struct AddCommand {
@@ -72,9 +72,9 @@ impl SubCommandExtend for AddCommand {
 
         let db = Arc::new(IMDBBuilder::new(opts.conf_dir.clone()).hash(self.hash).open().await?);
 
-        let pb = ProgressBar::no_length().with_style(pb_style());
+        let pb = ProgressBar::no_length().with_style(pb_style_speed());
 
-        let (t1, rx) = task_scan(self.path.clone(), pb.clone(), re_suf);
+        let (t1, rx) = task_scan(self.path.clone(), re_suf);
         let (t2, rx) = task_hash(rx, self.hash, pb.clone());
         let (t3, rx) = task_filter(
             rx,
@@ -84,19 +84,13 @@ impl SubCommandExtend for AddCommand {
             replace.clone(),
             self.phash_distance,
         );
-        let (t4, rx) = task_calc(rx, pb.clone());
-        let t5 = task_add(
-            rx,
-            pb.clone(),
-            db,
-            self.min_keypoints as i32,
-            duplicate,
-            replace,
-            self.phash_distance,
-        );
+        let (t4, rx) = task_calc(rx, self.min_keypoints, pb.clone());
+        let t5 = task_add(rx, pb.clone(), db.clone(), duplicate, replace, self.phash_distance);
 
         // 等待所有任务完成
         let _ = tokio::try_join!(t1, t2, t3, t4, t5);
+
+        db.save_phash_index()?;
 
         pb.finish_with_message("图片添加完成");
 
