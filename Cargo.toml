@@ -58,7 +58,7 @@ features = ["clang-runtime", "features2d", "flann", "imgcodecs", "imgproc"]
 version = "0.6.3-alpha.0"
 git = "https://github.com/Aloxaf/faiss-rs"
 branch = "imsearch"
-features = ["static", "avx2"]
+features = ["static"]
 
 [dev-dependencies]
 assert_cmd = "2.0.17"

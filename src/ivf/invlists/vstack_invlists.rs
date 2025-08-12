@@ -28,10 +28,12 @@ impl<const N: usize, T> InvertedLists<N> for VStackInvlists<N, T>
 where
     T: InvertedLists<N>,
 {
+    #[inline(always)]
     fn nlist(&self) -> usize {
         self.nlist
     }
 
+    #[inline(always)]
     fn list_len(&self, list_no: usize) -> usize {
         let mut len = 0;
         for invlist in &self.invlists {
@@ -40,6 +42,7 @@ where
         len
     }
 
+    #[inline(always)]
     fn get_list(&self, list_no: usize) -> Result<(Cow<'_, [u64]>, Cow<'_, [[u8; N]]>)> {
         let mut ids: Vec<u64> = vec![];
         let mut codes: Vec<[u8; N]> = vec![];

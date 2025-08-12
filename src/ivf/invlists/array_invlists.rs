@@ -18,18 +18,22 @@ impl<const N: usize> ArrayInvertedLists<N> {
 }
 
 impl<const N: usize> InvertedLists<N> for ArrayInvertedLists<N> {
+    #[inline(always)]
     fn nlist(&self) -> usize {
         self.nlist
     }
 
+    #[inline(always)]
     fn list_len(&self, list_no: usize) -> usize {
         self.ids[list_no].len()
     }
 
+    #[inline(always)]
     fn get_list(&self, list_no: usize) -> Result<(Cow<'_, [u64]>, Cow<'_, [[u8; N]]>)> {
         Ok((Cow::Borrowed(&self.ids[list_no]), Cow::Borrowed(&self.codes[list_no])))
     }
 
+    #[inline(always)]
     fn add_entry(&mut self, list_no: usize, id: u64, code: &[u8; N]) -> Result<()> {
         self.ids[list_no].push(id);
         self.codes[list_no].push(*code);

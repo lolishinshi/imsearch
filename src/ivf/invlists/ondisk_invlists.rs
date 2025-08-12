@@ -42,14 +42,17 @@ impl<const N: usize> OnDiskInvlists<N> {
 }
 
 impl<const N: usize> InvertedLists<N> for OnDiskInvlists<N> {
+    #[inline(always)]
     fn nlist(&self) -> usize {
         self.metadata.nlist as usize
     }
 
+    #[inline(always)]
     fn list_len(&self, list_no: usize) -> usize {
         self.metadata.list_len[list_no] as usize
     }
 
+    #[inline(always)]
     fn get_list(&self, list_no: usize) -> Result<(Cow<'_, [u64]>, Cow<'_, [[u8; N]]>)> {
         let (len, offset, size, split) = self.list_info(list_no);
         let (ids, codes) = self.mmap[offset..][..size].split_at(split);

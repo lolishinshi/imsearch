@@ -1,6 +1,8 @@
 use std::env;
+use std::ffi::CStr;
 
 use clap::Parser;
+use faiss_sys::faiss_get_version;
 use imsearch::cli::SubCommandExtend;
 use imsearch::config::*;
 use log::{info, warn};
@@ -31,6 +33,12 @@ fn simd_version() -> &'static str {
     }
 }
 
+fn faiss_version() -> String {
+    let version = unsafe { faiss_get_version() };
+    let version = unsafe { CStr::from_ptr(version) };
+    version.to_string_lossy().to_string()
+}
+
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
     match &*env::var("RUST_LOG").unwrap_or_default() {
@@ -48,6 +56,7 @@ async fn main() -> anyhow::Result<()> {
     env_logger::init();
 
     info!("SIMD 版本: {}", simd_version());
+    info!("Faiss 版本: {}", faiss_version());
 
     let opts = Opts::parse();
 

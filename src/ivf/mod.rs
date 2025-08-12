@@ -58,9 +58,10 @@ where
 {
     /// 往倒排列表中增加一组向量，并使用自定义 id
     pub fn add(&mut self, data: &[[u8; N]], ids: &[u64]) -> Result<()> {
-        debug!("add {} vectors", data.len());
+        debug!("quantizing {} vectors", data.len());
         let vlists = self.quantizer.search(data, 1)?;
         let centroids = self.quantizer.centroids()?;
+        debug!("adding {} vectors", data.len());
         for (list_no, id, bvec) in izip!(vlists, ids, data) {
             assert!(list_no != -1);
             // 此处将向量和中心点异或，这样可以在后续压缩过程中节省空间
