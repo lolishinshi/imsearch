@@ -25,6 +25,7 @@ impl<const N: usize> Quantizer<N> for FaissHNSWQuantizer<N> {
         let path = CString::new(path.to_str().unwrap())?;
         unsafe {
             faiss_try(faiss_read_index_binary_fname(path.as_ptr(), 0, &mut index))?;
+            faiss_try(faiss_IndexBinaryHNSW_set_efSearch(index.cast(), 16))?;
         }
         Ok(Self { index })
     }
