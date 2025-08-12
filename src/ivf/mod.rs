@@ -47,8 +47,8 @@ impl Default for Neighbor {
 
 /// 基于 HNSW 量化器的倒排索引
 pub struct IvfHnsw<const N: usize, Q: Quantizer<N>, I: InvertedLists<N>> {
-    quantizer: Q,
-    invlists: I,
+    pub quantizer: Q,
+    pub invlists: I,
 }
 
 impl<const N: usize, Q: Quantizer<N>, I: InvertedLists<N>> IvfHnsw<N, Q, I>
@@ -165,12 +165,6 @@ impl<const N: usize> IvfHnsw<N, HnswQuantizer<N>, ArrayInvertedLists<N>> {
         let nlist = quantizer.nlist();
         let invlists = ArrayInvertedLists::<N>::new(nlist);
         Ok(Self { quantizer, invlists })
-    }
-
-    pub fn save(&self, path: impl AsRef<Path>) -> Result<()> {
-        debug!("保存 {:?}", path.as_ref());
-        save_invlists(&self.invlists, path)?;
-        Ok(())
     }
 }
 

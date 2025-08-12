@@ -344,7 +344,7 @@ impl IMDB {
 
             block_in_place(|| {
                 index.add(&features, &ids)?;
-                index.save(self.next_index_path())
+                save_invlists(&index.invlists, self.next_index_path(), 1)
             })?;
 
             crud::set_indexed_batch(&self.db, &images).await?;
@@ -382,8 +382,7 @@ impl IMDB {
 
         if !ivfs.is_empty() {
             let v = VStackInvlists::new(ivfs);
-            save_invlists(&v, index_path.with_extension("tmp"))?;
-            fs::rename(index_path.with_extension("tmp"), index_path)?;
+            save_invlists(&v, &index_path, 3)?;
         }
 
         for path in paths {

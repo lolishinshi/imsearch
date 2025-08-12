@@ -38,7 +38,7 @@ impl<const N: usize> Quantizer<N> for FaissHNSWQuantizer<N> {
             faiss_try(faiss_IndexBinaryHNSW_new(&mut index, (N * 8) as i32, 32))?;
             // faiss 默认值为 40, 16
             faiss_try(faiss_IndexBinaryHNSW_set_efConstruction(index, 128))?;
-            faiss_try(faiss_IndexBinaryHNSW_set_efSearch(index, 32))?;
+            faiss_try(faiss_IndexBinaryHNSW_set_efSearch(index, 16))?;
         }
         let index = index.cast();
         let xf = x.as_flattened();

@@ -12,6 +12,7 @@ pub use array_invlists::*;
 use binrw::{BinWrite, binrw};
 use bytemuck::cast_slice;
 use itertools::izip;
+use log::debug;
 pub use ondisk_invlists::*;
 use rayon::prelude::*;
 pub use vstack_invlists::*;
@@ -51,12 +52,14 @@ pub trait InvertedLists<const N: usize> {
 }
 
 /// 保存到文件
-pub fn save_invlists<const N: usize, P, T>(invlists: &T, path: P) -> Result<()>
+pub fn save_invlists<const N: usize, P, T>(invlists: &T, path: P, level: i32) -> Result<()>
 where
     P: AsRef<Path>,
     T: InvertedLists<N> + Sync,
 {
-    let file = File::create(path)?;
+    debug!("saving invlists to {}", path.as_ref().display());
+    let path = path.as_ref();
+    let file = File::create(path.with_extension("tmp"))?;
     let mut writer = BufWriter::new(file);
 
     // 提前写入 metadata 占位，后续再来覆盖
@@ -72,9 +75,12 @@ where
         s.spawn(move |_| {
             (0..invlists.nlist()).into_par_iter().for_each(|i| {
                 let (ids, codes) = invlists.get_list(i).unwrap();
+                if ids.is_empty() {
+                    return;
+                }
                 let list_len = ids.len();
-                let ids = compress(cast_slice(&ids), 0).unwrap();
-                let codes = compress(codes.as_flattened(), 0).unwrap();
+                let ids = compress(cast_slice(&ids), level).unwrap();
+                let codes = compress(codes.as_flattened(), level).unwrap();
                 tx.send((i, list_len, ids, codes)).unwrap();
             });
         });
@@ -87,6 +93,9 @@ where
 
     writer.seek(SeekFrom::Start(0))?;
     metadata.write(&mut writer)?;
+
+    std::fs::rename(path.with_extension("tmp"), path)?;
+
     Ok(())
 }
 
