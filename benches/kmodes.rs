@@ -1,5 +1,5 @@
 use criterion::{Criterion, black_box, criterion_group, criterion_main};
-use imsearch::kmodes::{kmodes_2level, kmodes_binary};
+use imsearch::kmodes::{KModesInitMethod, kmodes_2level, kmodes_binary};
 use rand::rngs::StdRng;
 use rand::{Rng, SeedableRng};
 
@@ -40,11 +40,11 @@ fn bench_kmodes_comparison(c: &mut Criterion) {
         let data = black_box(generate_clustered_data(n, nc / 2));
 
         group.bench_function(format!("binary_kmodes_{n}_{nc}"), |b| {
-            b.iter(|| kmodes_binary::<32>(&data, nc, 50))
+            b.iter(|| kmodes_binary::<32>(&data, nc, 50, KModesInitMethod::Random))
         });
 
         group.bench_function(format!("binary_kmodes_2level_{n}_{nc}"), |b| {
-            b.iter(|| kmodes_2level::<32>(&data, nc, 50))
+            b.iter(|| kmodes_2level::<32>(&data, nc, 50, KModesInitMethod::Random))
         });
     }
 

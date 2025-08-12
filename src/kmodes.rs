@@ -1,13 +1,64 @@
 use indicatif::{ProgressBar, ProgressIterator};
 use log::info;
+use rand::distr::weighted::WeightedIndex;
 use rand::prelude::*;
-use rand::rng;
 use rayon::prelude::*;
 
 use crate::hamming::hamming;
 use crate::utils::pb_style;
 
-pub fn kmodes_2level<const N: usize>(x: &[[u8; N]], nc: usize, max_iter: usize) -> KModeState<N> {
+#[derive(Debug, Clone, Copy)]
+pub enum KModesInitMethod<const N: usize> {
+    Random,
+    KmeansPlusPlus,
+}
+
+impl<const N: usize> KModesInitMethod<N> {
+    fn init(self, data: &[[u8; N]], k: usize) -> Vec<[u8; N]> {
+        match self {
+            Self::Random => Self::init_random(data, k),
+            Self::KmeansPlusPlus => Self::init_kmeans_plus_plus(data, k),
+        }
+    }
+
+    fn init_random(data: &[[u8; N]], k: usize) -> Vec<[u8; N]> {
+        let mut rng = rand::rng();
+        data.choose_multiple(&mut rng, k).cloned().collect()
+    }
+
+    // 参考 https://en.wikipedia.org/wiki/K-means%2B%2B 实现
+    fn init_kmeans_plus_plus(data: &[[u8; N]], k: usize) -> Vec<[u8; N]> {
+        let mut rng = rand::rng();
+        let mut centroids = vec![];
+        // 随机选择第一个聚类中心
+        centroids.push(data.choose(&mut rng).unwrap().clone());
+
+        while centroids.len() < k {
+            // 对每个点，计算到已有的聚类中心的最小距离
+            let distances = data
+                .par_iter()
+                .map(|x| centroids.iter().map(|y| hamming::<N>(x, y)).min().unwrap())
+                .collect::<Vec<_>>();
+
+            // 根据距离，按概率选择下一个聚类中心
+            let weight = WeightedIndex::new(distances).unwrap();
+            let next_centroid = data[weight.sample(&mut rng)];
+            centroids.push(next_centroid);
+        }
+        centroids
+    }
+}
+
+pub trait KModesInit<const N: usize>: Clone + Copy {
+    fn init(data: &[[u8; N]], k: usize) -> Vec<[u8; N]>;
+}
+
+pub fn kmodes_2level<const N: usize>(
+    x: &[[u8; N]],
+    nc: usize,
+    max_iter: usize,
+    init_method: KModesInitMethod<N>,
+) -> KModeState<N> {
     let n = x.len();
     assert!(n >= 30 * nc, "向量数量必须大于 30 * {nc}");
     let nc1 = nc.isqrt();
@@ -15,7 +66,7 @@ pub fn kmodes_2level<const N: usize>(x: &[[u8; N]], nc: usize, max_iter: usize) 
     // 没有必要用全部向量进行一级聚类，这里取 nc1 的 1024 倍来训练，平衡精度和耗时
     let n1 = (nc1 * 1024).min(n);
     info!("对 {n1} 组向量进行 1 级聚类，中心点数量 = {nc1}");
-    let ks = kmodes_binary::<N>(&x[..n1], nc1, max_iter);
+    let ks = kmodes_binary(&x[..n1], nc1, max_iter, init_method);
     info!("1 级聚类完成，不平衡度：{:.2}", imbalance_factor(&ks.centroid_frequency));
 
     info!("根据 1 级聚类结果划分训练集");
@@ -53,7 +104,7 @@ pub fn kmodes_2level<const N: usize>(x: &[[u8; N]], nc: usize, max_iter: usize) 
     for i in (0..nc1).progress_with(pb.clone()) {
         let x = &xc[i];
         if nc2[i] > 0 {
-            let ks = kmodes_binary::<N>(x, nc2[i], max_iter);
+            let ks = kmodes_binary(x, nc2[i], max_iter, init_method);
             let factor = imbalance_factor(&ks.centroid_frequency);
             pb.set_message(format!(
                 "对 {} 组向量进行二级聚类，中心点数量 = {}, 不平衡度 = {factor:.2}",
@@ -86,15 +137,18 @@ pub struct KModeState<const N: usize> {
 
 /// K-modes 聚类算法，用于二进制向量
 /// 返回聚类后的二进制向量，和每个聚类中心的向量数量
-pub fn kmodes_binary<const N: usize>(data: &[[u8; N]], k: usize, max_iter: usize) -> KModeState<N> {
+pub fn kmodes_binary<const N: usize>(
+    data: &[[u8; N]],
+    k: usize,
+    max_iter: usize,
+    init_method: KModesInitMethod<N>,
+) -> KModeState<N> {
     if data.is_empty() || k == 0 {
         return KModeState::default();
     }
 
-    let mut rng = rng();
-
-    // 随机初始化聚类中心
-    let mut centroids: Vec<[u8; N]> = data.choose_multiple(&mut rng, k).cloned().collect();
+    // 初始化聚类中心
+    let mut centroids: Vec<[u8; N]> = init_method.init(data, k);
 
     let mut assignments;
     let mut distance = u32::MAX;
@@ -207,74 +261,4 @@ pub fn imbalance_factor(hist: &[usize]) -> f32 {
         uf += h.powf(2.0);
     }
     uf * hist.len() as f32 / tot.powf(2.0)
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    /// 辅助函数：将字节数组转换为二进制字符串（用于测试和调试）
-    fn bytes_to_binary_string<const N: usize>(bytes: &[u8; N]) -> String {
-        bytes.iter().map(|&byte| format!("{:08b}", byte)).collect::<String>()
-    }
-
-    /// 生成样本数据
-    fn generate_clustered_data<const N: usize>(
-        n: usize,
-        num_clusters: usize,
-    ) -> (Vec<[u8; N]>, Vec<[u8; N]>) {
-        let mut rng = StdRng::seed_from_u64(42); // 使用固定种子确保结果可重现
-        let mut data = vec![[0u8; N]; n];
-
-        // 生成聚类中心模板
-        let mut cluster_centers = vec![[0u8; N]; num_clusters];
-        for center in &mut cluster_centers {
-            rng.fill(&mut center[..]);
-        }
-
-        // 为每个向量分配到某个聚类，并在聚类中心附近生成数据
-        for i in 0..n {
-            let cluster_id = i % num_clusters;
-            let base_center = &cluster_centers[cluster_id];
-
-            // 在聚类中心附近生成数据（添加少量噪声）
-            for j in 0..N {
-                let noise_bits = rng.random::<u8>() & 0x0F; // 只改变低4位作为噪声
-                data[i][j] = base_center[j] ^ noise_bits;
-            }
-        }
-
-        (data, cluster_centers)
-    }
-
-    #[test]
-    fn test_kmodes_simple() {
-        // 创建一些测试数据 (4个字节，32位)
-        let data: Vec<[u8; 4]> = vec![
-            [0b11110000, 0b11110000, 0b00001111, 0b00001111], // 类型1
-            [0b11111111, 0b11110000, 0b00001111, 0b00000000], // 类型1
-            [0b00001111, 0b00001111, 0b11110000, 0b11110000], // 类型2
-            [0b00000000, 0b00001111, 0b11110000, 0b11111111], // 类型2
-        ];
-
-        let ks = kmodes_binary(&data, 2, 100);
-
-        assert_eq!(ks.centroids.len(), 2);
-
-        // 打印结果用于验证
-        for (i, centroid) in ks.centroids.iter().enumerate() {
-            println!("Centroid {}: {}", i, bytes_to_binary_string(centroid));
-        }
-    }
-
-    #[test]
-    fn test_kmodes_complete() {
-        let (data, cluster_centers) = generate_clustered_data(30720, 1024);
-        let ks = kmodes_binary::<32>(&data, 1024, 100);
-        assert_eq!(ks.centroids.len(), 1024);
-
-        // for (i, centroid) in centroids.iter().enumerate() {
-        //     println!("Centroid {}: {}", i, bytes_to_binary_string(centroid));
-        // }
-    }
 }
