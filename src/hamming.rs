@@ -35,6 +35,7 @@ pub fn hamming_32(va: &[u8], vb: &[u8]) -> u32 {
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
 pub struct KNNResult {
+    /// 注意此处 dis 排在前面，保证自动 derive 的 Ord 正确
     pub dis: u32,
     pub idx: usize,
 }

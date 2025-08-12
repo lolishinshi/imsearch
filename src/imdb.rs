@@ -15,9 +15,7 @@ use tokio::task::{block_in_place, spawn_blocking};
 use crate::config::ScoreType;
 use crate::db::*;
 use crate::hnsw::HNSW;
-use crate::ivf::{
-    InvertedLists, IvfHnsw, Neighbor, OnDiskInvlists, Quantizer, VStackInvlists, save_invlists,
-};
+use crate::ivf::{IvfHnsw, IvfHnswDisk, Neighbor, OnDiskInvlists, VStackInvlists, save_invlists};
 use crate::utils::{self, ImageHash, pb_style};
 
 #[derive(Debug, Clone)]
@@ -207,19 +205,15 @@ impl IMDB {
     }
 
     /// 在索引中搜索一组图片描述符，返回 Vec<(分数, 图片路径)>
-    pub async fn search<'a, I, Q>(
+    pub async fn search(
         &self,
-        index: Arc<IvfHnsw<32, Q, I>>,
+        index: Arc<IvfHnswDisk>,
         descriptors: Vec<[u8; 32]>,
         knn: usize,
         max_distance: u32,
         max_result: usize,
         nprobe: usize,
-    ) -> Result<Vec<(f32, String)>>
-    where
-        I: InvertedLists<32> + Sync + Send + 'static,
-        Q: Quantizer<32> + Sync + Send + 'static,
-    {
+    ) -> Result<Vec<(f32, String)>> {
         if descriptors.is_empty() {
             return Ok(vec![]);
         }

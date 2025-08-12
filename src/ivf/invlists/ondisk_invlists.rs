@@ -6,6 +6,7 @@ use std::path::Path;
 use anyhow::Result;
 use binrw::BinRead;
 use bytemuck::cast_slice_mut;
+use itertools::Itertools;
 use memmap2::{Advice, MmapMut};
 use zstd::bulk::decompress_to_buffer;
 
@@ -38,6 +39,16 @@ impl<const N: usize> OnDiskInvlists<N> {
         let size = self.metadata.list_size[list_no] as usize;
         let split = self.metadata.list_split[list_no] as usize;
         (len, offset, size, split)
+    }
+
+    /// 对 list_nos 按照偏移量排序，便于后续进行多线程读取
+    pub fn reorder_lists(&self, list_nos: &[i64]) -> Vec<(usize, usize)> {
+        list_nos
+            .iter()
+            .enumerate()
+            .filter_map(|(i, &list_no)| (list_no != -1).then_some((i, list_no as usize)))
+            .sorted_unstable_by_key(|(_, list_no)| self.metadata.list_offset[*list_no])
+            .collect_vec()
     }
 }
 

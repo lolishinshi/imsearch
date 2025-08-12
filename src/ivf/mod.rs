@@ -1,5 +1,6 @@
 pub mod invlists;
 pub mod quantizer;
+mod utils;
 
 use std::path::Path;
 use std::sync::atomic::{AtomicU64, Ordering};
@@ -12,9 +13,11 @@ pub use invlists::*;
 use itertools::izip;
 use log::debug;
 pub use quantizer::*;
+use rayon::prelude::*;
 use tokio::time::Instant;
 
 use crate::hamming::knn_hamming;
+use crate::ivf::utils::TopKNeighbors;
 
 pub type IvfHnswDisk = IvfHnsw<32, HnswQuantizer<32>, OnDiskInvlists<32>>;
 pub type IvfHnswArray = IvfHnsw<32, HnswQuantizer<32>, ArrayInvertedLists<32>>;
@@ -33,10 +36,11 @@ pub struct SearchResult {
     pub neighbors: Vec<Neighbor>,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
 pub struct Neighbor {
-    pub id: u64,
+    // 注意此处 distance 排在前面，保证自动 derive 的 Ord 正确
     pub distance: u32,
+    pub id: u64,
 }
 
 impl Default for Neighbor {
@@ -71,89 +75,6 @@ where
         }
         Ok(())
     }
-
-    /// 在索引中搜索一组向量，并返回搜索结果
-    /// 注意：搜索结果的大小并不等于 len(data) * k，也不保证顺序，因为对于 imsearch 应用场景来说来说这是可以接受的
-    pub fn search(&self, data: &[[u8; N]], k: usize, nprobe: usize) -> Result<SearchResult> {
-        let start = Instant::now();
-
-        // 量化得到每个向量对应的倒排列表序号
-        let vlists = self.quantizer.search(data, nprobe)?;
-        let quantizer_time = start.elapsed();
-
-        let io_time = AtomicU64::new(0);
-        let compute_time = AtomicU64::new(0);
-        let neighbors = Arc::new(Mutex::new(vec![]));
-        let centroids = self.quantizer.centroids()?;
-
-        std::thread::scope(|s| {
-            let (tx, rx) = bounded(32);
-
-            // 此处将数据分块，并发送到子线程进行预取
-            // 其中由于 data 中的每个向量对应 nprobe 个 list，所以 vlists 分块大小需要乘以 nprobe
-            let chunk_size = (data.len() / 32).max(4); // 避免为 0
-            for chunk in data.chunks(chunk_size).zip(vlists.chunks(chunk_size * nprobe)) {
-                let tx = tx.clone();
-                let io_time = &io_time;
-                s.spawn(move || {
-                    // 遍历每条向量和对应的 list
-                    for (xq, lists) in chunk.0.iter().zip(chunk.1.chunks_exact(nprobe)) {
-                        let t = Instant::now();
-                        // 收集对应倒排列表中的所有 id 和 code
-                        // TODO: 是否可以考虑改成 Vec<Vec<u64>> 和 Vec<Vec<[u8; N]>> 来避免拷贝？
-                        let mut all_ids = Vec::with_capacity(lists.len());
-                        let mut all_codes = Vec::with_capacity(lists.len());
-                        let mut all_centroids = Vec::with_capacity(lists.len());
-                        for &list_no in lists {
-                            if list_no == -1 {
-                                continue;
-                            }
-                            let (ids, codes) = self.invlists.get_list(list_no as usize).unwrap();
-                            all_ids.push(ids);
-                            all_codes.push(codes);
-                            all_centroids.push(centroids[list_no as usize]);
-                        }
-                        io_time.fetch_add(t.elapsed().as_nanos() as u64, Ordering::Relaxed);
-                        tx.send((xq, all_ids, all_codes, all_centroids)).unwrap();
-                    }
-                });
-            }
-
-            for _ in 0..num_cpus::get() {
-                let neighbors = neighbors.clone();
-                let calc_time = &compute_time;
-                let rx = rx.clone();
-                s.spawn(move || {
-                    while let Ok((xq, ids, codes, centroids)) = rx.recv() {
-                        let t = Instant::now();
-                        let mut v = Vec::with_capacity(k * centroids.len());
-                        for (ids, codes, centroids) in izip!(ids, codes, centroids) {
-                            let xq = xor(xq, &centroids);
-                            let r = knn_hamming::<N>(&xq, &codes, k);
-                            v.extend(r.iter().map(|&(i, d)| Neighbor { id: ids[i], distance: d }))
-                        }
-                        // 我们只需要排名前 k 的结果
-                        v.select_nth_unstable_by_key(k, |n| n.distance);
-                        v.truncate(k);
-                        neighbors.lock().unwrap().extend(v);
-                        calc_time.fetch_add(t.elapsed().as_nanos() as u64, Ordering::Relaxed);
-                    }
-                });
-            }
-        });
-
-        // NOTE: 此处没有进行任何排序，因为 imsearch 不关心顺序，只关心频率
-        let neighbors = Arc::into_inner(neighbors).unwrap().into_inner().unwrap();
-
-        let search_time = start.elapsed() - quantizer_time;
-        Ok(SearchResult {
-            quantizer_time,
-            io_time: Duration::from_nanos(io_time.load(Ordering::Relaxed)),
-            compute_time: Duration::from_nanos(compute_time.load(Ordering::Relaxed)),
-            search_time,
-            neighbors,
-        })
-    }
 }
 
 impl<const N: usize> IvfHnsw<N, HnswQuantizer<N>, ArrayInvertedLists<N>> {
@@ -178,6 +99,79 @@ impl<const N: usize> IvfHnsw<N, HnswQuantizer<N>, OnDiskInvlists<N>> {
         let invlists = OnDiskInvlists::<N>::load(path.join("invlists.bin"))?;
         assert_eq!(nlist, invlists.nlist(), "nlist mismatch");
         Ok(Self { quantizer, invlists })
+    }
+
+    /// 在索引中搜索一组向量，并返回搜索结果
+    /// 注意：搜索结果的大小并不等于 len(data) * k，也不保证顺序，因为对于 imsearch 应用场景来说来说这是可以接受的
+    pub fn search(&self, data: &[[u8; N]], k: usize, nprobe: usize) -> Result<SearchResult> {
+        let start = Instant::now();
+
+        // 量化得到每个向量对应的倒排列表序号
+        let vlists = self.quantizer.search(data, nprobe)?;
+        let quantizer_time = start.elapsed();
+
+        let io_time = AtomicU64::new(0);
+        let compute_time = AtomicU64::new(0);
+        let neighbors = Arc::new(Mutex::new(
+            (0..data.len()).map(|_| TopKNeighbors::new(k)).collect::<Vec<_>>(),
+        ));
+        let centroids = self.quantizer.centroids()?;
+
+        // 对 vlists 按 offset 排序，变成顺序读取
+        let vlists = self.invlists.reorder_lists(&vlists);
+
+        std::thread::scope(|s| {
+            // 倒排列表读取线程
+            let (tx1, rx1) = bounded(32);
+            let time = &io_time;
+            s.spawn(move || {
+                vlists.par_iter().for_each(|(i, list_no)| {
+                    let t = Instant::now();
+                    let (ids, codes) = self.invlists.get_list(*list_no).unwrap();
+                    let idx = i / nprobe;
+                    time.fetch_add(t.elapsed().as_nanos() as u64, Ordering::Relaxed);
+                    tx1.send((idx, *list_no, ids, codes)).unwrap();
+                });
+            });
+
+            // 距离计算线程
+            for _ in 0..num_cpus::get() {
+                let time = &compute_time;
+                let rx = rx1.clone();
+                let neighbors = neighbors.clone();
+                s.spawn(move || {
+                    while let Ok((idx, list_no, ids, codes)) = rx.recv() {
+                        let t = Instant::now();
+                        // codes 中的值和 centroid 异或过，这里需要给 xq 也异或一次才能确保汉明距离正确
+                        let xq = xor(&data[idx], &centroids[list_no]);
+                        // 查询最近的 k 个邻居
+                        let n = knn_hamming::<N>(&xq, &codes, k);
+                        let n = n.iter().map(|&(i, d)| Neighbor { id: ids[i], distance: d });
+                        neighbors.lock().unwrap()[idx].extend(n);
+                        time.fetch_add(t.elapsed().as_nanos() as u64, Ordering::Relaxed);
+                    }
+                });
+            }
+        });
+
+        // NOTE: 此处没有进行任何排序，因为 imsearch 不关心顺序，只关心频率
+        let neighbors = Arc::into_inner(neighbors)
+            .unwrap()
+            .into_inner()
+            .unwrap()
+            .into_par_iter()
+            .map(|l| l.into_vec())
+            .flatten()
+            .collect::<Vec<_>>();
+
+        let search_time = start.elapsed() - quantizer_time;
+        Ok(SearchResult {
+            quantizer_time,
+            io_time: Duration::from_nanos(io_time.load(Ordering::Relaxed)),
+            compute_time: Duration::from_nanos(compute_time.load(Ordering::Relaxed)),
+            search_time,
+            neighbors,
+        })
     }
 }
 
