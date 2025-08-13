@@ -6,10 +6,9 @@ use faiss_sys::faiss_get_version;
 use imsearch::cli::SubCommandExtend;
 use imsearch::config::*;
 use log::{info, warn};
-use tikv_jemallocator::Jemalloc;
 
 #[global_allocator]
-static GLOBAL: Jemalloc = Jemalloc;
+static ALLOC: snmalloc_rs::SnMalloc = snmalloc_rs::SnMalloc;
 
 fn simd_version() -> &'static str {
     if cfg!(target_feature = "avx512vpopcntdq") {

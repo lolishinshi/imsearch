@@ -36,8 +36,8 @@ rayon = "1.10.0"
 regex = "1.11.1"
 serde = { version = "1.0.219", features = ["derive"] }
 serde_json = "1.0.142"
+snmalloc-rs = "0.3.8"
 sqlx = { version = "0.8.6", features = ["sqlite", "runtime-tokio"] }
-tikv-jemallocator = "0.6.0"
 tokio = { version = "1.47.1", features = ["macros", "rt-multi-thread", "rt"] }
 tower-http = { version = "0.5.2", features = ["limit"] }
 utoipa = { version = "5.4.0", features = ["axum_extras"] }

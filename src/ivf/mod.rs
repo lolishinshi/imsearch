@@ -124,6 +124,9 @@ impl<const N: usize> IvfHnsw<N, HnswQuantizer<N>, OnDiskInvlists<N>> {
             s.spawn(move || {
                 // 此处如果按照 nprobe 分组，并批量读取组内的每个列表，反而会导致性能下降
                 vlists.par_iter().enumerate().for_each(|(i, &list_no)| {
+                    if list_no == -1 {
+                        return;
+                    }
                     let t = Instant::now();
                     let list_no = list_no as usize;
                     let (ids, codes) = self.invlists.get_list(list_no).unwrap();
