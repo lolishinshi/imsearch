@@ -117,20 +117,19 @@ impl<const N: usize> IvfHnsw<N, HnswQuantizer<N>, OnDiskInvlists<N>> {
         ));
         let centroids = self.quantizer.centroids()?;
 
-        // 对 vlists 按 offset 排序，变成顺序读取
-        let vlists = self.invlists.reorder_lists(&vlists);
-
         std::thread::scope(|s| {
             // 倒排列表读取线程
             let (tx1, rx1) = bounded(32);
             let time = &io_time;
             s.spawn(move || {
-                vlists.par_iter().for_each(|(i, list_no)| {
+                // 此处如果按照 nprobe 分组，并批量读取组内的每个列表，反而会导致性能下降
+                vlists.par_iter().enumerate().for_each(|(i, &list_no)| {
                     let t = Instant::now();
-                    let (ids, codes) = self.invlists.get_list(*list_no).unwrap();
+                    let list_no = list_no as usize;
+                    let (ids, codes) = self.invlists.get_list(list_no).unwrap();
                     let idx = i / nprobe;
                     time.fetch_add(t.elapsed().as_nanos() as u64, Ordering::Relaxed);
-                    tx1.send((idx, *list_no, ids, codes)).unwrap();
+                    tx1.send((idx, list_no, ids, codes)).unwrap();
                 });
             });
 
