@@ -117,43 +117,37 @@ impl<const N: usize> IvfHnsw<N, HnswQuantizer<N>, OnDiskInvlists<N>> {
         ));
         let centroids = self.quantizer.centroids()?;
 
-        std::thread::scope(|s| {
+        rayon::scope(|s| {
             // 倒排列表读取线程
             let (tx1, rx1) = bounded(32);
             let time = &io_time;
-            s.spawn(move || {
+            s.spawn(move |_| {
+                let pool =
+                    rayon::ThreadPoolBuilder::new().num_threads(num_cpus::get()).build().unwrap();
                 // 此处如果按照 nprobe 分组，并批量读取组内的每个列表，反而会导致性能下降
-                vlists.par_iter().enumerate().for_each(|(i, &list_no)| {
-                    if list_no == -1 {
-                        return;
-                    }
-                    let t = Instant::now();
-                    let list_no = list_no as usize;
-                    let (ids, codes) = self.invlists.get_list(list_no).unwrap();
-                    let idx = i / nprobe;
-                    time.fetch_add(t.elapsed().as_nanos() as u64, Ordering::Relaxed);
-                    tx1.send((idx, list_no, ids, codes)).unwrap();
+                pool.install(move || {
+                    vlists.par_iter().enumerate().for_each(|(i, &list_no)| {
+                        if list_no == -1 {
+                            return;
+                        }
+                        let t = Instant::now();
+                        let list_no = list_no as usize;
+                        let (ids, codes) = self.invlists.get_list(list_no).unwrap();
+                        let idx = i / nprobe;
+                        time.fetch_add(t.elapsed().as_nanos() as u64, Ordering::Relaxed);
+                        tx1.send((idx, list_no, ids, codes)).unwrap();
+                    });
                 });
             });
 
-            // 距离计算线程
-            for _ in 0..num_cpus::get() {
-                let time = &compute_time;
-                let rx = rx1.clone();
-                let neighbors = neighbors.clone();
-                s.spawn(move || {
-                    while let Ok((idx, list_no, ids, codes)) = rx.recv() {
-                        let t = Instant::now();
-                        // codes 中的值和 centroid 异或过，这里需要给 xq 也异或一次才能确保汉明距离正确
-                        let xq = xor(&data[idx], &centroids[list_no]);
-                        // 查询最近的 k 个邻居
-                        let n = knn_hamming::<N>(&xq, &codes, k);
-                        let n = n.iter().map(|&(i, d)| Neighbor { id: ids[i], distance: d });
-                        neighbors.lock().unwrap()[idx].extend(n);
-                        time.fetch_add(t.elapsed().as_nanos() as u64, Ordering::Relaxed);
-                    }
-                });
-            }
+            rx1.iter().par_bridge().for_each(|(idx, list_no, ids, codes)| {
+                let t = Instant::now();
+                let xq = xor(&data[idx], &centroids[list_no]);
+                let n = knn_hamming::<N>(&xq, &codes, k);
+                let n = n.iter().map(|&(i, d)| Neighbor { id: ids[i], distance: d });
+                neighbors.lock().unwrap()[idx].extend(n);
+                compute_time.fetch_add(t.elapsed().as_nanos() as u64, Ordering::Relaxed);
+            });
         });
 
         // NOTE: 此处没有进行任何排序，因为 imsearch 不关心顺序，只关心频率
