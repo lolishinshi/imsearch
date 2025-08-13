@@ -48,7 +48,7 @@ impl<const N: usize> OnDiskInvlists<N> {
             .enumerate()
             .filter_map(|(i, &list_no)| (list_no != -1).then_some((i, list_no as usize)))
             .sorted_unstable_by_key(|(_, list_no)| self.metadata.list_offset[*list_no])
-            .collect_vec()
+            .collect::<Vec<_>>()
     }
 }
 

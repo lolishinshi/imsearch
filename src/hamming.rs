@@ -50,7 +50,7 @@ pub fn knn_hamming_heap<const N: usize>(
     vb: &[[u8; N]],
     k: usize,
 ) -> Vec<(usize, u32)> {
-    let mut heap = BinaryHeap::new();
+    let mut heap = BinaryHeap::with_capacity(k);
     for (i, chunk) in vb.iter().enumerate() {
         let d = hamming::<N>(va, chunk);
         if heap.len() < k {
