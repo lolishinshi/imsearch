@@ -359,7 +359,7 @@ impl IMDB {
         let paths = self.sub_index_paths();
         let index_path = self.conf_dir.join("invlists.bin");
 
-        if paths.len() == 1 {
+        if paths.len() == 1 && !index_path.exists() {
             fs::rename(&paths[0], &index_path)?;
             return Ok(());
         }

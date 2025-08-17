@@ -6,4 +6,4 @@ CMakeLists.txt
 cmake-build-debug
 
 /tests/dataset
-/tests/index.template
+/tests/quantizer.bin
