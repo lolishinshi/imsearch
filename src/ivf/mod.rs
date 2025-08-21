@@ -13,6 +13,7 @@ pub use invlists::*;
 use itertools::izip;
 use log::debug;
 pub use quantizer::*;
+use rayon::ThreadPool;
 use rayon::prelude::*;
 use tokio::time::Instant;
 
@@ -53,6 +54,9 @@ impl Default for Neighbor {
 pub struct IvfHnsw<const N: usize, Q: Quantizer<N>, I: InvertedLists<N>> {
     pub quantizer: Q,
     pub invlists: I,
+    // 倒排列表读取线程池
+    pub pool: ThreadPool,
+    // 倒排列表读取线程数
     pub threads: usize,
 }
 
@@ -86,7 +90,10 @@ impl<const N: usize> IvfHnsw<N, HnswQuantizer<N>, ArrayInvertedLists<N>> {
 
         let nlist = quantizer.nlist();
         let invlists = ArrayInvertedLists::<N>::new(nlist);
-        Ok(Self { quantizer, invlists, threads: num_cpus::get() })
+
+        let pool = rayon::ThreadPoolBuilder::new().num_threads(num_cpus::get()).build()?;
+
+        Ok(Self { quantizer, invlists, pool, threads: num_cpus::get() })
     }
 }
 
@@ -99,7 +106,10 @@ impl<const N: usize> IvfHnsw<N, HnswQuantizer<N>, OnDiskInvlists<N>> {
         let nlist = quantizer.nlist();
         let invlists = OnDiskInvlists::<N>::load(path.join("invlists.bin"))?;
         assert_eq!(nlist, invlists.nlist(), "nlist mismatch");
-        Ok(Self { quantizer, invlists, threads })
+
+        let pool = rayon::ThreadPoolBuilder::new().num_threads(threads).build()?;
+
+        Ok(Self { quantizer, invlists, pool, threads })
     }
 
     /// 在索引中搜索一组向量，并返回搜索结果
@@ -123,10 +133,8 @@ impl<const N: usize> IvfHnsw<N, HnswQuantizer<N>, OnDiskInvlists<N>> {
             let (tx1, rx1) = bounded(self.threads * 2);
             let time = &io_time;
             s.spawn(move |_| {
-                let pool =
-                    rayon::ThreadPoolBuilder::new().num_threads(self.threads).build().unwrap();
                 // 此处如果按照 nprobe 分组，并批量读取组内的每个列表，反而会导致性能下降
-                pool.install(move || {
+                self.pool.install(move || {
                     vlists.par_iter().enumerate().for_each(|(i, &list_no)| {
                         if list_no == -1 {
                             return;
