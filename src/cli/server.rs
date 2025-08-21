@@ -42,7 +42,7 @@ impl SubCommandExtend for ServerCommand {
             .open()
             .await?;
 
-        let index = IvfHnsw::open_disk(&opts.conf_dir)?;
+        let index = IvfHnsw::open_disk(&opts.conf_dir, self.search.threads)?;
 
         let mut self_clone = self.clone();
         if self_clone.token.is_empty() {

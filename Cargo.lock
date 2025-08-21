@@ -1722,7 +1722,7 @@ dependencies = [
 
 [[package]]
 name = "imsearch"
-version = "3.0.0-alpha.1"
+version = "3.0.0-alpha.2"
 dependencies = [
  "anyhow",
  "assert_cmd",

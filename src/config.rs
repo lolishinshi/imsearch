@@ -67,6 +67,9 @@ pub struct SearchOptions {
     /// 评分方式
     #[arg(long, value_enum, default_value_t = ScoreType::Wilson)]
     pub score_type: ScoreType,
+    /// 倒排列表读取线程（默认为 CPU 核心数）
+    #[arg(short, long, default_value_t = num_cpus::get())]
+    pub threads: usize,
 }
 
 #[derive(Parser, Debug, Clone)]
