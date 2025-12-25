@@ -72,8 +72,19 @@ pub struct SearchOptions {
     pub threads: usize,
 }
 
+fn long_version() -> &'static str {
+    concat!(
+        env!("CARGO_PKG_VERSION"),
+        " (",
+        env!("VERGEN_GIT_SHA"),
+        " ",
+        env!("VERGEN_BUILD_DATE"),
+        ")"
+    )
+}
+
 #[derive(Parser, Debug, Clone)]
-#[command(name = "imsearch", version)]
+#[command(name = "imsearch", version, long_version = long_version())]
 pub struct Opts {
     #[command(subcommand)]
     pub subcmd: SubCommand,
