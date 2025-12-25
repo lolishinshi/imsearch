@@ -1,12 +1,13 @@
 use std::borrow::Cow;
 use std::fs::File;
 use std::io::Cursor;
+use std::os::unix::fs::FileExt;
 use std::path::Path;
 
 use anyhow::Result;
 use binrw::BinRead;
 use bytemuck::cast_slice_mut;
-use memmap2::{Advice, MmapMut};
+use memmap2::Mmap;
 use zstd::bulk::decompress_to_buffer;
 
 use crate::ivf::{InvertedLists, OnDiskIvfMetadata};
@@ -15,20 +16,21 @@ use crate::ivf::{InvertedLists, OnDiskIvfMetadata};
 pub struct OnDiskInvlists<const N: usize> {
     /// 元数据
     metadata: OnDiskIvfMetadata,
-    /// 内存映射文件
-    mmap: MmapMut,
+    /// 文件句柄
+    file: File,
 }
 
 impl<const N: usize> OnDiskInvlists<N> {
     /// 加载磁盘倒排列表
     pub fn load(path: impl AsRef<Path>) -> Result<Self> {
         let file = File::options().read(true).write(true).open(path)?;
-        let mmap = unsafe { MmapMut::map_mut(&file)? };
-        // TODO: 是否有必要使用 MAP_POPULATE ？
-        mmap.advise(Advice::Random)?;
+
+        // 临时使用 mmap 读取元数据
+        let mmap = unsafe { Mmap::map(&file)? };
         let metadata = OnDiskIvfMetadata::read(&mut Cursor::new(&mmap))?;
+
         assert_eq!(metadata.code_size, N as u64, "code_size mismatch");
-        Ok(Self { metadata, mmap })
+        Ok(Self { metadata, file })
     }
 
     // 加载一个倒排列表的长度，偏移量、大小和分割点
@@ -55,7 +57,13 @@ impl<const N: usize> InvertedLists<N> for OnDiskInvlists<N> {
     #[inline(always)]
     fn get_list(&self, list_no: usize) -> Result<(Cow<'_, [u64]>, Cow<'_, [[u8; N]]>)> {
         let (len, offset, size, split) = self.list_info(list_no);
-        let (ids, codes) = self.mmap[offset..][..size].split_at(split);
+
+        // 考虑到大部分读取为一次性的随机读取，此处使用 pread 而不是 mmap，来避免大量缺页中断
+        let mut compressed_buf = vec![0u8; size];
+        self.file.read_exact_at(&mut compressed_buf, offset as u64)?;
+
+        let (ids, codes) = compressed_buf.split_at(split);
+
         // 为了避免复杂的类型转换，这里先建立目标类型的缓冲区，然后作为 &mut [u8] 传入
         // TODO: 需要使用 MaybeUninit 来避免初始化开销吗？
         let mut ids_buf = vec![0u64; len];
