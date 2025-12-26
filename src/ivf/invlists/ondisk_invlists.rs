@@ -1,4 +1,5 @@
 use std::borrow::Cow;
+use std::cell::RefCell;
 use std::fs::File;
 use std::io::Cursor;
 use std::os::unix::fs::FileExt;
@@ -11,6 +12,10 @@ use memmap2::Mmap;
 use zstd::bulk::decompress_to_buffer;
 
 use crate::ivf::{InvertedLists, OnDiskIvfMetadata};
+
+thread_local! {
+    static READ_BUFFER: RefCell<Vec<u8>> = RefCell::new(vec![0u8; 1024]);
+}
 
 /// 磁盘倒排列表
 pub struct OnDiskInvlists<const N: usize> {
@@ -58,20 +63,25 @@ impl<const N: usize> InvertedLists<N> for OnDiskInvlists<N> {
     fn get_list(&self, list_no: usize) -> Result<(Cow<'_, [u64]>, Cow<'_, [[u8; N]]>)> {
         let (len, offset, size, split) = self.list_info(list_no);
 
-        // 考虑到大部分读取为一次性的随机读取，此处使用 pread 而不是 mmap，来避免大量缺页中断
-        let mut compressed_buf = vec![0u8; size];
-        self.file.read_exact_at(&mut compressed_buf, offset as u64)?;
+        // 使用线程局部缓冲区来避免频繁的内存分配
+        READ_BUFFER.with(|buf| {
+            let mut buf = buf.borrow_mut();
+            buf.resize(size, 0);
 
-        let (ids, codes) = compressed_buf.split_at(split);
+            // 考虑到大部分读取为一次性的随机读取，此处使用 pread 而不是 mmap，来避免大量缺页中断
+            self.file.read_exact_at(&mut buf, offset as u64)?;
 
-        // 为了避免复杂的类型转换，这里先建立目标类型的缓冲区，然后作为 &mut [u8] 传入
-        // TODO: 需要使用 MaybeUninit 来避免初始化开销吗？
-        let mut ids_buf = vec![0u64; len];
-        let mut codes_buf = vec![[0u8; N]; len];
-        // TODO: 是否需要延迟解压？
-        decompress_to_buffer(ids, cast_slice_mut(&mut ids_buf))?;
-        decompress_to_buffer(codes, codes_buf.as_flattened_mut())?;
-        Ok((Cow::Owned(ids_buf), Cow::Owned(codes_buf)))
+            let (ids, codes) = buf.split_at(split);
+
+            // 为了避免复杂的类型转换，这里先建立目标类型的缓冲区，然后作为 &mut [u8] 传入
+            // TODO: 需要使用 MaybeUninit 来避免初始化开销吗？
+            let mut ids_buf = vec![0u64; len];
+            let mut codes_buf = vec![[0u8; N]; len];
+            // TODO: 是否需要延迟解压？
+            decompress_to_buffer(ids, cast_slice_mut(&mut ids_buf))?;
+            decompress_to_buffer(codes, codes_buf.as_flattened_mut())?;
+            Ok((Cow::Owned(ids_buf), Cow::Owned(codes_buf)))
+        })
     }
 
     fn add_entry(&mut self, _list_no: usize, _id: u64, _code: &[u8; N]) -> Result<()> {
