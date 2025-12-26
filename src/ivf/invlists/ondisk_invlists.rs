@@ -66,7 +66,7 @@ impl<const N: usize> InvertedLists<N> for OnDiskInvlists<N> {
         // 使用线程局部缓冲区来避免频繁的内存分配
         READ_BUFFER.with(|buf| {
             let mut buf = buf.borrow_mut();
-            buf.resize(size, 0);
+            unsafe { reserve_and_set_len(&mut buf, size) };
 
             // 考虑到大部分读取为一次性的随机读取，此处使用 pread 而不是 mmap，来避免大量缺页中断
             self.file.read_exact_at(&mut buf, offset as u64)?;
@@ -74,9 +74,11 @@ impl<const N: usize> InvertedLists<N> for OnDiskInvlists<N> {
             let (ids, codes) = buf.split_at(split);
 
             // 为了避免复杂的类型转换，这里先建立目标类型的缓冲区，然后作为 &mut [u8] 传入
-            // TODO: 需要使用 MaybeUninit 来避免初始化开销吗？
-            let mut ids_buf = vec![0u64; len];
-            let mut codes_buf = vec![[0u8; N]; len];
+            let mut ids_buf: Vec<u64> = Vec::with_capacity(len);
+            let mut codes_buf: Vec<[u8; N]> = Vec::with_capacity(len);
+            unsafe { ids_buf.set_len(len) };
+            unsafe { codes_buf.set_len(len) };
+
             // TODO: 是否需要延迟解压？
             decompress_to_buffer(ids, cast_slice_mut(&mut ids_buf))?;
             decompress_to_buffer(codes, codes_buf.as_flattened_mut())?;
@@ -87,4 +89,10 @@ impl<const N: usize> InvertedLists<N> for OnDiskInvlists<N> {
     fn add_entry(&mut self, _list_no: usize, _id: u64, _code: &[u8; N]) -> Result<()> {
         unimplemented!("OnDiskInvlists 不支持更新操作")
     }
+}
+
+unsafe fn reserve_and_set_len<T>(vec: &mut Vec<T>, size: usize) {
+    vec.clear();
+    vec.reserve(size);
+    unsafe { vec.set_len(size) };
 }

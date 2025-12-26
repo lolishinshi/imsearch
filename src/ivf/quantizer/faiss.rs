@@ -51,8 +51,8 @@ impl<const N: usize> Quantizer<N> for FaissHNSWQuantizer<N> {
 
     fn search(&self, x: &[[u8; N]], k: usize) -> Result<Vec<i64>> {
         let xf = x.as_flattened();
-        let mut distances = vec![0; x.len() * k];
-        let mut labels = vec![0; x.len() * k];
+        let mut distances: Vec<i32> = Vec::with_capacity(x.len() * k);
+        let mut labels: Vec<i64> = Vec::with_capacity(x.len() * k);
         unsafe {
             faiss_try(faiss_IndexBinary_search(
                 self.index,
@@ -62,6 +62,7 @@ impl<const N: usize> Quantizer<N> for FaissHNSWQuantizer<N> {
                 distances.as_mut_ptr(),
                 labels.as_mut_ptr(),
             ))?;
+            labels.set_len(x.len() * k);
         }
         Ok(labels)
     }
