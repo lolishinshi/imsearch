@@ -23,7 +23,7 @@ impl<const N: usize> KModesInitMethod<N> {
 
     fn init_random(data: &[[u8; N]], k: usize) -> Vec<[u8; N]> {
         let mut rng = rand::rng();
-        data.choose_multiple(&mut rng, k).cloned().collect()
+        data.sample(&mut rng, k).cloned().collect()
     }
 
     // 参考 https://en.wikipedia.org/wiki/K-means%2B%2B 实现
