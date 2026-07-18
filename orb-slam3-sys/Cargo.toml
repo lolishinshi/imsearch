@@ -7,9 +7,9 @@ edition = "2024"
 
 [dependencies.opencv]
 # 更新时记得修改 build.rs 里的版本号
-version = "=0.94.4"
+version = "=0.99.0"
 default-features = false
-features = ["features2d", "imgproc"]
+features = ["features", "features2d", "imgproc"]
 
 [build-dependencies]
 cc = "1.2.19"

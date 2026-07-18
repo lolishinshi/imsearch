@@ -117,8 +117,8 @@ fn main() {
         .flag("-Wno-unused")
         .define(
             "OCVRS_FFI_EXPORT_SUFFIX",
-            // NOTE: 0.94.4 is the version of OpenCV
-            &*format!("_{}", "0.94.4".replace(".", "_")),
+            // NOTE: 0.99.0 is the version of OpenCV
+            &*format!("_{}", "0.99.0".replace(".", "_")),
         )
         .compile("ORBextractor3");
 }
