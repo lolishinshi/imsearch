@@ -1,4 +1,3 @@
-use std::cmp::Reverse;
 use std::collections::BinaryHeap;
 
 use bytemuck::cast_slice;
@@ -54,16 +53,17 @@ pub fn knn_hamming_heap<const N: usize>(
     for (i, chunk) in vb.iter().enumerate() {
         let d = hamming::<N>(va, chunk);
         if heap.len() < k {
-            heap.push(Reverse(KNNResult { idx: i, dis: d }));
+            heap.push(KNNResult { idx: i, dis: d });
         } else {
-            let Reverse(peek) = heap.peek().unwrap();
+            let peek = heap.peek().unwrap();
             if d < peek.dis {
                 heap.pop();
-                heap.push(Reverse(KNNResult { idx: i, dis: d }));
+                heap.push(KNNResult { idx: i, dis: d });
             }
         }
     }
-    heap.into_iter().map(|Reverse(a)| (a.idx, a.dis)).collect()
+    // 当前项目不在乎顺序，直接返回即可
+    heap.into_iter().map(|a| (a.idx, a.dis)).collect()
 }
 
 pub fn knn_hamming_array<const N: usize>(
@@ -156,27 +156,42 @@ mod tests {
         vb[1][0] = 3;
         vb[2][0] = 1;
 
-        let r = knn_hamming::<32>(&va, &vb, 3);
+        let mut r = knn_hamming::<32>(&va, &vb, 3);
         assert_eq!(r.len(), 3);
 
-        // 结果应该按距离排序
+        r.sort_unstable_by_key(|&(idx, distance)| (distance, idx));
         assert_eq!(r, &[(0, 0), (2, 1), (1, 2)]);
+    }
+
+    #[test]
+    fn test_knn_hamming_keeps_k_nearest_after_replacement() {
+        let va = [0u8; 32];
+        let mut vb = [[0u8; 32]; 4];
+        vb[0][0] = 1;
+        vb[1][0] = 3;
+        vb[2][0] = 5;
+
+        let mut result = knn_hamming::<32>(&va, &vb, 3);
+        result.sort_unstable_by_key(|&(_, distance)| distance);
+
+        assert_eq!(result, vec![(3, 0), (0, 1), (1, 2)]);
     }
 
     #[test]
     fn test_knn_hamming_k_limit() {
         let va = [0u8; 32];
         let vb = [[255u8; 32]; 2]; // 2个向量
-        let r = knn_hamming::<32>(&va, &vb, 5); // 请求5个，但只有2个向量
+        let mut r = knn_hamming::<32>(&va, &vb, 5); // 请求5个，但只有2个向量
+        r.sort_unstable_by_key(|&(idx, distance)| (distance, idx));
         assert_eq!(r.len(), 2);
         assert_eq!(r, &[(0, 256), (1, 256)]);
     }
 
     #[test]
     #[should_panic(expected = "k must be less than 8")]
-    fn test_knn_hamming_k_too_large() {
+    fn test_knn_hamming_array_k_too_large() {
         let va = [0u8; 32];
         let vb = [0u8; 32];
-        knn_hamming::<32>(&va, &[vb], 11); // 应该panic
+        knn_hamming_array::<32>(&va, &[vb], 11);
     }
 }
