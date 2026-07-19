@@ -52,7 +52,12 @@
 
 
 #include <opencv2/core/core.hpp>
+#include <opencv2/core/version.hpp>
+#if CV_VERSION_MAJOR >= 5
 #include <opencv2/features.hpp>
+#else
+#include <opencv2/features2d.hpp>
+#endif
 #include <opencv2/imgproc/imgproc.hpp>
 #include <vector>
 //#include <iostream>
