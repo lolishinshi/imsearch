@@ -18,9 +18,15 @@ use crate::hnsw::HNSW;
 use crate::ivf::{IvfHnsw, IvfHnswDisk, Neighbor, OnDiskInvlists, VStackInvlists, save_invlists};
 use crate::utils::{self, ImageHash, pb_style};
 
+/// 索引构建选项
 #[derive(Debug, Clone)]
 pub struct BuildOptions {
+    /// 每批处理的图片数量。
     pub batch_size: usize,
+    /// 生成临时索引后退出，跳过清理和合并。
+    pub stop_before_merge: bool,
+    /// 合并前清理特征缓存并 VACUUM，需要关闭数据库 WAL。
+    pub clean_before_merge: bool,
 }
 
 #[derive(Debug, Clone)]
@@ -306,7 +312,7 @@ impl IMDB {
 }
 
 impl IMDB {
-    /// 构建索引
+    /// 构建索引，复用已有的临时索引。
     pub async fn build_index(&self, options: BuildOptions) -> Result<()> {
         info!("正在计算未索引的图片数量……");
         let image_unindexed = crud::count_image_unindexed(&self.db).await?;
@@ -315,7 +321,9 @@ impl IMDB {
         pb.set_message("正在构建索引...");
 
         let mut processed = 0;
-        while let Ok(chunk) = crud::get_vectors_unindexed(&self.db, options.batch_size, 0).await {
+        loop {
+            // 读取出错时不能继续清理或合并。
+            let chunk = crud::get_vectors_unindexed(&self.db, options.batch_size, 0).await?;
             if chunk.is_empty() {
                 break;
             }
@@ -348,6 +356,17 @@ impl IMDB {
         }
 
         pb.finish_with_message("索引构建完成");
+
+        if options.stop_before_merge {
+            info!("临时索引已生成");
+            return Ok(());
+        }
+
+        if options.clean_before_merge {
+            info!("正在清理特征缓存（VACUUM 需要额外临时空间）……");
+            // 临时索引落盘后才标记 indexed，清理只删这些特征。
+            self.clear_cache(false).await?;
+        }
 
         info!("正在合并索引……");
         self.merge_index()?;
