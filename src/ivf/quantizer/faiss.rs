@@ -7,6 +7,7 @@ use faiss_sys::*;
 
 use crate::ivf::Quantizer;
 
+/// 持有并自动释放 Faiss 二进制 HNSW 索引的量化器。
 #[derive(Debug)]
 pub struct FaissHNSWQuantizer<const N: usize> {
     index: *mut FaissIndexBinary,
@@ -14,6 +15,13 @@ pub struct FaissHNSWQuantizer<const N: usize> {
 
 unsafe impl<const N: usize> Send for FaissHNSWQuantizer<N> {}
 unsafe impl<const N: usize> Sync for FaissHNSWQuantizer<N> {}
+
+impl<const N: usize> Drop for FaissHNSWQuantizer<N> {
+    fn drop(&mut self) {
+        // Faiss 的虚析构同时释放 HNSW 图及其拥有的向量存储。
+        unsafe { faiss_IndexBinary_free(self.index) }
+    }
+}
 
 impl<const N: usize> Quantizer<N> for FaissHNSWQuantizer<N> {
     fn open<P: AsRef<Path>>(path: P) -> Result<Self>
@@ -25,9 +33,12 @@ impl<const N: usize> Quantizer<N> for FaissHNSWQuantizer<N> {
         let path = CString::new(path.to_str().unwrap())?;
         unsafe {
             faiss_try(faiss_read_index_binary_fname(path.as_ptr(), 0, &mut index))?;
-            faiss_try(faiss_IndexBinaryHNSW_set_efSearch(index.cast(), 16))?;
         }
-        Ok(Self { index })
+        let quantizer = Self { index };
+        unsafe {
+            faiss_try(faiss_IndexBinaryHNSW_set_efSearch(quantizer.index.cast(), 16))?;
+        }
+        Ok(quantizer)
     }
 
     fn init(x: &[[u8; N]]) -> Result<Self>
@@ -37,16 +48,17 @@ impl<const N: usize> Quantizer<N> for FaissHNSWQuantizer<N> {
         let mut index = ptr::null_mut();
         unsafe {
             faiss_try(faiss_IndexBinaryHNSW_new(&mut index, (N * 8) as i32, 32))?;
-            // faiss 默认值为 40, 16
-            faiss_try(faiss_IndexBinaryHNSW_set_efConstruction(index, 128))?;
-            faiss_try(faiss_IndexBinaryHNSW_set_efSearch(index, 16))?;
         }
-        let index = index.cast();
+        // 先接管所有权，后续初始化失败时也会释放索引。
+        let quantizer = Self { index: index.cast() };
         let xf = x.as_flattened();
         unsafe {
-            faiss_try(faiss_IndexBinary_add(index, x.len() as i64, xf.as_ptr()))?;
+            // faiss 默认值为 40, 16
+            faiss_try(faiss_IndexBinaryHNSW_set_efConstruction(quantizer.index.cast(), 128))?;
+            faiss_try(faiss_IndexBinaryHNSW_set_efSearch(quantizer.index.cast(), 16))?;
+            faiss_try(faiss_IndexBinary_add(quantizer.index, x.len() as i64, xf.as_ptr()))?;
         }
-        Ok(Self { index })
+        Ok(quantizer)
     }
 
     fn search(&self, x: &[[u8; N]], k: usize) -> Result<Vec<i64>> {
