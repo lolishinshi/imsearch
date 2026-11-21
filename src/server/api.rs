@@ -23,7 +23,7 @@ use crate::orb::ORBDetector;
     path = "/search",
     request_body(content = SearchForm, content_type = "multipart/form-data"),
     responses(
-        (status = 200, body = SearchResponse),
+        (status = 200, description = "搜索成功", body = SearchResponse),
     )
 )]
 pub async fn search_handler(
