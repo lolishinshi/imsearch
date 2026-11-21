@@ -40,8 +40,8 @@ snmalloc-rs = "0.7.4"
 sqlx = { version = "0.9.0", features = ["sqlite", "runtime-tokio"] }
 tokio = { version = "1.53.0", features = ["macros", "rt-multi-thread", "rt"] }
 tower-http = { version = "0.7.0", features = ["limit"] }
-utoipa = { version = "5.5.0", features = ["axum_extras"] }
-utoipa-swagger-ui = { version = "9.0.2", features = ["axum"] }
+utoipa = { version = "6.0.0", features = ["axum_extras"] }
+utoipa-swagger-ui = { version = "10.0.2", features = ["axum"] }
 walkdir = "2.5.0"
 zstd = "0.13.3"
 
